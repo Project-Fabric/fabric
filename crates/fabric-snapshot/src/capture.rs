@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{self, File, Metadata};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -184,6 +185,9 @@ fn capture_inner(
     }
 
     let outcomes = capture_files(store, &files, cache.as_deref())?;
+    // Two threads storing identical files at once can both report `Stored` (on Unix the
+    // second rename harmlessly replaces the first), so count distinct new content.
+    let mut stored = HashSet::new();
     for ((rel, path), outcome) in files.into_iter().zip(outcomes) {
         match outcome {
             Ok(captured) => {
@@ -191,8 +195,8 @@ fn capture_inner(
                 stats.bytes += captured.put.size;
                 stats.cache_hits += u64::from(captured.from_cache);
                 match captured.put.outcome {
-                    PutOutcome::Stored => stats.new_objects += 1,
-                    PutOutcome::AlreadyPresent => stats.reused_objects += 1,
+                    PutOutcome::Stored if stored.insert(captured.put.id) => stats.new_objects += 1,
+                    _ => stats.reused_objects += 1,
                 }
                 if cache.is_some() {
                     next_cache.remember(rel.clone(), &captured.meta, captured.put.id, started);

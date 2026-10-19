@@ -20,7 +20,7 @@ directly.
 | Crate | Status | Responsibility |
 |-------|--------|----------------|
 | `fabric-store` | implemented | Immutable, content-addressed, verified object storage |
-| `fabric-snapshot` | next | Walk a project, apply exclusion and symlink policy, write manifests |
+| `fabric-snapshot` | implemented | Walk a project, apply exclusion and symlink policy, write and validate manifests, diff |
 | `fabric-recovery` | planned | Diff, recovery plans, conflict detection, journaled restore |
 | `fabric-cli` | planned | `fabric` command with versioned JSON output and exit codes |
 

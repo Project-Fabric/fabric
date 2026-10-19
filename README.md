@@ -4,8 +4,8 @@
 did to your project — step by step, across Claude Code, Codex, Cursor and others — lets any
 agent query that history, and lets you undo any single step with a verified result.
 
-> Status: early development. Only the content-addressed object store exists so far.
-> Nothing here is ready for real projects yet.
+> Status: early development. The object store and snapshot/diff engine exist; restore, the
+> CLI and agent integrations do not yet. Nothing here is ready for real projects.
 
 ## Why
 
@@ -24,7 +24,8 @@ See [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) for the full direction and road
 ## Repository layout
 
 ```
-crates/fabric-store   Content-addressed object store (BLAKE3 + zstd, verified reads)
+crates/fabric-store     Content-addressed object store (BLAKE3 + zstd, verified reads)
+crates/fabric-snapshot  Project capture, versioned manifests, diffs
 docs/                 Product spec, architecture, storage format, threat model
 ```
 

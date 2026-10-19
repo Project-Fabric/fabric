@@ -81,6 +81,47 @@ directories, id parsing.
 Not yet tested: killing a real process mid-write (planned in `tests/crash-recovery`), power
 loss, full disks.
 
+## Manifest (format `fabric-manifest`, version 1)
+
+A manifest is the complete captured tree of a project, stored as an ordinary object: compact
+JSON, so **a snapshot id is the object id of its manifest**. It contains no timestamps or
+capture metadata, so capturing an identical tree twice yields the same id. Metadata about a
+capture (when, which agent, why) belongs in a separate checkpoint record (not yet defined).
+
+```json
+{"format":"fabric-manifest","version":1,"entries":[
+  {"kind":"dir","path":"src"},
+  {"kind":"file","path":"src/main.rs","id":"blake3:…","size":12,"executable":false},
+  {"kind":"symlink","path":"link","target":"../elsewhere"}
+]}
+```
+
+Rules, all enforced when a manifest is loaded; a violation is an error, never a partial result:
+
+- `format` and `version` must match exactly. Unknown fields and unknown entry kinds are errors.
+- Entries are sorted by `path` (byte order) with no duplicates.
+- Every entry's parent directory has its own `dir` entry. All directories are recorded,
+  including empty ones.
+- Paths use `/`, are relative, and have no empty, `.` or `..` components. `\`, `:` and control
+  characters are rejected so a manifest is safe to interpret on any OS.
+- `executable` is the Unix owner/group/other execute bit; always `false` when captured on
+  Windows.
+- Symlinks are recorded with their target exactly as stored, and never followed. Windows
+  junctions are treated as symlinks.
+
+### What a capture includes
+
+- Respected: `.gitignore` files (at any depth, with or without a Git repo),
+  `.git/info/exclude`, and `.fabricignore` files (same syntax).
+- Not respected: the user's global Git excludes, so results don't vary between machines.
+- Always excluded: `.git/`, `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`.
+- Files are read without being modified. A file whose size or modification time changes while
+  it is read is retried, then skipped. Skipped paths (unreadable, non-UTF-8 or non-portable
+  names, special files) are reported with a reason and are not part of the snapshot.
+- Objects referenced by a new manifest are known to exist; ones reused from earlier snapshots
+  are not re-verified at capture time (that would mean re-reading every file). Restores verify
+  every object they use.
+
 ## Not yet defined
 
-Manifest format (next task), garbage collection, store format migrations.
+Checkpoint records, garbage collection, store format migrations.

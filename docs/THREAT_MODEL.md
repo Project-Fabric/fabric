@@ -22,9 +22,11 @@ malicious agent running with the user's privileges.
 | Agent or tool overwrites stored objects | objects read-only; store outside project root | partial — read-only implemented; deliberate deletion is out of scope |
 | Restore overwrites user work | snapshot-before-restore, conflict detection, plan/apply with change re-check | planned |
 | Interrupted restore leaves a half-restored project | journal, staging, resume or roll back | planned |
-| Malicious paths (`..`, absolute, reserved Windows names, case collisions) | path normalization and validation in manifests | planned |
-| Symlinks escaping the project | never follow symlinks; record them as symlinks | planned |
-| Secrets captured in snapshots or logs | default exclusions (`.env`, keys); no environment dumps | planned |
+| Malicious paths in a manifest (`..`, absolute, `\`, `:`) | validated on construction and on every load | implemented, tested |
+| Reserved Windows names (`CON`, `NUL`), case collisions on restore | checked when planning a restore | planned |
+| Symlinks escaping the project during capture | symlinks recorded, never followed | implemented, tested |
+| Symlinks escaping the project during restore | validate targets; never write through a symlink | planned |
+| Secrets captured in snapshots or logs | default exclusions (`.env*`, `*.pem`, `*.key`, SSH keys); no environment dumps | implemented for snapshots, tested |
 | Verification runs untrusted project scripts | only explicitly configured commands; never during restore | planned |
 | Agent runs destructive Fabric commands (`restore apply`, `gc`) | human-issued authorization for destructive operations in agent mode | planned |
 

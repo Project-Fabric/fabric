@@ -6,7 +6,7 @@ use fabric_recovery::{
     Operation, RestorePlan, RevertConflictReason, apply_restore, plan_restore, resume_restore,
     revert_step,
 };
-use fabric_snapshot::{Diff, Manifest, SkipReason, Snapshot, capture, diff};
+use fabric_snapshot::{Diff, Manifest, SkipReason, Snapshot, diff};
 use fabric_store::{ObjectId, Store};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -68,7 +68,12 @@ pub fn init(ctx: &Ctx, path: Option<PathBuf>) -> Result<u8, CliError> {
     let (project, newly_registered) = ctx.home.register(&root)?;
     let mut snapshot = None;
     let checkpoint = if read_log(&project)?.is_empty() {
-        let snap = capture(&store, &project.root)?;
+        if !ctx.json {
+            // Every file is read and stored durably once; later checkpoints skip unchanged
+            // files. On large projects this first one takes noticeably longer.
+            eprintln!("Taking the first checkpoint (later ones only read what changed)...");
+        }
+        let snap = project.capture(&store)?;
         ctx.warn_skipped(&snap);
         let checkpoint = record(
             &store,
@@ -145,7 +150,7 @@ pub fn checkpoint(
 ) -> Result<u8, CliError> {
     let project = ctx.project()?;
     let store = ctx.home.open_store()?;
-    let snapshot = capture(&store, &project.root)?;
+    let snapshot = project.capture(&store)?;
     ctx.warn_skipped(&snapshot);
     let mut meta = Meta::new(
         CheckpointKind::Manual,
@@ -221,7 +226,7 @@ pub fn diff_cmd(ctx: &Ctx, from: Option<String>, to: Option<String>) -> Result<u
     let from_manifest = Manifest::load(&store, &from_id)?;
     let (to_manifest, to_label) = match to.as_deref() {
         None | Some("current") => {
-            let snapshot = capture(&store, &project.root)?;
+            let snapshot = project.capture(&store)?;
             ctx.warn_skipped(&snapshot);
             (snapshot.manifest, "current".to_owned())
         }
@@ -318,7 +323,7 @@ pub fn revert(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
     let step = &log[index];
     let before = Manifest::load(&store, &log[index - 1].snapshot)?;
     let after = Manifest::load(&store, &step.snapshot)?;
-    let current = capture(&store, &project.root)?;
+    let current = project.capture(&store)?;
     ctx.warn_skipped(&current);
     let outcome = revert_step(&before, &after, &current.manifest)?;
     let label = format!("#{} ({})", step.seq, step.label);

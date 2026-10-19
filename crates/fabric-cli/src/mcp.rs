@@ -12,7 +12,6 @@ use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
-use fabric_snapshot::capture;
 use serde_json::{Value, json};
 
 use crate::checkpoint::{CheckpointKind, Meta, record};
@@ -154,7 +153,7 @@ impl Server<'_> {
             .ok_or_else(|| invalid("`message` is required"))?;
         let project = self.project(args)?;
         let store = self.home.open_store()?;
-        let snapshot = capture(&store, &project.root)?;
+        let snapshot = project.capture(&store)?;
         let mut meta = Meta::new(CheckpointKind::AgentStep, message);
         meta.agent = args["agent"]
             .as_str()

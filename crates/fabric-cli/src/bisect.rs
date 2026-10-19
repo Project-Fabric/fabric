@@ -12,7 +12,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use fabric_recovery::{RecoveryError, apply_restore, plan_restore};
-use fabric_snapshot::{Manifest, capture, diff};
+use fabric_snapshot::{Manifest, diff};
 use fabric_store::{ObjectId, Store};
 use serde_json::json;
 
@@ -82,7 +82,7 @@ pub fn bisect(
     let store = ctx.home.open_store()?;
 
     // Record where we are, so the project can always be put back exactly.
-    let start = capture(&store, &project.root)?;
+    let start = project.capture(&store)?;
     record_manifest(
         &store,
         &project,

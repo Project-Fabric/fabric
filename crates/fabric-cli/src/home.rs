@@ -16,6 +16,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use fabric_snapshot::{Snapshot, StatCache, capture_cached};
 use fabric_store::{ObjectId, Store};
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +36,22 @@ pub struct Project {
     pub id: String,
     pub root: PathBuf,
     pub dir: PathBuf,
+}
+
+const STAT_CACHE_FILE: &str = "stat-cache.json";
+
+impl Project {
+    /// Captures the project, skipping files the stat cache shows are unchanged, and saves
+    /// the updated cache. Callers hold the store open, which serializes concurrent captures
+    /// (and therefore cache updates) through the store lock.
+    pub fn capture(&self, store: &Store) -> Result<Snapshot, CliError> {
+        let path = self.dir.join(STAT_CACHE_FILE);
+        let mut cache = StatCache::load(&path);
+        let snapshot = capture_cached(store, &self.root, &mut cache)?;
+        // A cache that fails to save only costs speed next time.
+        let _ = cache.save(&path);
+        Ok(snapshot)
+    }
 }
 
 #[derive(Serialize, Deserialize)]

@@ -21,7 +21,6 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use fabric_snapshot::capture;
 use serde_json::{Value, json};
 
 use crate::checkpoint::{CheckpointKind, Meta, record};
@@ -110,7 +109,7 @@ fn handle_event(home: &Home, input: &str) -> Result<Option<Value>, CliError> {
     meta.tool = tool;
 
     let store = home.open_store()?;
-    let snapshot = capture(&store, &project.root)?;
+    let snapshot = project.capture(&store)?;
     record(&store, &project, &snapshot, meta, if_changed)?;
     Ok(None)
 }

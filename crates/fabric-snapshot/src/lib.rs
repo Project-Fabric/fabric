@@ -9,12 +9,14 @@ mod diff;
 mod error;
 mod manifest;
 mod path;
+mod stat_cache;
 
 pub use capture::{
     CaptureStats, DEFAULT_EXCLUDES, IGNORE_FILE, RESTORE_DIR, SkipReason, Skipped, Snapshot,
-    capture,
+    capture, capture_cached,
 };
 pub use diff::{Diff, Rename, diff};
 pub use error::SnapshotError;
 pub use manifest::{Entry, MANIFEST_FORMAT, MANIFEST_VERSION, Manifest};
 pub use path::{PathError, RelPath};
+pub use stat_cache::{RACY_WINDOW, StatCache};

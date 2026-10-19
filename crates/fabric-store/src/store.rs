@@ -28,7 +28,9 @@ const RENAME_ATTEMPTS: u32 = 6;
 ///
 /// An open `Store` holds an exclusive lock on the store directory for its lifetime, so at
 /// most one process writes to a store at a time. Any temp file present when the lock is
-/// acquired therefore belongs to a writer that died, and is removed on open.
+/// acquired therefore belongs to a writer that died, and is removed on open. Within the
+/// process, a `Store` may be shared between threads; concurrent puts of the same content are
+/// safe.
 #[derive(Debug)]
 pub struct Store {
     root: PathBuf,
@@ -357,7 +359,18 @@ impl Store {
         perms.set_readonly(true);
         fs::set_permissions(&temp.path, perms).map_err(io_at(&temp.path))?;
 
-        rename_with_retry(&temp.path, &dest).map_err(io_at(&dest))?;
+        if let Err(e) = rename_with_retry(&temp.path, &dest) {
+            // Another thread stored the same content first (Windows refuses to replace the
+            // read-only file). Same id means same content, so there is nothing left to do.
+            if dest.is_file() {
+                return Ok(PutResult {
+                    id,
+                    size,
+                    outcome: PutOutcome::AlreadyPresent,
+                });
+            }
+            return Err(io_at(&dest)(e));
+        }
         temp.disarm();
         sync_dir(dir)?;
         Ok(PutResult {

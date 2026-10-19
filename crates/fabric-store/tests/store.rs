@@ -112,6 +112,24 @@ fn duplicate_content_is_stored_once_and_left_untouched() {
 }
 
 #[test]
+fn threads_storing_the_same_content_at_once_all_succeed() {
+    let (_dir, store) = new_store();
+    let content = pseudo_random(64 * 1024, 9);
+    let results: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| scope.spawn(|| store.put_reader(Cursor::new(&content))))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for result in &results {
+        assert_eq!(result.as_ref().unwrap().id, ObjectId::of(&content));
+    }
+    assert_eq!(store.list().unwrap().len(), 1);
+    assert_eq!(store.read(&ObjectId::of(&content)).unwrap(), content);
+    assert_eq!(tmp_dir_entries(&store), 0);
+}
+
+#[test]
 fn distinct_content_gets_distinct_objects() {
     let (_dir, store) = new_store();
     let a = store.put_bytes(b"a").unwrap();

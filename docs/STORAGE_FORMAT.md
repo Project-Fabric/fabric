@@ -122,6 +122,15 @@ Rules, all enforced when a manifest is loaded; a violation is an error, never a 
 - Objects referenced by a new manifest are known to exist; ones reused from earlier snapshots
   are not re-verified at capture time (that would mean re-reading every file). Restores verify
   every object they use.
+- The CLI keeps a **stat cache** per project (`stat-cache.json` in the project's Fabric data
+  directory, format `fabric-stat-cache` v1). A file whose size, modification time and, on
+  Unix, inode and change time match the cache is not read; its cached content id is used if
+  that object still exists. Files modified less than 3 seconds before a capture are never
+  cached, so a rewrite within one timestamp tick is always noticed. A file changed while
+  keeping exactly the same size and modification time (possible only by deliberately
+  resetting the timestamp) is not noticed until it changes again; this is the same trade-off
+  Git's index makes. The cache is disposable: deleting it only makes the next capture read
+  every file.
 
 ## Restore journal (format `fabric-restore-journal`, version 1)
 

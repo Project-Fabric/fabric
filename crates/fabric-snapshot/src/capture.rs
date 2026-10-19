@@ -12,10 +12,14 @@ use crate::{Entry, Manifest, PathError, RelPath, SnapshotError};
 /// Project-specific exclusions, in `.gitignore` syntax, read in addition to `.gitignore`.
 pub const IGNORE_FILE: &str = ".fabricignore";
 
-/// Always excluded: Git's own database (Git is its own recovery system) and common secret
-/// files, which must never be copied into the store.
+/// Where an in-progress restore keeps its journal and staged files, at the project root.
+pub const RESTORE_DIR: &str = ".fabric-restore";
+
+/// Always excluded: Git's own database (Git is its own recovery system), Fabric's restore
+/// staging area, and common secret files, which must never be copied into the store.
 pub const DEFAULT_EXCLUDES: &[&str] = &[
     ".git/",
+    "/.fabric-restore/",
     ".env",
     ".env.*",
     "*.pem",
@@ -99,9 +103,15 @@ pub fn capture(store: &Store, root: &Path) -> Result<Snapshot, SnapshotError> {
         }
         let path = walk_entry.path();
         let mut skip = |reason| {
+            // Join components rather than replacing separators: on Unix, `\` is a legal
+            // character inside a name, not a separator.
             let shown = path.strip_prefix(&root).unwrap_or(path);
+            let shown: Vec<_> = shown
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect();
             skipped.push(Skipped {
-                path: shown.to_string_lossy().replace('\\', "/"),
+                path: shown.join("/"),
                 reason,
             });
         };

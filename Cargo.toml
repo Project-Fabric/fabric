@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/fabric-snapshot", "crates/fabric-store"]
+members = ["crates/fabric-recovery", "crates/fabric-snapshot", "crates/fabric-store"]
 
 [workspace.package]
 version = "0.1.0"

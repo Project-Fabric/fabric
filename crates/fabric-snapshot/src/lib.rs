@@ -11,7 +11,8 @@ mod manifest;
 mod path;
 
 pub use capture::{
-    CaptureStats, DEFAULT_EXCLUDES, IGNORE_FILE, SkipReason, Skipped, Snapshot, capture,
+    CaptureStats, DEFAULT_EXCLUDES, IGNORE_FILE, RESTORE_DIR, SkipReason, Skipped, Snapshot,
+    capture,
 };
 pub use diff::{Diff, Rename, diff};
 pub use error::SnapshotError;

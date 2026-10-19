@@ -114,13 +114,32 @@ Rules, all enforced when a manifest is loaded; a violation is an error, never a 
 - Respected: `.gitignore` files (at any depth, with or without a Git repo),
   `.git/info/exclude`, and `.fabricignore` files (same syntax).
 - Not respected: the user's global Git excludes, so results don't vary between machines.
-- Always excluded: `.git/`, `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`.
+- Always excluded: `.git/`, the restore staging area `/.fabric-restore/`, `.env`, `.env.*`,
+  `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`.
 - Files are read without being modified. A file whose size or modification time changes while
   it is read is retried, then skipped. Skipped paths (unreadable, non-UTF-8 or non-portable
   names, special files) are reported with a reason and are not part of the snapshot.
 - Objects referenced by a new manifest are known to exist; ones reused from earlier snapshots
   are not re-verified at capture time (that would mean re-reading every file). Restores verify
   every object they use.
+
+## Restore journal (format `fabric-restore-journal`, version 1)
+
+While a restore is in progress the project root contains:
+
+```
+.fabric-restore/
+├── journal.json     {"format","version","target","base","operations":[…]}, written durably
+│                    before any staging or project change
+├── progress         one line per completed operation index, appended and fsynced in order
+└── staged/<index>   verified content for each write_file operation (<index>.partial while
+                     being written)
+```
+
+Operations are `remove`, `create_dir`, `write_file` (`id`, `size`, `executable`) and
+`create_symlink` (`target`), each with a `path`. Each is idempotent so the operation in flight
+during a crash can be repeated. The directory is deleted once all operations are applied, and
+excluded from captures.
 
 ## Not yet defined
 

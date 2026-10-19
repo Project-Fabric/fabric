@@ -20,12 +20,14 @@ malicious agent running with the user's privileges.
 | Two processes write the same store | exclusive OS file lock | implemented, tested |
 | Store created inside / over a user directory | `init` refuses non-empty foreign directories | implemented, tested |
 | Agent or tool overwrites stored objects | objects read-only; store outside project root | partial — read-only implemented; deliberate deletion is out of scope |
-| Restore overwrites user work | snapshot-before-restore, conflict detection, plan/apply with change re-check | planned |
-| Interrupted restore leaves a half-restored project | journal, staging, resume or roll back | planned |
+| Restore overwrites user work | snapshot-before-restore (undo point), conflicts for any uncaptured file it would touch, re-check that nothing changed since planning | implemented, tested |
+| Restore with corrupt or missing stored content | missing refused at planning; every file staged and verified before the project is touched | implemented, tested |
+| Interrupted restore leaves a half-restored project | journal + idempotent operations + resume; tested with a simulated crash before every operation | implemented; real-kill test pending |
+| Restore reported as successful but wrong | post-restore snapshot compared entry by entry with the target | implemented, tested |
 | Malicious paths in a manifest (`..`, absolute, `\`, `:`) | validated on construction and on every load | implemented, tested |
-| Reserved Windows names (`CON`, `NUL`), case collisions on restore | checked when planning a restore | planned |
+| Reserved Windows names (`CON`, `NUL`), case collisions on restore | reported as conflicts when planning | implemented, tested |
 | Symlinks escaping the project during capture | symlinks recorded, never followed | implemented, tested |
-| Symlinks escaping the project during restore | validate targets; never write through a symlink | planned |
+| Symlinks escaping the project during restore | every parent is checked to be a real directory before each operation | implemented; no dedicated race test yet |
 | Secrets captured in snapshots or logs | default exclusions (`.env*`, `*.pem`, `*.key`, SSH keys); no environment dumps | implemented for snapshots, tested |
 | Verification runs untrusted project scripts | only explicitly configured commands; never during restore | planned |
 | Agent runs destructive Fabric commands (`restore apply`, `gc`) | human-issued authorization for destructive operations in agent mode | planned |

@@ -115,6 +115,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fabric-recovery"
+version = "0.1.0"
+dependencies = [
+ "fabric-snapshot",
+ "fabric-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "fabric-snapshot"
 version = "0.1.0"
 dependencies = [

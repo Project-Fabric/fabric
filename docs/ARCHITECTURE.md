@@ -21,7 +21,7 @@ directly.
 |-------|--------|----------------|
 | `fabric-store` | implemented | Immutable, content-addressed, verified object storage |
 | `fabric-snapshot` | implemented | Walk a project, apply exclusion and symlink policy, write and validate manifests, diff |
-| `fabric-recovery` | planned | Diff, recovery plans, conflict detection, journaled restore |
+| `fabric-recovery` | implemented | Restore plans, conflict detection, journaled apply, resume, verification |
 | `fabric-cli` | planned | `fabric` command with versioned JSON output and exit codes |
 
 Crates are split only when a boundary is real and tested; speculative crates are not created
@@ -42,6 +42,31 @@ ahead of time.
 - **Manifests are authoritative; any database is an index** that can be rebuilt from them.
 - **Every restore snapshots the current state first**, making restore reversible instead of
   relying on conflict detection alone.
+
+## Restore
+
+1. **Plan** (`plan_restore`). Checks the target's objects exist, snapshots the current
+   project (the *base*, which is also the undo point), and computes operations: removals
+   deepest-first, then creations shallowest-first. Lists conflicts — anything the base
+   snapshot did not capture that the restore would overwrite or delete (ignored or unreadable
+   files), names Windows cannot hold, and case-only collisions on Windows and macOS. Does not
+   modify the project.
+2. **Apply** (`apply_restore`). Refuses if the plan has conflicts, a restore is pending, or a
+   fresh snapshot differs from the base. Writes a journal, then stages every file outside the
+   live tree (in `.fabric-restore/`, on the same volume so renames are atomic) and verifies it
+   against its object id. Only then touches the project, one idempotent operation at a time,
+   recording each in an append-only progress log. Files are replaced by rename; directories
+   are only removed when empty, never recursively; nothing is written through a symlink.
+3. **Verify.** Snapshots the result. Every target entry must match exactly and nothing from
+   the base that the target lacks may remain. Files that were never captured (ignored) are
+   left alone and reported as `untracked_kept`.
+4. **Resume** (`resume_restore`). After a crash, finishes the journaled operations and
+   verifies. If the crash came before the journal was committed, the project was untouched
+   and the staging area is simply removed.
+
+What this does **not** guarantee: whole-project atomicity. A crash mid-apply leaves a mix of
+old and new files until `resume_restore` runs. Every restore can be undone by restoring the
+reported `undo_snapshot`.
 
 ## Store location
 

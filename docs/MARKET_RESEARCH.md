@@ -167,7 +167,57 @@ Undo is the free wedge; **record + control across agents and teams** is the busi
 
 ---
 
-## 6. Gaps in this research — next steps
+## 6. Pivot check: agents that learn from verified outcomes (20 October 2026)
+
+Proposed direction: use what Fabric records (every step, test outcomes, reverts, bisect) to
+learn repository-specific lessons and give them to every agent, across vendors.
+
+### The space is active and funded — not empty
+
+| Who | What | Relevance |
+|---|---|---|
+| **Claude Code auto memory** | Claude writes notes from your *corrections and preferences* into `MEMORY.md`; skips "debugging fixes" ([docs](https://code.claude.com/docs/en/memory), [guide](https://claudefa.st/blog/guide/mechanics/auto-memory)) | Single vendor; learns from conversation, not outcomes |
+| **Windsurf memories**, Cursor memories (status unclear; reportedly removed in 2.1) | Learned from conversations ([Real Python](https://realpython.com/cursor-vs-windsurf-python/), [past.dev](https://www.past.dev/blog/cursor-memory)) | Single vendor, conversation-based |
+| **Memory layers:** Mem0, Supermemory, PLUR, memoryrouter | Cross-tool memory for coding agents ([Mem0](https://mem0.ai/library/coding-agents/ai-coding-agents-that-actually-remember-your-codebase), [Supermemory](https://blog.supermemory.ai/memory-bottleneck-large-repo-coding-agents/), [PLUR](https://plur.ai/blog/cursor-codex-memory-layer/)) | Cross-vendor, but stores what was *said* |
+| **Community tools:** pi-self-learning, "Your coding agent keeps making the same mistakes. I built a fix" | Extract what went wrong after each task ([nodeland](https://adventures.nodeland.dev/archive/your-coding-agent-keeps-making-the-same-mistakes/), [Eric Ma](https://ericmjl.github.io/blog/2026/1/17/how-to-build-self-improving-coding-agents-part-1/)) | Proves the pain; no product |
+| **Modiqo** — $3M pre-seed | Records agent runs; turns what succeeded into deterministic workflows ([SiliconANGLE](https://siliconangle.com/2026/05/28/modiqo-raises-3m-pre-seed-funding-help-ai-agents-learn-rote/)) | Close: learning from recorded runs |
+| **Autoheal AI** — $7.9M seed | Evaluate and continuously improve agents across the software lifecycle ([SiliconANGLE](https://siliconangle.com/2026/09/28/autoheal-raises-7-9m-to-evaluate-and-fix-ai-agents-with-ai-agents/)) | Close: self-improving software agents |
+| **NeoCognition** — $40M seed | Agents that improve through real work (general) ([TechCrunch](https://techcrunch.com/2026/04/21/ai-research-lab-neocognition-lands-40m-seed-to-build-agents-that-learn-like-humans/)) | Same thesis, broad |
+| **Grep AI** (YC 2026) | "Agents learn from every run" ([YC](https://www.ycombinator.com/companies/industry/ai)) | Same thesis |
+
+**Research** is moving fast and shows both the gain and the trap:
+- Gains: STAIR turns past repair trajectories into reusable plans and raises another agent's
+  Pass@1 from 75.8% to 81.0% ([arXiv:2607.29658](https://arxiv.org/abs/2607.29658)); SWE-Exp,
+  CODESKILL and EvoCoder learn from failed attempts
+  ([survey](https://arxiv.org/html/2608.03392v2), [CODESKILL](https://arxiv.org/html/2605.25430v1)).
+- Trap: memory can **hurt** — distracting memories erased gains in one study, and a practitioner
+  saw agents confidently apply stored "fixes" to errors that only looked similar
+  ([survey](https://arxiv.org/pdf/2606.30306), [CODESKILL](https://arxiv.org/pdf/2605.25430)).
+
+**Data demand:** six of ten frontier labs show demand for agent trajectories or RL environments;
+vendors include Turing, Chakra Labs and Mechanize
+([Glasp](https://read.glasp.co/p/the-human-data-market-in-2026-who-buys-it-who-makes-it-and-what-it-pays),
+[rl-list](https://www.rl-list.com/)). Prices are not publicly verified.
+
+### What is still distinctive about Fabric
+
+Most memory systems learn from **what was said** (corrections, chats) and cannot tell **which
+action caused a failure**. Fabric already has what they lack:
+
+1. **Causal attribution.** `bisect` and the step log identify *which* step broke *which* test —
+   clean credit assignment, the exact thing that separates useful lessons from the "distracting
+   memories" research warns about.
+2. **Ground-truth labels.** Tests passing or failing, steps kept or reverted, actions blocked by
+   the guard — outcomes, not opinions.
+3. **Verification of lessons.** Because every step is recorded and undoable, Fabric can measure
+   whether a lesson actually reduces repeat failures, and retire lessons that hurt.
+4. **Vendor-neutral.** One record across Claude Code, Codex and others.
+
+**Verdict:** not a novel *category* (it is funded and crowded with well-capitalized players), but
+a novel *mechanism*: **outcome-verified, causally attributed lessons, across agents, with proof
+they help.** Fundable only with a measured result.
+
+## 7. Gaps in this research — next steps
 
 - **Reddit and X were not searched directly** (blocked for our tools). The co-founder should
   search r/ClaudeAI, r/ClaudeCode, r/cursor, r/ChatGPTCoding and X for "deleted my", "rewind",

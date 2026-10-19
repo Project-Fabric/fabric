@@ -281,6 +281,20 @@ fn claude_code_hooks_record_prompts_and_changing_steps() {
 }
 
 #[test]
+fn hook_accepts_input_with_a_byte_order_mark() {
+    let fx = Fixture::new();
+    fx.ok_json(&["init", "--json"]);
+    let event = json!({
+        "hook_event_name": "UserPromptSubmit",
+        "cwd": fx.project.to_string_lossy(),
+        "prompt": "piped from PowerShell",
+    });
+    let run = fx.run_with_stdin(&["hook", "claude-code"], &format!("\u{feff}{event}"));
+    assert_eq!(run.code, 0);
+    assert_eq!(fx.log()[0]["label"], "prompt: piped from PowerShell");
+}
+
+#[test]
 fn hook_failures_are_logged_never_surfaced() {
     let fx = Fixture::new();
     fx.ok_json(&["init", "--json"]);

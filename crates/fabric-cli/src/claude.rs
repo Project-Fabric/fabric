@@ -52,7 +52,8 @@ pub fn hook(home: &Home) {
 }
 
 fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
-    let event: Value = serde_json::from_str(input)
+    // Windows tools (PowerShell among them) often prefix piped text with a byte-order mark.
+    let event: Value = serde_json::from_str(input.trim_start_matches('\u{feff}'))
         .map_err(|e| CliError::new(exit::ERROR, "bad_hook_input", e.to_string()))?;
     let cwd = match event["cwd"].as_str() {
         Some(cwd) => PathBuf::from(cwd),

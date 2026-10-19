@@ -58,7 +58,8 @@ pub fn serve(home: &Home) -> Result<(), CliError> {
 impl Server<'_> {
     /// Handles one message; returns the response, or `None` for notifications.
     fn handle(&mut self, line: &str) -> Option<Value> {
-        let message: Value = match serde_json::from_str(line) {
+        // Windows tools (PowerShell among them) often prefix piped text with a byte-order mark.
+        let message: Value = match serde_json::from_str(line.trim_start_matches('\u{feff}')) {
             Ok(message) => message,
             Err(e) => return Some(error(Value::Null, -32700, &format!("parse error: {e}"))),
         };

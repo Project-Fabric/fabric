@@ -185,14 +185,10 @@ fn canonical_dir(path: &Path) -> Result<PathBuf, CliError> {
 ///
 /// Agents report paths as they see them, which can differ from the project's canonical root
 /// (macOS `/var` vs `/private/var`, Windows 8.3 short names), so the path is resolved first.
-/// A deleted file cannot be resolved, so its parent directory is.
+/// Paths that do not exist yet (a new file in a new directory) are resolved through their
+/// nearest existing ancestor.
 pub fn project_relative(target: &str, root: &Path) -> String {
-    let path = Path::new(target);
-    let resolved = fs::canonicalize(path).ok().or_else(|| {
-        let parent = fs::canonicalize(path.parent()?).ok()?;
-        Some(parent.join(path.file_name()?))
-    });
-    resolved
+    resolve_lenient(Path::new(target))
         .as_deref()
         .and_then(|resolved| resolved.strip_prefix(root).ok())
         .map(|relative| {
@@ -209,6 +205,26 @@ pub fn project_relative(target: &str, root: &Path) -> String {
                 target.to_owned()
             }
         })
+}
+
+/// Canonicalizes a path that may not exist yet: its nearest existing ancestor is resolved
+/// and the remaining components appended. Returns `None` if no ancestor can be resolved or a
+/// missing component is `..`, which cannot be resolved without the directory existing.
+pub fn resolve_lenient(path: &Path) -> Option<PathBuf> {
+    let mut existing = path;
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(resolved) = fs::canonicalize(existing) {
+            let mut out = resolved;
+            out.extend(missing.iter().rev());
+            return Some(out);
+        }
+        missing.push(existing.file_name()?);
+        existing = existing.parent()?;
+        if existing.as_os_str().is_empty() {
+            existing = Path::new(".");
+        }
+    }
 }
 
 /// Paths as people expect to read them: without Windows' `\\?\` verbatim prefix.
@@ -251,6 +267,16 @@ mod tests {
         assert_eq!(
             project_relative(&deleted.to_string_lossy(), &root),
             "src/gone.rs"
+        );
+        let in_new_dirs = dir
+            .path()
+            .join("src")
+            .join("new")
+            .join("deeper")
+            .join("mod.rs");
+        assert_eq!(
+            project_relative(&in_new_dirs.to_string_lossy(), &root),
+            "src/new/deeper/mod.rs"
         );
         assert_eq!(project_relative("src/lib.rs", &root), "src/lib.rs");
         assert_eq!(

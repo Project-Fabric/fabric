@@ -16,6 +16,7 @@ dirs.workspace = true
 fabric-recovery = { path = "../fabric-recovery" }
 fabric-snapshot = { path = "../fabric-snapshot" }
 fabric-store = { path = "../fabric-store" }
+regex.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 similar.workspace = true

@@ -30,7 +30,9 @@ malicious agent running with the user's privileges.
 | Symlinks escaping the project during restore | every parent is checked to be a real directory before each operation | implemented; no dedicated race test yet |
 | Secrets captured in snapshots or logs | default exclusions (`.env*`, `*.pem`, `*.key`, SSH keys); no environment dumps | implemented for snapshots, tested |
 | Verification runs untrusted project scripts | only explicitly configured commands; never during restore | planned |
-| Agent runs destructive Fabric commands (`restore apply`, `gc`) | human-issued authorization for destructive operations in agent mode | planned |
+| Agent runs destructive Fabric commands (`restore`, `revert`, `guard set`) | guard denies them for hooked agents; MCP exposes no destructive tools | implemented for Claude Code, tested |
+| Agent deletes files, rewrites Git history, drops data, destroys infrastructure or publishes without consent | guard asks the person first (pattern-based, not a sandbox); checkpoints make in-project damage undoable | implemented for Claude Code, tested; other agents: undo only |
+| Agent disables its own guard (edits hooks, Fabric data, `.git`) | writes to agent config ask; writes to Fabric data and `.git` are denied; policy lives outside the project | implemented, tested |
 
 ## Out of scope
 

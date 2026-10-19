@@ -9,6 +9,7 @@ mod claude;
 mod codex;
 mod commands;
 mod error;
+mod guard;
 mod home;
 mod mcp;
 mod query;
@@ -123,6 +124,12 @@ enum Command {
     /// Run the MCP server that lets agents query this project's history (started by agents).
     Mcp,
 
+    /// Consent rules: which agent actions need your approval or are blocked.
+    Guard {
+        #[command(subcommand)]
+        command: GuardCommand,
+    },
+
     /// Connect a coding agent: record its work and let it query what other agents did.
     Integrate {
         #[command(subcommand)]
@@ -134,6 +141,27 @@ enum Command {
     Hook {
         #[command(subcommand)]
         agent: Agent,
+    },
+}
+
+#[derive(Subcommand)]
+enum GuardCommand {
+    /// List the rules and what each decides for this project.
+    Rules,
+    /// Show what the guard would decide for a command, or a file write with --file.
+    Check {
+        /// A shell command, e.g. "rm -rf build".
+        command: Option<String>,
+        /// A file an agent wants to write.
+        #[arg(long)]
+        file: Option<String>,
+    },
+    /// Change a rule's decision for this project: allow, ask or deny.
+    Set { rule: String, decision: String },
+    /// Actions that needed approval or were blocked, newest first.
+    Log {
+        #[arg(short = 'n', long, default_value_t = 20)]
+        limit: usize,
     },
 }
 
@@ -178,6 +206,18 @@ fn main() -> ExitCode {
         Command::History { path, limit } => commands::history(&ctx, &path, limit),
         Command::Resume => commands::resume(&ctx),
         Command::Mcp => mcp::serve(&ctx.home).map(|()| error::exit::OK),
+        Command::Guard { command } => ctx.project().and_then(|project| match command {
+            GuardCommand::Rules => guard::rules(&project, json),
+            GuardCommand::Check { command, file } => guard::check(
+                &ctx.home,
+                &project,
+                command.as_deref(),
+                file.as_deref(),
+                json,
+            ),
+            GuardCommand::Set { rule, decision } => guard::set(&project, &rule, &decision, json),
+            GuardCommand::Log { limit } => guard::log(&project, limit, json),
+        }),
         Command::Integrate {
             agent: Agent::ClaudeCode,
         } => claude::integrate(&ctx.home, json),

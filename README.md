@@ -35,6 +35,10 @@ fabric history src/auth.py       # every change to a file, and which agent made 
 Connected agents get the same history through Fabric's MCP server: before touching a file,
 Codex can ask what Claude already tried on it and whether the tests passed.
 
+And agents ask before they destroy: deleting files, force-pushing, dropping tables or
+`terraform destroy` waits for your approval, and attempts to wipe the system or undo Fabric
+itself are blocked (`fabric guard rules`).
+
 See [docs/CLI.md](docs/CLI.md) for every command, JSON output and exit codes.
 
 ## Why

@@ -5,6 +5,8 @@
 //!
 //! - `UserPromptSubmit`: checkpoint the project before Claude acts on each prompt, labelled
 //!   with the prompt, so "undo everything since I asked X" is always possible.
+//! - `PreToolUse` on file-changing tools: the guard (see `guard.rs`) asks for the person's
+//!   approval before destructive actions, or blocks them.
 //! - `PostToolUse` on file-changing tools: checkpoint after each step that changed the project.
 //!
 //! It also registers `fabric mcp` with Claude Code, so Claude can query what other agents did.
@@ -24,6 +26,7 @@ use serde_json::{Value, json};
 
 use crate::checkpoint::{CheckpointKind, Meta, record};
 use crate::error::{CliError, exit};
+use crate::guard;
 use crate::home::{Home, display_path, project_relative, write_durably};
 use crate::timefmt;
 
@@ -33,25 +36,31 @@ const HOOK_ARGS: &str = "hook claude-code";
 const CHANGING_TOOLS: &str = "Write|Edit|MultiEdit|NotebookEdit|Bash";
 const LABEL_CHARS: usize = 100;
 
-/// Entry point for the hook. Never fails from Claude Code's point of view.
+/// Entry point for the hook. Never fails from Claude Code's point of view: the only output is
+/// a guard decision on `PreToolUse`. If the hook itself fails, it stays silent (Claude Code's
+/// own permission rules still apply) and the failure is logged.
 pub fn hook(home: &Home) {
     let mut input = String::new();
     let result = io::stdin()
         .read_to_string(&mut input)
         .map_err(|e| CliError::new(exit::ERROR, "io", e.to_string()))
         .and_then(|_| handle_event(home, &input));
-    if let Err(e) = result {
-        let line = format!("{} {}: {}\n", timefmt::now_rfc3339(), e.kind, e.message);
-        let _ = fs::create_dir_all(&home.root);
-        let _ = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(home.root.join("hook-errors.log"))
-            .and_then(|mut f| f.write_all(line.as_bytes()));
+    match result {
+        Ok(Some(decision)) => println!("{decision}"),
+        Ok(None) => {}
+        Err(e) => {
+            let line = format!("{} {}: {}\n", timefmt::now_rfc3339(), e.kind, e.message);
+            let _ = fs::create_dir_all(&home.root);
+            let _ = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(home.root.join("hook-errors.log"))
+                .and_then(|mut f| f.write_all(line.as_bytes()));
+        }
     }
 }
 
-fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
+fn handle_event(home: &Home, input: &str) -> Result<Option<Value>, CliError> {
     // Windows tools (PowerShell among them) often prefix piped text with a byte-order mark.
     let event: Value = serde_json::from_str(input.trim_start_matches('\u{feff}'))
         .map_err(|e| CliError::new(exit::ERROR, "bad_hook_input", e.to_string()))?;
@@ -61,11 +70,12 @@ fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
     };
     // Hooks may be installed in projects that are not (or no longer) recorded.
     let Ok(project) = home.find_project(&cwd) else {
-        return Ok(());
+        return Ok(None);
     };
 
     let tool = event["tool_name"].as_str().map(str::to_owned);
     let (mut meta, if_changed) = match event["hook_event_name"].as_str() {
+        Some("PreToolUse") => return guard::pre_tool_use(home, &project, &event),
         Some("UserPromptSubmit") => {
             let prompt = event["prompt"].as_str().unwrap_or_default();
             (
@@ -93,7 +103,7 @@ fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
                 true,
             )
         }
-        _ => return Ok(()),
+        _ => return Ok(None),
     };
     meta.agent = Some(AGENT.to_owned());
     meta.session = event["session_id"].as_str().map(str::to_owned);
@@ -102,7 +112,7 @@ fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
     let store = home.open_store()?;
     let snapshot = capture(&store, &project.root)?;
     record(&store, &project, &snapshot, meta, if_changed)?;
-    Ok(())
+    Ok(None)
 }
 
 /// The first line, whitespace collapsed, cut to a readable length.
@@ -154,6 +164,7 @@ pub fn integrate(home: &Home, json_output: bool) -> Result<u8, CliError> {
     let exe = fabric_exe()?;
     let command = format!("\"{exe}\" {HOOK_ARGS}");
     let mut changed = ensure_hook(&mut settings, "UserPromptSubmit", None, &command)?;
+    changed |= ensure_hook(&mut settings, "PreToolUse", Some(CHANGING_TOOLS), &command)?;
     changed |= ensure_hook(&mut settings, "PostToolUse", Some(CHANGING_TOOLS), &command)?;
 
     if changed {
@@ -182,7 +193,7 @@ pub fn integrate(home: &Home, json_output: bool) -> Result<u8, CliError> {
     }
     if changed {
         println!(
-            "Claude Code will now checkpoint before each prompt and after each change.\nHooks added to {shown}"
+            "Claude Code will now checkpoint before each prompt and after each change,\nand ask for your approval before destructive actions (see `fabric guard rules`).\nHooks added to {shown}"
         );
     } else {
         println!("Claude Code hooks are already installed in {shown}");

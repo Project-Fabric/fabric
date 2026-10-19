@@ -14,6 +14,7 @@ fabric history PATH [-n N]         # every recorded change to a file, and who ma
 fabric resume                      # finish an interrupted restore
 fabric integrate claude-code|codex # connect an agent
 fabric mcp                         # MCP server (started by agents, not people)
+fabric guard rules|check|set|log   # consent rules for agent actions
 ```
 
 ## Installing
@@ -35,6 +36,52 @@ Both download the latest release for your platform, verify its SHA-256 checksum,
 crates/fabric-cli`. Releases are built by `.github/workflows/release.yml` when a `v*` tag is
 pushed. (While the repository is private, the install scripts need it to be public, or a
 download through `gh release download`.)
+
+## Consent before destructive actions: `guard`
+
+`fabric integrate claude-code` also installs a `PreToolUse` hook, so Claude Code asks Fabric
+before every shell command and file write. Each rule decides **allow** (Fabric stays silent
+and Claude Code's own permissions apply), **ask** (Claude Code pauses for your approval,
+showing the reason) or **deny** (blocked; the agent is told why and not to work around it).
+The strictest matching rule wins.
+
+| Rule | Default | Covers |
+|------|---------|--------|
+| `system-destroy` | deny | `mkfs`, `dd of=/dev/…`, `rm -rf /` or `~`, `format C:`, deleting a whole drive |
+| `fabric-tamper` | deny | an agent running `fabric restore/revert/resume/gc/integrate/guard set` |
+| `git-internals` | deny | writing inside `.git/` |
+| `fabric-data` | deny | writing inside Fabric's data directory |
+| `recursive-delete` | ask | `rm -r`, `Remove-Item -Recurse`, `rmdir /s`, `shutil.rmtree`, `find -delete` |
+| `file-delete` | ask | `rm`, `del`, `Remove-Item`, `git rm`, `os.remove` |
+| `git-history-rewrite` | ask | `push --force`, `reset --hard`, `clean -f`, `checkout -- .`, `branch -D`, `rebase` |
+| `git-push` | ask | `git push` |
+| `publish` | ask | `npm/cargo publish`, `twine upload`, `docker push`, `gh release create` |
+| `database-destructive` | ask | `DROP TABLE`, `TRUNCATE`, `DELETE FROM`, `FLUSHALL` |
+| `infrastructure-destructive` | ask | `terraform destroy/apply`, `kubectl delete`, cloud `delete/terminate`, `docker rm/prune` |
+| `remote-script` | ask | `curl … \| sh`, `irm … \| iex` |
+| `outside-project` | ask | writing a file outside the project |
+| `secrets` | ask | writing `.env*`, `*.pem`, `*.key`, SSH keys |
+| `agent-config` | ask | writing `.claude/`, `.mcp.json`, `.codex/`, `.cursor/`, `.github/workflows/` |
+
+```sh
+fabric guard rules                    # every rule and its decision for this project
+fabric guard check "rm -rf build"     # what would happen?  → ask (recursive-delete)
+fabric guard check --file .env
+fabric guard set git-push allow       # change a rule for this project
+fabric guard log                      # every action that needed approval or was blocked
+```
+
+Overrides are stored in Fabric's data directory, not the project, and an agent running
+`fabric guard set` is itself denied, so an agent cannot loosen its own rules. Every `ask` and
+`deny` is appended to an audit log with the time, session, tool, target and rule.
+
+Limits, stated plainly: the guard recognizes common destructive commands by pattern; it is not
+a sandbox, and a determined agent could phrase a destructive action it does not recognize.
+Patterns also match inside quoted text, so `grep 'rm -rf'` asks too; for consent, a false
+alarm is the safer mistake. If the hook itself fails it stays silent rather than blocking the
+agent, and Claude Code's own permission system still applies. Only agents with pre-action
+hooks (Claude Code today) can be guarded; Codex and others are covered by checkpoints and
+undo, but not by consent prompts.
 
 ## Sharing history between agents: MCP
 

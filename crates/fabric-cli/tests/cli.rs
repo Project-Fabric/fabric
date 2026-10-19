@@ -638,6 +638,138 @@ fn integrate_claude_code_explains_how_to_add_the_mcp_server_when_claude_is_missi
     );
 }
 
+/// What Claude Code sends before running a tool, and the guard's answer.
+fn pre_tool_use(fx: &Fixture, tool: &str, input: Value) -> Option<Value> {
+    let event = json!({
+        "hook_event_name": "PreToolUse",
+        "session_id": "s-1",
+        "cwd": fx.project.to_string_lossy(),
+        "tool_name": tool,
+        "tool_input": input,
+    });
+    let run = fx.run_with_stdin(&["hook", "claude-code"], &event.to_string());
+    assert_eq!(run.code, 0, "hooks must never fail: {}", run.stderr);
+    (!run.stdout.trim().is_empty()).then(|| run.json())
+}
+
+fn decision(answer: &Option<Value>) -> &str {
+    answer.as_ref().map_or("silent", |a| {
+        a["hookSpecificOutput"]["permissionDecision"]
+            .as_str()
+            .unwrap()
+    })
+}
+
+#[test]
+fn guard_asks_before_destructive_actions_and_blocks_tampering() {
+    let fx = Fixture::new();
+    fx.write("src/app.py", "x = 1");
+    fx.ok_json(&["init", "--json"]);
+    let bash = |command: &str| pre_tool_use(&fx, "Bash", json!({ "command": command }));
+    let write = |path: PathBuf| {
+        pre_tool_use(
+            &fx,
+            "Write",
+            json!({ "file_path": path.to_string_lossy(), "content": "x" }),
+        )
+    };
+
+    // Everyday work is not interrupted: the guard stays silent.
+    assert_eq!(decision(&bash("pytest -x")), "silent");
+    assert_eq!(decision(&write(fx.project.join("src/app.py"))), "silent");
+    assert_eq!(
+        decision(&write(fx.project.join("src/payments/new_module.py"))),
+        "silent",
+        "a new file in a new directory is inside the project"
+    );
+
+    // Destructive actions wait for the person's approval, with a reason.
+    let answer = bash("rm -rf src");
+    assert_eq!(decision(&answer), "ask");
+    let output = &answer.as_ref().unwrap()["hookSpecificOutput"];
+    assert_eq!(output["hookEventName"], "PreToolUse");
+    assert!(
+        output["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("recursive-delete")
+    );
+    assert_eq!(decision(&bash("git push --force origin main")), "ask");
+    assert_eq!(decision(&write(fx.project.join(".env"))), "ask");
+    assert_eq!(
+        decision(&write(fx.home.with_file_name("outside.txt"))),
+        "ask"
+    );
+
+    // Catastrophic commands and attempts to undo Fabric itself are blocked outright.
+    assert_eq!(decision(&bash("rm -rf /")), "deny");
+    assert_eq!(decision(&bash("fabric restore 1 --yes")), "deny");
+    assert_eq!(decision(&write(fx.project.join(".git/config"))), "deny");
+    assert_eq!(decision(&write(fx.home.join("store/FABRIC_STORE"))), "deny");
+
+    // Every ask and deny is in the audit log, newest first.
+    let log = fx.ok_json(&["guard", "log", "--json"]);
+    assert_eq!(log["total"], 8);
+    assert_eq!(log["entries"][0]["decision"], "deny");
+    assert_eq!(log["entries"][0]["rule"], "fabric-data");
+    assert_eq!(log["entries"][7]["target"], "rm -rf src");
+}
+
+#[test]
+fn guard_rules_can_be_changed_per_project_but_not_by_the_agent() {
+    let fx = Fixture::new();
+    fx.ok_json(&["init", "--json"]);
+    let push = || pre_tool_use(&fx, "Bash", json!({ "command": "git push origin main" }));
+    assert_eq!(decision(&push()), "ask");
+
+    // The person relaxes a rule from their own terminal...
+    let set = fx.ok_json(&["guard", "set", "git-push", "allow", "--json"]);
+    assert_eq!(set["decision"], "allow");
+    assert_eq!(decision(&push()), "silent");
+    let rules = fx.ok_json(&["guard", "rules", "--json"]);
+    let rule = rules["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["rule"] == "git-push")
+        .unwrap();
+    assert_eq!(
+        (&rule["decision"], &rule["default"]),
+        (&json!("allow"), &json!("ask"))
+    );
+
+    // ...but an agent trying the same is blocked, and the setting lives outside the project.
+    let tamper = pre_tool_use(
+        &fx,
+        "Bash",
+        json!({ "command": "fabric guard set secrets allow" }),
+    );
+    assert_eq!(decision(&tamper), "deny");
+    assert!(!fx.project.join("guard-policy.json").exists());
+
+    let check = fx.ok_json(&["guard", "check", "rm -rf build", "--json"]);
+    assert_eq!(check["verdict"]["decision"], "ask");
+    assert_eq!(check["verdict"]["rule"], "recursive-delete");
+    let bad = fx.run(&["guard", "set", "git-push", "sometimes", "--json"]);
+    assert_eq!(bad.code, 1);
+}
+
+#[test]
+fn integrate_installs_the_guard_hook() {
+    let fx = Fixture::new();
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["integrate", "claude-code", "--json"]);
+    let settings: Value = serde_json::from_str(&fx.read(".claude/settings.local.json")).unwrap();
+    let pre = &settings["hooks"]["PreToolUse"][0];
+    assert_eq!(pre["matcher"], "Write|Edit|MultiEdit|NotebookEdit|Bash");
+    assert!(
+        pre["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with("hook claude-code")
+    );
+}
+
 #[test]
 fn integrate_refuses_to_overwrite_invalid_settings() {
     let fx = Fixture::new();

@@ -4,8 +4,24 @@
 did to your project — step by step, across Claude Code, Codex, Cursor and others — lets any
 agent query that history, and lets you undo any single step with a verified result.
 
-> Status: early development. The object store, snapshots, diffs and verified restore exist as
-> libraries; the CLI and agent integrations do not yet. Nothing here is ready for real projects.
+> Status: early development. Works end to end with Claude Code; not yet tuned for large
+> repositories. Not ready for production use.
+
+## Try it
+
+```sh
+cargo install --path crates/fabric-cli   # installs the `fabric` command
+
+cd your-project
+fabric init                      # start recording
+fabric integrate claude-code     # checkpoint every Claude Code prompt and change
+# ... let the agent work ...
+fabric log                       # the timeline of what happened
+fabric diff 3                    # what changed since checkpoint 3
+fabric restore 3 --yes           # go back; verified, and undoable
+```
+
+See [docs/CLI.md](docs/CLI.md) for every command, JSON output and exit codes.
 
 ## Why
 
@@ -27,6 +43,7 @@ See [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) for the full direction and road
 crates/fabric-store     Content-addressed object store (BLAKE3 + zstd, verified reads)
 crates/fabric-snapshot  Project capture, versioned manifests, diffs
 crates/fabric-recovery  Planned, journaled, verified, resumable restore
+crates/fabric-cli       The `fabric` command and agent integrations
 docs/                 Product spec, architecture, storage format, threat model
 ```
 

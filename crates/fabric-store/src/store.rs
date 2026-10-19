@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::{CorruptReason, ObjectId, Result, StoreError};
 
@@ -119,6 +119,25 @@ impl Store {
         };
         store.removed_temp_files = store.remove_stale_temp_files()?;
         Ok(store)
+    }
+
+    /// Like [`open`](Self::open), but waits up to `timeout` for another process to release the
+    /// store instead of failing immediately with [`StoreError::Locked`].
+    pub fn open_waiting(root: impl AsRef<Path>, timeout: Duration) -> Result<Self> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            match Self::open(root.as_ref()) {
+                Err(StoreError::Locked { .. }) if Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(25));
+                }
+                result => return result,
+            }
+        }
+    }
+
+    /// Whether `root` holds a store (without opening it).
+    pub fn exists(root: impl AsRef<Path>) -> bool {
+        root.as_ref().join(LAYOUT_FILE).is_file()
     }
 
     pub fn root(&self) -> &Path {

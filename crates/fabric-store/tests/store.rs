@@ -299,6 +299,27 @@ fn second_open_is_refused_while_the_store_is_in_use() {
 }
 
 #[test]
+fn open_waiting_gets_the_store_once_it_is_released() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let store = Store::init(&root).unwrap();
+    assert!(Store::exists(&root));
+
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        drop(store);
+    });
+    Store::open_waiting(&root, std::time::Duration::from_secs(10)).unwrap();
+    releaser.join().unwrap();
+
+    let _held = Store::open(&root).unwrap();
+    assert!(matches!(
+        Store::open_waiting(&root, std::time::Duration::from_millis(50)),
+        Err(StoreError::Locked { .. })
+    ));
+}
+
+#[test]
 fn reinit_preserves_existing_objects() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");

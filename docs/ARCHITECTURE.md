@@ -22,7 +22,7 @@ directly.
 | `fabric-store` | implemented | Immutable, content-addressed, verified object storage |
 | `fabric-snapshot` | implemented | Walk a project, apply exclusion and symlink policy, write and validate manifests, diff |
 | `fabric-recovery` | implemented | Restore plans, conflict detection, journaled apply, resume, verification |
-| `fabric-cli` | planned | `fabric` command with versioned JSON output and exit codes |
+| `fabric-cli` | implemented | `fabric` command, project registry, checkpoint log, Claude Code hooks |
 
 Crates are split only when a boundary is real and tested; speculative crates are not created
 ahead of time.

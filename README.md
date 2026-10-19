@@ -19,6 +19,9 @@ fabric integrate claude-code     # checkpoint every Claude Code prompt and chang
 fabric log                       # the timeline of what happened
 fabric diff 3                    # what changed since checkpoint 3
 fabric restore 3 --yes           # go back; verified, and undoable
+
+fabric bisect --test "pytest -x" # which agent step broke the tests?
+fabric revert 7 --yes            # undo just that step, keep everything after it
 ```
 
 See [docs/CLI.md](docs/CLI.md) for every command, JSON output and exit codes.

@@ -11,7 +11,9 @@ mod apply;
 mod error;
 mod plan;
 mod portability;
+mod revert;
 
 pub use apply::{ApplyOptions, RestoreReport, apply_restore, apply_restore_with, resume_restore};
 pub use error::RecoveryError;
 pub use plan::{Conflict, ConflictKind, Operation, RestorePlan, RestoreSummary, plan_restore};
+pub use revert::{RevertConflict, RevertConflictReason, RevertOutcome, revert_step};

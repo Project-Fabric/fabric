@@ -47,6 +47,8 @@ pub enum CheckpointKind {
     PreRestore,
     /// The state a restore produced.
     Restore,
+    /// The state after undoing one checkpoint's changes.
+    Revert,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

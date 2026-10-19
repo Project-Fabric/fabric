@@ -2,9 +2,12 @@ use std::env;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-use fabric_recovery::{Operation, RestorePlan, apply_restore, plan_restore, resume_restore};
+use fabric_recovery::{
+    Operation, RestorePlan, RevertConflictReason, apply_restore, plan_restore, resume_restore,
+    revert_step,
+};
 use fabric_snapshot::{Diff, Manifest, SkipReason, Snapshot, capture, diff};
-use fabric_store::ObjectId;
+use fabric_store::{ObjectId, Store};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -24,7 +27,7 @@ pub struct Ctx {
 
 impl Ctx {
     /// Prints `value` (tagged with its versioned schema) as JSON, or the human rendering.
-    fn emit(&self, schema: &str, mut value: Value, human: impl FnOnce() -> String) {
+    pub fn emit(&self, schema: &str, mut value: Value, human: impl FnOnce() -> String) {
         if self.json {
             value["schema"] = schema.into();
             println!(
@@ -36,7 +39,7 @@ impl Ctx {
         }
     }
 
-    fn project(&self) -> Result<Project, CliError> {
+    pub fn project(&self) -> Result<Project, CliError> {
         let cwd = env::current_dir().map_err(|e| CliError::io(&PathBuf::from("."), e))?;
         self.home.find_project(&cwd)
     }
@@ -220,6 +223,23 @@ enum RestoreStatus {
     Applied,
 }
 
+/// Describes a command that changes the project through a restore plan (`restore`, `revert`),
+/// for its messages and its log entries.
+struct Action {
+    schema: &'static str,
+    /// Heads the plan, e.g. "Restore to #3".
+    title: String,
+    /// The command that applies the plan, shown when confirmation is needed.
+    confirm: String,
+    /// Shown on success, e.g. "Restored #3".
+    done: String,
+    /// The checkpoint recorded for the result.
+    kind: CheckpointKind,
+    log_label: String,
+    /// Extra fields for JSON output.
+    extra: Value,
+}
+
 pub fn restore(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
     let project = ctx.project()?;
     let store = ctx.home.open_store()?;
@@ -227,6 +247,112 @@ pub fn restore(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
     let (target, seq) = resolve(&log, reference)?;
     let label = checkpoint_label(&target, seq);
     let plan = plan_restore(&store, &project.root, &target)?;
+    let action = Action {
+        schema: "fabric.restore/v1",
+        title: format!("Restore to {label}"),
+        confirm: format!("fabric restore {reference} --yes"),
+        done: format!("Restored {label}"),
+        kind: CheckpointKind::Restore,
+        log_label: format!("restored {label}"),
+        extra: json!({ "target": label }),
+    };
+    run_plan(ctx, &store, &project, plan, yes, action)
+}
+
+/// Undoes one checkpoint's changes and keeps everything recorded after it.
+pub fn revert(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
+    let project = ctx.project()?;
+    let store = ctx.home.open_store()?;
+    let log = read_log(&project)?;
+    let (_, seq) = resolve(&log, reference)?;
+    let index = seq
+        .and_then(|seq| log.iter().position(|c| c.seq == seq))
+        .ok_or_else(|| {
+            CliError::new(
+                exit::ERROR,
+                "unknown_checkpoint",
+                "revert needs a checkpoint number from `fabric log`",
+            )
+        })?;
+    if index == 0 {
+        return Err(CliError::new(
+            exit::ERROR,
+            "nothing_before",
+            "the first checkpoint has nothing before it to revert to; use `fabric restore`",
+        ));
+    }
+    let step = &log[index];
+    let before = Manifest::load(&store, &log[index - 1].snapshot)?;
+    let after = Manifest::load(&store, &step.snapshot)?;
+    let current = capture(&store, &project.root)?;
+    ctx.warn_skipped(&current);
+    let outcome = revert_step(&before, &after, &current.manifest)?;
+    let label = format!("#{} ({})", step.seq, step.label);
+
+    if !outcome.conflicts.is_empty() {
+        ctx.emit(
+            "fabric.revert/v1",
+            json!({
+                "status": "conflicts",
+                "checkpoint": step.seq,
+                "conflicts": outcome.conflicts,
+            }),
+            || {
+                let mut out = format!(
+                    "Cannot revert {label}: later steps changed the same paths.\n"
+                );
+                for conflict in &outcome.conflicts {
+                    let reason = match conflict.reason {
+                        RevertConflictReason::ChangedLater => "changed again later",
+                        RevertConflictReason::DirectoryInUse => "later work is inside it",
+                        RevertConflictReason::ParentIsNotADirectory => {
+                            "a file is where its directory belongs"
+                        }
+                    };
+                    let _ = writeln!(out, "  {}  ({reason})", conflict.path);
+                }
+                out.push_str("Nothing was changed. To go back to before this step entirely, use `fabric restore`.\n");
+                out
+            },
+        );
+        return Ok(exit::CONFLICTS);
+    }
+
+    let target = outcome.manifest.store(&store)?;
+    let plan = plan_restore(&store, &project.root, &target)?;
+    let action = Action {
+        schema: "fabric.revert/v1",
+        title: format!("Revert {label}, keeping later changes"),
+        confirm: format!("fabric revert {} --yes", step.seq),
+        done: format!("Reverted {label}"),
+        kind: CheckpointKind::Revert,
+        log_label: format!("reverted #{}: {}", step.seq, step.label),
+        extra: json!({
+            "checkpoint": step.seq,
+            "reverted": outcome.reverted,
+            "already_reverted": outcome.already_reverted,
+        }),
+    };
+    run_plan(ctx, &store, &project, plan, yes, action)
+}
+
+/// Shows a plan, and applies it if confirmed: records the undo point, applies, verifies, and
+/// records the result.
+fn run_plan(
+    ctx: &Ctx,
+    store: &Store,
+    project: &Project,
+    plan: RestorePlan,
+    yes: bool,
+    action: Action,
+) -> Result<u8, CliError> {
+    let output = |fields: Value| {
+        let mut value = action.extra.clone();
+        if let (Some(value), Value::Object(fields)) = (value.as_object_mut(), fields) {
+            value.extend(fields);
+        }
+        value
+    };
 
     let (status, code) = if !plan.conflicts.is_empty() {
         (RestoreStatus::Conflicts, exit::CONFLICTS)
@@ -243,21 +369,22 @@ pub fn restore(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
 
     if !matches!(status, RestoreStatus::Applied) {
         ctx.emit(
-            "fabric.restore/v1",
-            json!({ "status": status, "target": label, "plan": plan }),
+            action.schema,
+            output(json!({ "status": status, "plan": plan })),
             || {
-                let mut out = plan_text(&label, &plan);
+                let mut out = plan_text(&action.title, &plan);
                 match status {
                     RestoreStatus::Conflicts => out.push_str(
                         "Nothing was changed. Move or delete the paths above (they were never recorded), then try again.\n",
                     ),
                     RestoreStatus::AlreadyAtTarget => {
-                        out = format!("The project already matches {label}\n");
+                        out = "The project already matches; nothing to do\n".to_owned();
                     }
                     _ => {
                         let _ = writeln!(
                             out,
-                            "Nothing was changed. Run `fabric restore {reference} --yes` to apply.\nThe current state is saved first, so the restore can be undone."
+                            "Nothing was changed. Run `{}` to apply.\nThe current state is saved first, so this can be undone.",
+                            action.confirm
                         );
                     }
                 }
@@ -268,48 +395,47 @@ pub fn restore(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
     }
 
     // Record the undo point before touching anything, so it is in the log even if the
-    // restore is interrupted.
-    let base = Manifest::load(&store, &plan.base)?;
+    // operation is interrupted.
+    let base = Manifest::load(store, &plan.base)?;
     let mut undo = record_manifest(
-        &store,
-        &project,
+        store,
+        project,
         plan.base,
         &base,
         Meta::new(
             CheckpointKind::PreRestore,
-            format!("before restoring {label}"),
+            format!("before: {}", action.log_label),
         ),
         true,
     )?
     .map(|c| c.seq);
     if undo.is_none() {
-        undo = read_log(&project)?.last().map(|c| c.seq);
+        undo = read_log(project)?.last().map(|c| c.seq);
     }
 
-    let report = apply_restore(&store, &project.root, &plan)?;
-    let target_manifest = Manifest::load(&store, &report.target)?;
-    let restored = record_manifest(
-        &store,
-        &project,
+    let report = apply_restore(store, &project.root, &plan)?;
+    let target_manifest = Manifest::load(store, &report.target)?;
+    let recorded = record_manifest(
+        store,
+        project,
         report.target,
         &target_manifest,
-        Meta::new(CheckpointKind::Restore, format!("restored {label}")),
+        Meta::new(action.kind, action.log_label.clone()),
         false,
     )?;
 
     ctx.emit(
-        "fabric.restore/v1",
-        json!({
+        action.schema,
+        output(json!({
             "status": status,
-            "target": label,
             "plan": plan,
             "report": report,
             "undo_checkpoint": undo,
-            "checkpoint": restored,
-        }),
+            "recorded": recorded,
+        })),
         || {
-            let mut out = plan_text(&label, &plan);
-            let _ = writeln!(out, "Restored {label} and verified the result.");
+            let mut out = plan_text(&action.title, &plan);
+            let _ = writeln!(out, "{} and verified the result.", action.done);
             if !report.untracked_kept.is_empty() {
                 let _ = writeln!(out, "Left untouched (never recorded):");
                 for path in &report.untracked_kept {
@@ -365,7 +491,7 @@ pub fn kind_name(kind: CheckpointKind) -> String {
         .unwrap_or_default()
 }
 
-fn changes_text(c: &ChangeCounts) -> String {
+pub fn changes_text(c: &ChangeCounts) -> String {
     let mut text = format!("+{} ~{} -{}", c.added, c.modified, c.removed);
     if c.renamed > 0 {
         let _ = write!(text, " >{}", c.renamed);
@@ -373,7 +499,7 @@ fn changes_text(c: &ChangeCounts) -> String {
     text
 }
 
-fn diff_lines(d: &Diff) -> String {
+pub fn diff_lines(d: &Diff) -> String {
     let mut out = String::new();
     for path in &d.added {
         let _ = writeln!(out, "  added     {path}");
@@ -390,10 +516,10 @@ fn diff_lines(d: &Diff) -> String {
     out
 }
 
-fn plan_text(label: &str, plan: &RestorePlan) -> String {
+fn plan_text(title: &str, plan: &RestorePlan) -> String {
     let s = plan.summary;
     let mut out = format!(
-        "Restore to {label}: create {}, modify {}, delete {}\n",
+        "{title}: create {}, modify {}, delete {}\n",
         s.create, s.modify, s.delete
     );
     for op in plan.operations.iter().take(MAX_LISTED) {

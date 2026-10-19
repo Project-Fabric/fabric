@@ -318,6 +318,111 @@ fn integrate_installs_hooks_without_clobbering_settings() {
     assert!(settings["hooks"]["UserPromptSubmit"][0]["matcher"].is_null());
 }
 
+/// A test command that passes while `status.txt` says "green", in each platform's shell.
+fn status_test() -> &'static str {
+    if cfg!(windows) {
+        r#"findstr /C:"green" status.txt"#
+    } else {
+        "grep -q green status.txt"
+    }
+}
+
+/// Five agent steps, the third of which breaks the tests.
+fn agent_session_with_a_breaking_step(fx: &Fixture) {
+    fx.write("status.txt", "green");
+    fx.write("app/a.txt", "a1");
+    fx.ok_json(&["init", "--json"]);
+    let steps = [
+        ("app/b.txt", "b1", "add b"),
+        ("app/c.txt", "c1", "add c"),
+        ("status.txt", "red", "refactor status"),
+        ("app/d.txt", "d1", "add d"),
+        ("app/a.txt", "a2", "edit a"),
+    ];
+    for (path, content, label) in steps {
+        fx.write(path, content);
+        fx.ok_json(&[
+            "checkpoint",
+            "-m",
+            label,
+            "--agent",
+            "claude-code",
+            "--json",
+        ]);
+    }
+}
+
+#[test]
+fn bisect_finds_the_breaking_step_and_revert_undoes_only_it() {
+    let fx = Fixture::new();
+    agent_session_with_a_breaking_step(&fx);
+
+    let found = fx.ok_json(&["bisect", "--test", status_test(), "--json"]);
+    assert_eq!(found["schema"], "fabric.bisect/v1");
+    assert_eq!(found["first_bad"]["seq"], 4);
+    assert_eq!(found["first_bad"]["label"], "refactor status");
+    assert_eq!(found["last_good"], 3);
+    assert_eq!(found["diff"]["modified"], json!(["status.txt"]));
+
+    // Bisecting left the project exactly as it was.
+    assert_eq!(fx.read("status.txt"), "red");
+    assert_eq!(fx.read("app/a.txt"), "a2");
+    assert_eq!(fx.read("app/d.txt"), "d1");
+
+    let preview = fx.run(&["revert", "4", "--json"]);
+    assert_eq!(preview.code, 3, "{}", preview.stdout);
+    assert_eq!(fx.read("status.txt"), "red");
+
+    let reverted = fx.ok_json(&["revert", "4", "--yes", "--json"]);
+    assert_eq!(reverted["schema"], "fabric.revert/v1");
+    assert_eq!(reverted["status"], "applied");
+    assert_eq!(reverted["reverted"], json!(["status.txt"]));
+
+    // Only the breaking step is gone; work from later steps is kept.
+    assert_eq!(fx.read("status.txt"), "green");
+    assert_eq!(fx.read("app/a.txt"), "a2");
+    assert_eq!(fx.read("app/d.txt"), "d1");
+    assert_eq!(fx.log()[0]["kind"], "revert");
+
+    // And the revert itself can be undone.
+    let undo = reverted["undo_checkpoint"].as_u64().unwrap().to_string();
+    fx.ok_json(&["restore", &undo, "--yes", "--json"]);
+    assert_eq!(fx.read("status.txt"), "red");
+}
+
+#[test]
+fn bisect_refuses_when_there_is_nothing_to_find_and_leaves_the_project_alone() {
+    let fx = Fixture::new();
+    fx.write("status.txt", "green");
+    fx.ok_json(&["init", "--json"]);
+    fx.write("other.txt", "x");
+    fx.ok_json(&["checkpoint", "--json"]);
+
+    let run = fx.run(&["bisect", "--test", status_test(), "--json"]);
+    assert_eq!(run.code, 1);
+    assert_eq!(run.json()["error"]["kind"], "bisect_precondition");
+    assert_eq!(fx.read("other.txt"), "x");
+}
+
+#[test]
+fn revert_refuses_when_a_later_step_changed_the_same_file() {
+    let fx = Fixture::new();
+    fx.write("x.txt", "1");
+    fx.ok_json(&["init", "--json"]);
+    fx.write("x.txt", "2");
+    fx.ok_json(&["checkpoint", "--json"]);
+    fx.write("x.txt", "3");
+    fx.ok_json(&["checkpoint", "--json"]);
+
+    let run = fx.run(&["revert", "2", "--yes", "--json"]);
+    assert_eq!(run.code, 4);
+    let out = run.json();
+    assert_eq!(out["status"], "conflicts");
+    assert_eq!(out["conflicts"][0]["path"], "x.txt");
+    assert_eq!(out["conflicts"][0]["reason"], "changed_later");
+    assert_eq!(fx.read("x.txt"), "3");
+}
+
 #[test]
 fn integrate_refuses_to_overwrite_invalid_settings() {
     let fx = Fixture::new();

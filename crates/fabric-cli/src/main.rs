@@ -3,6 +3,7 @@
 //! Every command accepts `--json` for versioned machine-readable output and uses the exit
 //! codes in [`error::exit`]. See `docs/CLI.md`.
 
+mod bisect;
 mod checkpoint;
 mod claude;
 mod commands;
@@ -76,6 +77,28 @@ enum Command {
         yes: bool,
     },
 
+    /// Undo one checkpoint's changes, keeping everything recorded after it.
+    Revert {
+        /// Checkpoint number (as in `fabric log`) whose changes to undo.
+        checkpoint: String,
+        /// Apply the revert. The current state is checkpointed first, so it can be undone.
+        #[arg(long)]
+        yes: bool,
+    },
+
+    /// Find the checkpoint where a test command started failing.
+    Bisect {
+        /// Command that exits 0 when the project is good, e.g. "pytest -x" or "npm test".
+        #[arg(long)]
+        test: String,
+        /// A checkpoint where the tests pass (default: the oldest).
+        #[arg(long)]
+        good: Option<String>,
+        /// A checkpoint where the tests fail (default: the project as it is now).
+        #[arg(long)]
+        bad: Option<String>,
+    },
+
     /// Finish a restore that was interrupted.
     Resume,
 
@@ -127,6 +150,8 @@ fn main() -> ExitCode {
         Command::Log { limit } => commands::log(&ctx, limit),
         Command::Diff { from, to } => commands::diff_cmd(&ctx, from, to),
         Command::Restore { checkpoint, yes } => commands::restore(&ctx, &checkpoint, yes),
+        Command::Revert { checkpoint, yes } => commands::revert(&ctx, &checkpoint, yes),
+        Command::Bisect { test, good, bad } => bisect::bisect(&ctx, &test, good, bad),
         Command::Resume => commands::resume(&ctx),
         Command::Integrate {
             agent: Agent::ClaudeCode,

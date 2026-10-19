@@ -74,11 +74,12 @@ fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
         }
         Some("PostToolUse") => {
             let input = &event["tool_input"];
-            let target = ["file_path", "notebook_path", "command", "path"]
+            let target = ["file_path", "notebook_path", "path"]
                 .iter()
                 .find_map(|key| input[*key].as_str())
+                .map(|path| relative_to(path, &project.root))
+                .or_else(|| input["command"].as_str().map(str::to_owned))
                 .unwrap_or_default();
-            let target = relative_to(target, &project.root);
             let name = tool.as_deref().unwrap_or("tool");
             (
                 Meta::new(
@@ -100,14 +101,28 @@ fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Shows file paths relative to the project, which is how people read them in a timeline.
+/// Shows a file path relative to the project, which is how people read it in a timeline.
+///
+/// Agents report paths as they see them, which can differ from the project's canonical root
+/// (macOS `/var` vs `/private/var`, Windows 8.3 short names), so the path is resolved first.
+/// A deleted file cannot be resolved, so its parent directory is.
 fn relative_to(target: &str, root: &Path) -> String {
-    let root = display_path(root);
-    let normalized = target.replace('\\', "/");
-    let root = root.replace('\\', "/");
-    normalized
-        .strip_prefix(&format!("{root}/"))
-        .map_or(normalized.clone(), str::to_owned)
+    let path = Path::new(target);
+    let resolved = fs::canonicalize(path).ok().or_else(|| {
+        let parent = fs::canonicalize(path.parent()?).ok()?;
+        Some(parent.join(path.file_name()?))
+    });
+    resolved
+        .as_deref()
+        .and_then(|resolved| resolved.strip_prefix(root).ok())
+        .map(|relative| {
+            relative
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .unwrap_or_else(|| target.to_owned())
 }
 
 /// The first line, whitespace collapsed, cut to a readable length.
@@ -261,6 +276,27 @@ mod tests {
             summarize("ü".repeat(200).as_str()).chars().count(),
             LABEL_CHARS
         );
+    }
+
+    #[test]
+    fn relative_to_resolves_paths_before_comparing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "").unwrap();
+
+        // The non-canonical form an agent may report (e.g. /var vs /private/var on macOS).
+        let reported = dir.path().join("src").join("main.rs");
+        assert_eq!(
+            relative_to(&reported.to_string_lossy(), &root),
+            "src/main.rs"
+        );
+        let deleted = dir.path().join("src").join("gone.rs");
+        assert_eq!(
+            relative_to(&deleted.to_string_lossy(), &root),
+            "src/gone.rs"
+        );
+        assert_eq!(relative_to("/elsewhere/x.rs", &root), "/elsewhere/x.rs");
     }
 
     #[test]

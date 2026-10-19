@@ -1,0 +1,2593 @@
+{
+  "scenarios": {
+    "S1": {
+      "title": "Undo the last step",
+      "Fabric": {
+        "pass": true,
+        "note": "notes.md removed, feature.py kept"
+      },
+      "Turnback": {
+        "pass": true,
+        "note": "notes.md removed, feature.py kept"
+      },
+      "agent-safepoint": {
+        "pass": true,
+        "note": "notes.md removed, feature.py kept"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "notes.md removed, feature.py kept"
+      }
+    },
+    "S2": {
+      "title": "Undo an rm -rf done by a shell command",
+      "Fabric": {
+        "pass": true,
+        "note": "src/ restored"
+      },
+      "Turnback": {
+        "pass": true,
+        "note": "src/ restored"
+      },
+      "agent-safepoint": {
+        "pass": true,
+        "note": "src/ restored"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "src/ restored"
+      }
+    },
+    "S3": {
+      "title": "Undo a middle step, keep later steps",
+      "Fabric": {
+        "pass": true,
+        "note": "bad step undone, later work kept"
+      },
+      "Turnback": {
+        "pass": true,
+        "note": "bad step undone, later work kept (manual: restore turn start for chosen paths, no conflict check)"
+      },
+      "agent-safepoint": {
+        "pass": null,
+        "note": "no single-step undo"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "bad step undone, later work kept"
+      }
+    },
+    "S4": {
+      "title": "Restore never destroys your unrecorded work",
+      "Fabric": {
+        "pass": true,
+        "note": "your edited .env: untouched; your new file: deleted, back after undoing the restore"
+      },
+      "Turnback": {
+        "pass": "partial",
+        "note": "your edited .env: overwritten by the restore, back after undoing it; your new file: deleted, back after undoing the restore"
+      },
+      "agent-safepoint": {
+        "pass": false,
+        "note": "your edited .env: untouched; your new file: deleted, NOT recoverable (unsupported)"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "your edited .env: untouched; your new file: kept"
+      }
+    },
+    "S5": {
+      "title": "Damaged storage is detected, not restored",
+      "Fabric": {
+        "pass": true,
+        "note": "refused and reported an error; project untouched"
+      },
+      "Turnback": {
+        "pass": true,
+        "note": "refused and reported an error; project untouched"
+      },
+      "agent-safepoint": {
+        "pass": true,
+        "note": "refused and reported an error; project untouched"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "refused and reported an error; project untouched"
+      }
+    },
+    "S6": {
+      "title": "History survives the agent deleting hidden folders",
+      "Fabric": {
+        "pass": true,
+        "note": "recovered"
+      },
+      "Turnback": {
+        "pass": true,
+        "note": "recovered"
+      },
+      "agent-safepoint": {
+        "pass": false,
+        "note": "history lost with the project's hidden folders"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "recovered"
+      }
+    },
+    "S7": {
+      "title": "Recover from `git clean -fdx`",
+      "Fabric": {
+        "pass": true,
+        "note": "new work file recovered; .env not recovered"
+      },
+      "Turnback": {
+        "pass": true,
+        "note": "new work file recovered; .env recovered"
+      },
+      "agent-safepoint": {
+        "pass": false,
+        "note": "new work file LOST; .env not recovered"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "new work file recovered; .env not recovered"
+      }
+    },
+    "S8": {
+      "title": "Find the step that broke the tests",
+      "Fabric": {
+        "pass": true,
+        "note": "found the breaking step"
+      },
+      "Turnback": {
+        "pass": null,
+        "note": "no automatic search"
+      },
+      "agent-safepoint": {
+        "pass": null,
+        "note": "no automatic search"
+      },
+      "git (commit every step)": {
+        "pass": true,
+        "note": "found the breaking step"
+      }
+    },
+    "S9": {
+      "title": "Stop rm -rf / git clean before they run",
+      "Fabric": {
+        "pass": true,
+        "note": "rm -rf: ask; git clean -fdx: ask"
+      },
+      "Turnback": {
+        "pass": null,
+        "note": "no prevention"
+      },
+      "agent-safepoint": {
+        "pass": null,
+        "note": "no prevention"
+      },
+      "git (commit every step)": {
+        "pass": null,
+        "note": "no prevention"
+      }
+    }
+  },
+  "perf": {
+    "Fabric": {
+      "first_s": 6.92,
+      "unchanged_s": 0.18,
+      "one_file_change_s": 0.11,
+      "storage_mb": 2.0
+    },
+    "Turnback": {
+      "first_s": 2.25,
+      "unchanged_s": 0.29,
+      "one_file_change_s": 0.39,
+      "storage_mb": 0.7
+    },
+    "agent-safepoint": {
+      "first_s": 14.43,
+      "unchanged_s": 0.35,
+      "one_file_change_s": 0.37,
+      "storage_mb": 22.2
+    },
+    "git (commit every step)": {
+      "first_s": 0.13,
+      "unchanged_s": 0.1,
+      "one_file_change_s": 0.12,
+      "storage_mb": 0.7
+    }
+  },
+  "logs": {
+    "S1/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:46Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"0f029c393c55b58c\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S1\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S1\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "add feature",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:47Z\",\n    \"kind\": \"manual\",\n    \"label\": \"add feature\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:23f20c353645774c4dea9411417f1c94dfecc1d11ac37008065f287d903d0908\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('notes.md') or '.',exist_ok=True);open('notes.md','w',newline='\\n').write('notes\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "write notes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:47Z\",\n    \"kind\": \"manual\",\n    \"label\": \"write notes\",\n    \"seq\": 3,\n    \"snapshot\": \"blake3:86e17c4e96ae367d374ed10390eb15b0a5e0ad8c9376282ab78a09fc7d5344ab\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "restore",
+          "2",
+          "--yes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"plan\": {\n    \"base\": \"blake3:86e17c4e96ae367d374ed10390eb15b0a5e0ad8c9376282ab78a09fc7d5344ab\",\n    \"conflicts\": [],\n    \"destructive\": true,\n    \"kept\": [],\n    \"operations\": [\n      {\n        \"op\": \"remove\",\n        \"path\": \"notes.md\"\n      }\n    ],\n    \"summary\": {\n      \"create\": 0,\n      \"delete\": 1,\n      \"modify\": 0\n    },\n    \"target\": \"blake3:23f20c353645774c4dea9411417f1c94dfecc1d11ac37008065f287d903d0908\"\n  },\n  \"recorded\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 0,\n      \"removed\": 1,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:47Z\",\n    \"kind\": \"restore\",\n    \"label\": \"restored #2\",\n    \"seq\": 4,\n    \"snapshot\": \"blake3:23f20c353645774c4dea9411417f1c94dfecc1d11ac37008065f287d903d0908\"\n  },\n  \"report\": {\n    \"operations_applied\": 1,\n    \"target\": \"blake3:23f20c353645774c4dea9411417f1c94dfecc1d11ac37008065f287d903d0908\",\n    \"undo_snapshot\": \"blake3:86e17c4e96ae367d374ed10390eb15b0a5e0ad8c9376282ab78a09fc7d5344ab\",\n    \"untracked_kept\": []\n  },\n  \"schema\": \"fabric.restore/v1\",\n  \"status\": \"applied\",\n  \"target\": \"#2\",\n  \"undo_checkpoint\": 3\n}\n"
+      }
+    ],
+    "S1/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "add feature",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "write notes",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('notes.md') or '.',exist_ok=True);open('notes.md','w',newline='\\n').write('notes\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "undo",
+          "--yes"
+        ],
+        "code": 0,
+        "out": "Undo turn \"write notes\" (manual, 2026-10-20 00:54)\n  remove   notes.md\nRestored 1 file.\nChanged your mind? Run: turnback redo --yes\n"
+      }
+    ],
+    "S1/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "add feature"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (add feature: +1 added)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('notes.md') or '.',exist_ok=True);open('notes.md','w',newline='\\n').write('notes\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "write notes"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @3 (write notes: +1 added)\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "timeline"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Timeline ===\n@3 2026-10-19 19:24:50 UTC - write notes: +1 added\n    tree: 8 files (0.00 MB) | tree: 13d08bd5\n\n@2 2026-10-19 19:24:50 UTC - add feature: +1 added\n    tree: 7 files (0.00 MB) | tree: 88778460\n\n@1 2026-10-19 19:24:50 UTC - base: Initial baseline (6 files)\n    tree: 6 files (0.00 MB) | tree: b8240278\n\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "undo",
+          "@2"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Restore Plan ===\n  - notes.md (will remove)\n\n\u2713 Successfully rolled back workspace to checkpoint @2\n"
+      }
+    ],
+    "S1/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "19076320fb17b13d5d533ba71f2c4788e790cb8c\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "add feature"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "a382c3a714f6c601281d65676de22d1c98221f96\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('notes.md') or '.',exist_ok=True);open('notes.md','w',newline='\\n').write('notes\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "write notes"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "72fc43418e00bd119b9cebc64baf07e48888a533\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "revert",
+          "--no-edit",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "[master 1787694] Revert \"write notes\"\n Date: Tue Oct 20 00:54:50 2026 +0530\n 1 file changed, 1 deletion(-)\n delete mode 100644 notes.md\n"
+      }
+    ],
+    "S2/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:51Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"1ecc0abd1455c482\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S2\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S2\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import shutil;shutil.rmtree('src')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "rm -rf src",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 0,\n      \"removed\": 3,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:51Z\",\n    \"kind\": \"manual\",\n    \"label\": \"rm -rf src\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:64b9de0e2eff06a31a79560ca6f226d28bc0c6f516ad2b14079d9a2fb3cdcafb\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "restore",
+          "1",
+          "--yes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"plan\": {\n    \"base\": \"blake3:64b9de0e2eff06a31a79560ca6f226d28bc0c6f516ad2b14079d9a2fb3cdcafb\",\n    \"conflicts\": [],\n    \"destructive\": false,\n    \"kept\": [],\n    \"operations\": [\n      {\n        \"op\": \"create_dir\",\n        \"path\": \"src\"\n      },\n      {\n        \"executable\": false,\n        \"id\": \"blake3:af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\",\n        \"op\": \"write_file\",\n        \"path\": \"src/__init__.py\",\n        \"size\": 0\n      },\n      {\n        \"executable\": false,\n        \"id\": \"blake3:b9b6b045fced7944f7b71f175a205fc42c92ef02b12f7a4075a05d115e3e7912\",\n        \"op\": \"write_file\",\n        \"path\": \"src/app.py\",\n        \"size\": 78\n      }\n    ],\n    \"summary\": {\n      \"create\": 3,\n      \"delete\": 0,\n      \"modify\": 0\n    },\n    \"target\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"recorded\": {\n    \"changes\": {\n      \"added\": 3,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:51Z\",\n    \"kind\": \"restore\",\n    \"label\": \"restored #1\",\n    \"seq\": 3,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"report\": {\n    \"operations_applied\": 3,\n    \"target\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\",\n    \"undo_snapshot\": \"blake3:64b9de0e2eff06a31a79560ca6f226d28bc0c6f516ad2b14079d9a2fb3cdcafb\",\n    \"untracked_kept\": []\n  },\n  \"schema\": \"fabric.restore/v1\",\n  \"status\": \"applied\",\n  \"target\": \"#1\",\n  \"undo_checkpoint\": 2\n}\n"
+      }
+    ],
+    "S2/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "rm -rf src",
+          "--",
+          "python",
+          "-c",
+          "import shutil;shutil.rmtree('src')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 2 files changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "list",
+          "--json"
+        ],
+        "code": 0,
+        "out": "[\n  {\n    \"id\": \"manual:run:f123c541-23dd-4f1c-8b34-8114c133f3f1\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:24:51.964Z\",\n    \"baseline\": \"refs/turnback/s/28751208d61b4fce81166df023ff1e44\",\n    \"end\": \"refs/turnback/s/a5aad03a03804ae2acb35201d17f368b\",\n    \"status\": \"ok\",\n    \"prompt\": \"rm -rf src\",\n    \"changedFiles\": 2\n  }\n]\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "restore",
+          "manual:run:f123c541-23dd-4f1c-8b34-8114c133f3f1",
+          "--yes"
+        ],
+        "code": 0,
+        "out": "Restore to the start of turn \"rm -rf src\" (manual, 2026-10-20 00:54)\n  restore  src/__init__.py\n  restore  src/app.py\nRestored 2 files.\nChanged your mind? Run: turnback redo --yes\n"
+      }
+    ],
+    "S2/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import shutil;shutil.rmtree('src')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "rm -rf src"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (rm -rf src: -2 deleted)\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "timeline"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Timeline ===\n@2 2026-10-19 19:24:54 UTC - rm -rf src: -2 deleted\n    tree: 4 files (0.00 MB) | tree: eced0f65\n\n@1 2026-10-19 19:24:54 UTC - base: Initial baseline (6 files)\n    tree: 6 files (0.00 MB) | tree: b8240278\n\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "undo",
+          "@1"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Restore Plan ===\n  + src/__init__.py (will recreate)\n  + src/app.py (will recreate)\n\n\u2713 Successfully rolled back workspace to checkpoint @1\n"
+      }
+    ],
+    "S2/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "7651123ff41fe7c54cfbfcb0a66360c21bedc532\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import shutil;shutil.rmtree('src')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "rm -rf src"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "700ebe3d0eaffb8962e6924b7355c53cc64fd583\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "reset",
+          "--hard",
+          "-q",
+          "7651123ff41fe7c54cfbfcb0a66360c21bedc532"
+        ],
+        "code": 0,
+        "out": ""
+      }
+    ],
+    "S3/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:55Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"8c041ccffcaf5680\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S3\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S3\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "add feature",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:55Z\",\n    \"kind\": \"manual\",\n    \"label\": \"add feature\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:23f20c353645774c4dea9411417f1c94dfecc1d11ac37008065f287d903d0908\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "break discount",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:55Z\",\n    \"kind\": \"manual\",\n    \"label\": \"break discount\",\n    \"seq\": 3,\n    \"snapshot\": \"blake3:afb4d50a349880d3ea06eccce501a1611a6c714c77bdc55cf14de66690ca04f8\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "add docs",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:55Z\",\n    \"kind\": \"manual\",\n    \"label\": \"add docs\",\n    \"seq\": 4,\n    \"snapshot\": \"blake3:34d8faaaa39502f1eb6830fad3954605a007115aff3ffe3279a19762087209e2\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "revert",
+          "3",
+          "--yes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"already_reverted\": [],\n  \"checkpoint\": 3,\n  \"plan\": {\n    \"base\": \"blake3:34d8faaaa39502f1eb6830fad3954605a007115aff3ffe3279a19762087209e2\",\n    \"conflicts\": [],\n    \"destructive\": true,\n    \"kept\": [],\n    \"operations\": [\n      {\n        \"executable\": false,\n        \"id\": \"blake3:b9b6b045fced7944f7b71f175a205fc42c92ef02b12f7a4075a05d115e3e7912\",\n        \"op\": \"write_file\",\n        \"path\": \"src/app.py\",\n        \"size\": 78\n      }\n    ],\n    \"summary\": {\n      \"create\": 0,\n      \"delete\": 0,\n      \"modify\": 1\n    },\n    \"target\": \"blake3:8488464e20f8293d6b4bbed26e43bf3d7f6563c85263a6a666961220860144ce\"\n  },\n  \"recorded\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:24:55Z\",\n    \"kind\": \"revert\",\n    \"label\": \"reverted #3: break discount\",\n    \"seq\": 5,\n    \"snapshot\": \"blake3:8488464e20f8293d6b4bbed26e43bf3d7f6563c85263a6a666961220860144ce\"\n  },\n  \"report\": {\n    \"operations_applied\": 1,\n    \"target\": \"blake3:8488464e20f8293d6b4bbed26e43bf3d7f6563c85263a6a666961220860144ce\",\n    \"undo_snapshot\": \"blake3:34d8faaaa39502f1eb6830fad3954605a007115aff3ffe3279a19762087209e2\",\n    \"untracked_kept\": []\n  },\n  \"reverted\": [\n    \"src/app.py\"\n  ],\n  \"schema\": \"fabric.revert/v1\",\n  \"status\": \"applied\",\n  \"undo_checkpoint\": 4\n}\n"
+      }
+    ],
+    "S3/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "add feature",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "break discount",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "add docs",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "list",
+          "--json"
+        ],
+        "code": 0,
+        "out": "[\n  {\n    \"id\": \"manual:run:c5ce1f1d-0ddb-4714-a334-bdb293961834\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:24:57.594Z\",\n    \"baseline\": \"refs/turnback/s/26d1b640b9d94d008a0edc33d8f9ec8e\",\n    \"end\": \"refs/turnback/s/a8a1a54258c54cb497d2e7a972fe9435\",\n    \"status\": \"ok\",\n    \"prompt\": \"add docs\",\n    \"changedFiles\": 1\n  },\n  {\n    \"id\": \"manual:run:43b5b7f0-f26b-4c0e-809e-26eb61d82cbc\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:24:56.981Z\",\n    \"baseline\": \"refs/turnback/s/09ad55f6d5f74e7ea9d12da185094a4c\",\n    \"end\": \"refs/turnback/s/26d1b640b9d94d008a0edc33d8f9ec8e\",\n    \"status\": \"ok\",\n    \"prompt\": \"break discount\",\n    \"changedFiles\": 1\n  },\n  {\n    \"id\": \"manual:run:5ba528f0-0178-490d-9445-9ed168422971\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:24:56.035Z\",\n    \"baseline\": \"refs/turnback/s/9ab32a19e9644632a73a4e1fb72a03fd\",\n    \"end\": \"refs/turnback/s/09ad55f6d5f74e7ea9d12da185094a4c\",\n    \"status\": \"ok\",\n    \"prompt\": \"add feature\",\n    \"changedFiles\": 1\n  }\n]\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "restore",
+          "manual:run:43b5b7f0-f26b-4c0e-809e-26eb61d82cbc",
+          "--yes",
+          "--path",
+          "src/app.py"
+        ],
+        "code": 0,
+        "out": "Restore to the start of turn \"break discount\" (manual, 2026-10-20 00:54)\n  revert   src/app.py\nRestored 1 file.\nChanged your mind? Run: turnback redo --yes\n"
+      }
+    ],
+    "S3/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "add feature"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (add feature: +1 added)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "break discount"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @3 (break discount: ~1 modified)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "add docs"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @4 (add docs: +1 added)\n"
+      }
+    ],
+    "S3/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "79703032559def31ddb9be85fdaf0bfb3a029ca3\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "add feature"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "59dcd2345c5630b7c4ba593b2e1e88a8a6dced51\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "break discount"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "ce46c0780228f06a127220a385047384c78cb72d\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "add docs"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "e5a14752b8eabdd14cbb4a5440c049d4c79c218c\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "revert",
+          "--no-edit",
+          "ce46c0780228f06a127220a385047384c78cb72d"
+        ],
+        "code": 0,
+        "out": "[master 2391f7c] Revert \"break discount\"\n Date: Tue Oct 20 00:55:00 2026 +0530\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
+      }
+    ],
+    "S4/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:01Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"f91b585136850449\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S4\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S4\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# tweak\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "edit app",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:01Z\",\n    \"kind\": \"manual\",\n    \"label\": \"edit app\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:08db3521e4185462d26bbe58945370d9d4f2e566c59cee80a4c00f183c5928d1\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "restore",
+          "1",
+          "--yes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"plan\": {\n    \"base\": \"blake3:e1dfcad2896c6fea87033da381367318887554b72472bb0bd9acb5ea6094f4fa\",\n    \"conflicts\": [],\n    \"destructive\": true,\n    \"kept\": [],\n    \"operations\": [\n      {\n        \"op\": \"remove\",\n        \"path\": \"local.txt\"\n      },\n      {\n        \"executable\": false,\n        \"id\": \"blake3:b9b6b045fced7944f7b71f175a205fc42c92ef02b12f7a4075a05d115e3e7912\",\n        \"op\": \"write_file\",\n        \"path\": \"src/app.py\",\n        \"size\": 78\n      }\n    ],\n    \"summary\": {\n      \"create\": 0,\n      \"delete\": 1,\n      \"modify\": 1\n    },\n    \"target\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"recorded\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 1,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:01Z\",\n    \"kind\": \"restore\",\n    \"label\": \"restored #1\",\n    \"seq\": 4,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"report\": {\n    \"operations_applied\": 2,\n    \"target\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\",\n    \"undo_snapshot\": \"blake3:e1dfcad2896c6fea87033da381367318887554b72472bb0bd9acb5ea6094f4fa\",\n    \"untracked_kept\": []\n  },\n  \"schema\": \"fabric.restore/v1\",\n  \"status\": \"applied\",\n  \"target\": \"#1\",\n  \"undo_checkpoint\": 3\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "restore",
+          "3",
+          "--yes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"plan\": {\n    \"base\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\",\n    \"conflicts\": [],\n    \"destructive\": true,\n    \"kept\": [],\n    \"operations\": [\n      {\n        \"executable\": false,\n        \"id\": \"blake3:999535062536ba176c170a9dc3d77575e369ec9c24d59c6d2098206b38f2a3a3\",\n        \"op\": \"write_file\",\n        \"path\": \"local.txt\",\n        \"size\": 13\n      },\n      {\n        \"executable\": false,\n        \"id\": \"blake3:feecb3de2544eb14702227f8ebbaf7bcb6d1778c0f6896a7333cc3bf4511095d\",\n        \"op\": \"write_file\",\n        \"path\": \"src/app.py\",\n        \"size\": 86\n      }\n    ],\n    \"summary\": {\n      \"create\": 1,\n      \"delete\": 0,\n      \"modify\": 1\n    },\n    \"target\": \"blake3:e1dfcad2896c6fea87033da381367318887554b72472bb0bd9acb5ea6094f4fa\"\n  },\n  \"recorded\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:01Z\",\n    \"kind\": \"restore\",\n    \"label\": \"restored #3\",\n    \"seq\": 5,\n    \"snapshot\": \"blake3:e1dfcad2896c6fea87033da381367318887554b72472bb0bd9acb5ea6094f4fa\"\n  },\n  \"report\": {\n    \"operations_applied\": 2,\n    \"target\": \"blake3:e1dfcad2896c6fea87033da381367318887554b72472bb0bd9acb5ea6094f4fa\",\n    \"undo_snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\",\n    \"untracked_kept\": []\n  },\n  \"schema\": \"fabric.restore/v1\",\n  \"status\": \"applied\",\n  \"target\": \"#3\",\n  \"undo_checkpoint\": 4\n}\n"
+      }
+    ],
+    "S4/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "edit app",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# tweak\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "list",
+          "--json"
+        ],
+        "code": 0,
+        "out": "[\n  {\n    \"id\": \"manual:run:3b9bcb4f-c357-4e92-aa7a-a567d27268b2\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:25:01.817Z\",\n    \"baseline\": \"refs/turnback/s/153e506703c744028ba613f4dad3d212\",\n    \"end\": \"refs/turnback/s/a0cfb32dabe64016844af6b5e2be9ea1\",\n    \"status\": \"ok\",\n    \"prompt\": \"edit app\",\n    \"changedFiles\": 1\n  }\n]\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "restore",
+          "manual:run:3b9bcb4f-c357-4e92-aa7a-a567d27268b2",
+          "--yes"
+        ],
+        "code": 0,
+        "out": "Restore to the start of turn \"edit app\" (manual, 2026-10-20 00:55)\n  revert   .env  (changed since Turnback's last snapshot, maybe by you)\n  remove   local.txt\n  revert   src/app.py\nRestored 3 files.\nChanged your mind? Run: turnback redo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "redo",
+          "--yes"
+        ],
+        "code": 0,
+        "out": "Redo: return to the files as they were before the last restore\n  revert   .env\n  restore  local.txt\n  revert   src/app.py\nRestored 3 files.\nThe files before this redo are kept in refs/turnback/s/ac22d3fe7c4645f2b3c8d20f3fd0a590.\n"
+      }
+    ],
+    "S4/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# tweak\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "edit app"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (edit app: ~1 modified)\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "timeline"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Timeline ===\n@2 2026-10-19 19:25:05 UTC - edit app: ~1 modified\n    tree: 6 files (0.00 MB) | tree: 1f11c2e2\n\n@1 2026-10-19 19:25:05 UTC - base: Initial baseline (6 files)\n    tree: 6 files (0.00 MB) | tree: b8240278\n\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "undo",
+          "@1"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Restore Plan ===\n  - local.txt (will remove)\n  ~ src/app.py (will revert)\n\n\u2713 Successfully rolled back workspace to checkpoint @1\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "timeline"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Timeline ===\n@2 2026-10-19 19:25:05 UTC - edit app: ~1 modified\n    tree: 6 files (0.00 MB) | tree: 1f11c2e2\n\n@1 2026-10-19 19:25:05 UTC - base: Initial baseline (6 files)\n    tree: 6 files (0.00 MB) | tree: b8240278\n\n"
+      }
+    ],
+    "S4/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "6050111ad6f702fe28b621c4f2730d1fc8bdbbf9\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# tweak\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "edit app"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "6d8bbc7505e5aefe68ab7c01d35b94d75785fa02\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "reset",
+          "--hard",
+          "-q",
+          "6050111ad6f702fe28b621c4f2730d1fc8bdbbf9"
+        ],
+        "code": 0,
+        "out": ""
+      }
+    ],
+    "S5/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:06Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"c80497ce72e08094\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S5\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S5\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write(\"def total(a, d=0.0):\\n    return 'v2'\\n\")"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "v2",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:06Z\",\n    \"kind\": \"manual\",\n    \"label\": \"v2\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:132b87aec0d021d5ba51ff1fb0e32d6ea1cb5d97d3a0d1b5e27b5a81c8700b93\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "restore",
+          "1",
+          "--yes",
+          "--json"
+        ],
+        "code": 5,
+        "out": "{\n  \"error\": {\n    \"kind\": \"corrupt_object\",\n    \"message\": \"object blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957 is corrupt: payload could not be decoded: Data corruption detected\"\n  },\n  \"schema\": \"fabric.error/v1\"\n}\n"
+      }
+    ],
+    "S5/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "v2",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write(\"def total(a, d=0.0):\\n    return 'v2'\\n\")"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "list",
+          "--json"
+        ],
+        "code": 2,
+        "out": "git diff: error: packfile C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S5\\Turnback\\data\\tb-home\\b063ab6df8a3f527d8f00d10\\repo.git/objects/pack/pack-a8b81bf2b1c1273a5d35800856c13137549daf0f.pack does not match index\nerror: packfile C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S5\\Turnback\\data\\tb-home\\b063ab6df8a3f527d8f00d10\\repo.git/objects/pack/pack-a8b81bf2b1c1273a5d35800856c13137549daf0f.pack does not match index\nerror: packfile C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S5\\Turnback\\data\\tb-home\\b063ab6df8a3f527d8f00d10\\repo.git/objects/pack/pack-a8b81bf2b1c1273a5d35800856c13137549daf0f.pack does not match index\nerror: packfile C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S5\\Turnback\\data\\tb-home\\b063ab6df8a3f527d8f00d10\\repo.git/objects/pack/pack-a8b81bf2b1c1273a5d35800856c13137549daf0f.pack does not match index\nerror: packfile C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S5\\Turnback\\data\\tb-home\\b063ab6df8a3f527d8f00d10\\repo.git/objects/pack/pack-a8b81bf2b1c1273a5d35800856c13137549daf0f.pack does not match index\nerror: packfile C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S5\\Turnback\\data\\tb-home\\b063ab6df8a3f527d8f00d10\\repo.git/objects/pack/pack-a8b81bf2b1c1273a5d35800856c13137549daf0f.pack does not match index\nfatal: bad object refs/turnback/s/3d1557c1172344b18d580845978c50d1\n"
+      }
+    ],
+    "S5/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write(\"def total(a, d=0.0):\\n    return 'v2'\\n\")"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "v2"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (v2: ~1 modified)\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "timeline"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Timeline ===\n@2 2026-10-19 19:25:08 UTC - v2: ~1 modified\n    tree: 6 files (0.00 MB) | tree: cdf57952\n\n@1 2026-10-19 19:25:08 UTC - base: Initial baseline (6 files)\n    tree: 6 files (0.00 MB) | tree: b8240278\n\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "undo",
+          "@1"
+        ],
+        "code": 1,
+        "out": "Error: Custom { kind: InvalidData, error: Error(\"expected `,` or `}`\", line: 55, column: 1) }\n"
+      }
+    ],
+    "S5/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "6aaf16a6143fbbabcfc835f0b25acd4711ea367f\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write(\"def total(a, d=0.0):\\n    return 'v2'\\n\")"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "v2"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "f51c92b4c31a69c343d786e9e957a93b6b5ebab3\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "reset",
+          "--hard",
+          "-q",
+          "6aaf16a6143fbbabcfc835f0b25acd4711ea367f"
+        ],
+        "code": 128,
+        "out": "error: inflate: data stream error (incorrect data check)\nerror: corrupt loose object '6aaf16a6143fbbabcfc835f0b25acd4711ea367f'\nfatal: loose object 6aaf16a6143fbbabcfc835f0b25acd4711ea367f (stored in .git/objects/6a/af16a6143fbbabcfc835f0b25acd4711ea367f) is corrupt\n"
+      }
+    ],
+    "S6/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:09Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"7f65dd44743b47bb\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S6\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S6\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# v2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "v2",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:09Z\",\n    \"kind\": \"manual\",\n    \"label\": \"v2\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:6bfd8af73a52205ba0a9e8a9fc48e9671e0456f5e8578975118c2e6dd9b2c13f\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os,shutil\nfor p in os.listdir('.'):\n    if p.startswith('.') and os.path.isdir(p) and p!='.git': shutil.rmtree(p)"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "clean hidden dirs",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:09Z\",\n    \"kind\": \"manual\",\n    \"label\": \"clean hidden dirs\",\n    \"seq\": 3,\n    \"snapshot\": \"blake3:6bfd8af73a52205ba0a9e8a9fc48e9671e0456f5e8578975118c2e6dd9b2c13f\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "restore",
+          "1",
+          "--yes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"plan\": {\n    \"base\": \"blake3:6bfd8af73a52205ba0a9e8a9fc48e9671e0456f5e8578975118c2e6dd9b2c13f\",\n    \"conflicts\": [],\n    \"destructive\": true,\n    \"kept\": [],\n    \"operations\": [\n      {\n        \"executable\": false,\n        \"id\": \"blake3:b9b6b045fced7944f7b71f175a205fc42c92ef02b12f7a4075a05d115e3e7912\",\n        \"op\": \"write_file\",\n        \"path\": \"src/app.py\",\n        \"size\": 78\n      }\n    ],\n    \"summary\": {\n      \"create\": 0,\n      \"delete\": 0,\n      \"modify\": 1\n    },\n    \"target\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"recorded\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:09Z\",\n    \"kind\": \"restore\",\n    \"label\": \"restored #1\",\n    \"seq\": 4,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"report\": {\n    \"operations_applied\": 1,\n    \"target\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\",\n    \"undo_snapshot\": \"blake3:6bfd8af73a52205ba0a9e8a9fc48e9671e0456f5e8578975118c2e6dd9b2c13f\",\n    \"untracked_kept\": []\n  },\n  \"schema\": \"fabric.restore/v1\",\n  \"status\": \"applied\",\n  \"target\": \"#1\",\n  \"undo_checkpoint\": 3\n}\n"
+      }
+    ],
+    "S6/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "v2",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# v2\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "clean hidden dirs",
+          "--",
+          "python",
+          "-c",
+          "import os,shutil\nfor p in os.listdir('.'):\n    if p.startswith('.') and os.path.isdir(p) and p!='.git': shutil.rmtree(p)"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 0 files changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "list",
+          "--json"
+        ],
+        "code": 0,
+        "out": "[\n  {\n    \"id\": \"manual:run:5d061fcb-cb44-4420-a1da-c473182ebc3f\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:25:10.683Z\",\n    \"baseline\": \"refs/turnback/s/1c784571e41540c2937ae10a626533da\",\n    \"end\": \"refs/turnback/s/1c784571e41540c2937ae10a626533da\",\n    \"status\": \"ok\",\n    \"prompt\": \"clean hidden dirs\",\n    \"changedFiles\": 0\n  },\n  {\n    \"id\": \"manual:run:5a95ffb8-9f07-4ccb-873c-20e9a8e6a1e0\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:25:09.744Z\",\n    \"baseline\": \"refs/turnback/s/4b04a022aadd4e12bcd94e083ee45655\",\n    \"end\": \"refs/turnback/s/1c784571e41540c2937ae10a626533da\",\n    \"status\": \"ok\",\n    \"prompt\": \"v2\",\n    \"changedFiles\": 1\n  }\n]\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "restore",
+          "manual:run:5a95ffb8-9f07-4ccb-873c-20e9a8e6a1e0",
+          "--yes"
+        ],
+        "code": 0,
+        "out": "Restore to the start of turn \"v2\" (manual, 2026-10-20 00:55)\n  revert   src/app.py\nRestored 1 file.\nChanged your mind? Run: turnback redo --yes\n"
+      }
+    ],
+    "S6/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# v2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "v2"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (v2: ~1 modified)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os,shutil\nfor p in os.listdir('.'):\n    if p.startswith('.') and os.path.isdir(p) and p!='.git': shutil.rmtree(p)"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "clean hidden dirs"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (clean hidden dirs: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "timeline"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Timeline ===\n@1 2026-10-19 19:25:12 UTC - clean hidden dirs: Initial baseline (6 files)\n    tree: 6 files (0.00 MB) | tree: 5d71d847\n\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "undo",
+          "@1"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Restore Plan ===\nWorkspace is already identical to target checkpoint.\nNothing to undo. Workspace is already at target state.\n"
+      }
+    ],
+    "S6/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "c8e92e9cd006b7f04d2abbdd77a240f870917392\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount * (1 - discount), 2)\\n# v2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "v2"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "edddf8eaaf34eb3c1552fd78d85ae8e0225a2cc2\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os,shutil\nfor p in os.listdir('.'):\n    if p.startswith('.') and os.path.isdir(p) and p!='.git': shutil.rmtree(p)"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "clean hidden dirs"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "a9d3acee74a53652fd8173cb9b15ff9d4cae94e6\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "reset",
+          "--hard",
+          "-q",
+          "c8e92e9cd006b7f04d2abbdd77a240f870917392"
+        ],
+        "code": 0,
+        "out": ""
+      }
+    ],
+    "S7/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:13Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"e0aeaeb6b053471e\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S7\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S7\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/new_module.py') or '.',exist_ok=True);open('src/new_module.py','w',newline='\\n').write('y = 2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "new module",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:13Z\",\n    \"kind\": \"manual\",\n    \"label\": \"new module\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:bfdf1db96a8b3133fe126b7b92095f27f52b22770e9549f966c75aa6e9fb857a\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import subprocess;subprocess.run(['git','clean','-fdx','-q'])"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "git clean -fdx",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 0,\n      \"removed\": 1,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:13Z\",\n    \"kind\": \"manual\",\n    \"label\": \"git clean -fdx\",\n    \"seq\": 3,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "restore",
+          "2",
+          "--yes",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"plan\": {\n    \"base\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\",\n    \"conflicts\": [],\n    \"destructive\": false,\n    \"kept\": [],\n    \"operations\": [\n      {\n        \"executable\": false,\n        \"id\": \"blake3:ba31bad797c8b6c2e85c68a33dfb78cafd558c7d712c3d8904015506a01b9f9b\",\n        \"op\": \"write_file\",\n        \"path\": \"src/new_module.py\",\n        \"size\": 6\n      }\n    ],\n    \"summary\": {\n      \"create\": 1,\n      \"delete\": 0,\n      \"modify\": 0\n    },\n    \"target\": \"blake3:bfdf1db96a8b3133fe126b7b92095f27f52b22770e9549f966c75aa6e9fb857a\"\n  },\n  \"recorded\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:13Z\",\n    \"kind\": \"restore\",\n    \"label\": \"restored #2\",\n    \"seq\": 4,\n    \"snapshot\": \"blake3:bfdf1db96a8b3133fe126b7b92095f27f52b22770e9549f966c75aa6e9fb857a\"\n  },\n  \"report\": {\n    \"operations_applied\": 1,\n    \"target\": \"blake3:bfdf1db96a8b3133fe126b7b92095f27f52b22770e9549f966c75aa6e9fb857a\",\n    \"undo_snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\",\n    \"untracked_kept\": []\n  },\n  \"schema\": \"fabric.restore/v1\",\n  \"status\": \"applied\",\n  \"target\": \"#2\",\n  \"undo_checkpoint\": 3\n}\n"
+      }
+    ],
+    "S7/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "new module",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/new_module.py') or '.',exist_ok=True);open('src/new_module.py','w',newline='\\n').write('y = 2\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "git clean -fdx",
+          "--",
+          "python",
+          "-c",
+          "import subprocess;subprocess.run(['git','clean','-fdx','-q'])"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 2 files changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "list",
+          "--json"
+        ],
+        "code": 0,
+        "out": "[\n  {\n    \"id\": \"manual:run:04d77c38-1bd1-4d35-9f93-7712ce4106c0\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:25:15.343Z\",\n    \"baseline\": \"refs/turnback/s/90500cf0552247858c197d75cb3e3257\",\n    \"end\": \"refs/turnback/s/496fe824889646a98fdce5c25006d18b\",\n    \"status\": \"ok\",\n    \"prompt\": \"git clean -fdx\",\n    \"changedFiles\": 2\n  },\n  {\n    \"id\": \"manual:run:d516b026-cd29-40cf-84b8-3b7017e8b47d\",\n    \"agent\": \"manual\",\n    \"time\": \"2026-10-19T19:25:14.378Z\",\n    \"baseline\": \"refs/turnback/s/9599287f9f5142fe9cadf463449f58a3\",\n    \"end\": \"refs/turnback/s/90500cf0552247858c197d75cb3e3257\",\n    \"status\": \"ok\",\n    \"prompt\": \"new module\",\n    \"changedFiles\": 1\n  }\n]\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "restore",
+          "manual:run:04d77c38-1bd1-4d35-9f93-7712ce4106c0",
+          "--yes"
+        ],
+        "code": 0,
+        "out": "Restore to the start of turn \"git clean -fdx\" (manual, 2026-10-20 00:55)\n  restore  .env\n  restore  src/new_module.py\nRestored 2 files.\nChanged your mind? Run: turnback redo --yes\n"
+      }
+    ],
+    "S7/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/new_module.py') or '.',exist_ok=True);open('src/new_module.py','w',newline='\\n').write('y = 2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "new module"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (new module: +1 added)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import subprocess;subprocess.run(['git','clean','-fdx','-q'])"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "git clean -fdx"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (git clean -fdx: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "timeline"
+        ],
+        "code": 0,
+        "out": "\n=== Safepoint Timeline ===\n@1 2026-10-19 19:25:17 UTC - git clean -fdx: Initial baseline (6 files)\n    tree: 6 files (0.00 MB) | tree: b8240278\n\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "undo",
+          "@2"
+        ],
+        "code": 1,
+        "out": "Error: Checkpoint '@2' not found.\n"
+      }
+    ],
+    "S7/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "9e631921939f8ccd6fdc7fee4b08de3c608ebd12\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/new_module.py') or '.',exist_ok=True);open('src/new_module.py','w',newline='\\n').write('y = 2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "new module"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "fba227a50e618f7e18d57587b1bf0364e1b833f8\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import subprocess;subprocess.run(['git','clean','-fdx','-q'])"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "git clean -fdx"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "7b9e3e96dc7b6e1651a4dd1bd84b43dda8068440\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "reset",
+          "--hard",
+          "-q",
+          "fba227a50e618f7e18d57587b1bf0364e1b833f8"
+        ],
+        "code": 0,
+        "out": ""
+      }
+    ],
+    "S8/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:18Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"6c8ddf85077740f7\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S8\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S8\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "add feature",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:18Z\",\n    \"kind\": \"manual\",\n    \"label\": \"add feature\",\n    \"seq\": 2,\n    \"snapshot\": \"blake3:23f20c353645774c4dea9411417f1c94dfecc1d11ac37008065f287d903d0908\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('README.md') or '.',exist_ok=True);open('README.md','w',newline='\\n').write('# shop v2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "readme",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:18Z\",\n    \"kind\": \"manual\",\n    \"label\": \"readme\",\n    \"seq\": 3,\n    \"snapshot\": \"blake3:558f85a3fb20981f872f7f77ed73f88879ef7384b015d21ea5396dde1663bdf2\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "break discount",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:18Z\",\n    \"kind\": \"manual\",\n    \"label\": \"break discount\",\n    \"seq\": 4,\n    \"snapshot\": \"blake3:519c79d126ea1109f283862c8ea4d881ffbadec1d63484c522c8c500d7b393bc\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "docs",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:18Z\",\n    \"kind\": \"manual\",\n    \"label\": \"docs\",\n    \"seq\": 5,\n    \"snapshot\": \"blake3:96556f1eec1f9f837e09485dfb2dd7b7b3fd91002b24e3d02084f6c9985eaf37\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/more.py') or '.',exist_ok=True);open('src/more.py','w',newline='\\n').write('z = 3\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "checkpoint",
+          "-m",
+          "more",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 1,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:18Z\",\n    \"kind\": \"manual\",\n    \"label\": \"more\",\n    \"seq\": 6,\n    \"snapshot\": \"blake3:b71fc1553f41064adf4d9f54e33313547417b58c052cee7e76b2a344260f44d0\"\n  },\n  \"recorded\": true,\n  \"schema\": \"fabric.checkpoint/v1\",\n  \"skipped\": []\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "bisect",
+          "--test",
+          "python -m unittest -q",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"candidates\": 6,\n  \"command\": \"python -m unittest -q\",\n  \"diff\": {\n    \"added\": [],\n    \"modified\": [\n      \"src/app.py\"\n    ],\n    \"removed\": [],\n    \"renamed\": []\n  },\n  \"first_bad\": {\n    \"changes\": {\n      \"added\": 0,\n      \"modified\": 1,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:18Z\",\n    \"kind\": \"manual\",\n    \"label\": \"break discount\",\n    \"seq\": 4,\n    \"snapshot\": \"blake3:519c79d126ea1109f283862c8ea4d881ffbadec1d63484c522c8c500d7b393bc\"\n  },\n  \"last_good\": 3,\n  \"schema\": \"fabric.bisect/v1\",\n  \"test_runs\": 4\n}\n"
+      }
+    ],
+    "S8/Turnback": [
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "add feature",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "readme",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('README.md') or '.',exist_ok=True);open('README.md','w',newline='\\n').write('# shop v2\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "break discount",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "docs",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      },
+      {
+        "cmd": [
+          "node",
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\npm\\node_modules\\turnback\\dist\\cli.js",
+          "run",
+          "--label",
+          "more",
+          "--",
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/more.py') or '.',exist_ok=True);open('src/more.py','w',newline='\\n').write('z = 3\\n')"
+        ],
+        "code": 0,
+        "out": "turnback: recorded as turn #1: 1 file changed. Undo with: turnback undo --yes\n"
+      }
+    ],
+    "S8/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "add feature"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @2 (add feature: +1 added)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('README.md') or '.',exist_ok=True);open('README.md','w',newline='\\n').write('# shop v2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "readme"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @3 (readme: ~1 modified)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "break discount"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @4 (break discount: ~1 modified)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "docs"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @5 (docs: +1 added)\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/more.py') or '.',exist_ok=True);open('src/more.py','w',newline='\\n').write('z = 3\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "more"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @6 (more: +1 added)\n"
+      }
+    ],
+    "S8/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "fcf2cd0ca576b01eeb6dc2912846b76b0d5e61b4\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/feature.py') or '.',exist_ok=True);open('src/feature.py','w',newline='\\n').write('x = 1\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "add feature"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "6d452d3ddde8f43c905456acfd709c0d71b48397\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('README.md') or '.',exist_ok=True);open('README.md','w',newline='\\n').write('# shop v2\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "readme"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "979c1deca73b6aad85c713929be7ef3ddea8fcc1\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/app.py') or '.',exist_ok=True);open('src/app.py','w',newline='\\n').write('def total(amount, discount=0.0):\\n    return round(amount - discount, 2)\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "break discount"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "9999b9728d54523b723e0a8ba714baea21e7ade1\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('docs.md') or '.',exist_ok=True);open('docs.md','w',newline='\\n').write('docs\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "docs"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "9f7f3c862a89c8062690e8d895bb1c9af1550628\n"
+      },
+      {
+        "cmd": [
+          "python",
+          "-c",
+          "import os;os.makedirs(os.path.dirname('src/more.py') or '.',exist_ok=True);open('src/more.py','w',newline='\\n').write('z = 3\\n')"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "add",
+          "-A"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "more"
+        ],
+        "code": 0,
+        "out": ""
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "3045a62ddf3ddfb69c0967ac3be70eb153f45315\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "bisect",
+          "start",
+          "3045a62ddf3ddfb69c0967ac3be70eb153f45315",
+          "fcf2cd0ca576b01eeb6dc2912846b76b0d5e61b4"
+        ],
+        "code": 0,
+        "out": "Bisecting: 2 revisions left to test after this (roughly 1 step)\n[979c1deca73b6aad85c713929be7ef3ddea8fcc1] readme\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "bisect",
+          "run",
+          "python",
+          "-m",
+          "unittest",
+          "-q"
+        ],
+        "code": 0,
+        "out": "r this (roughly 1 step)\n[9f7f3c862a89c8062690e8d895bb1c9af1550628] docs\nrunning 'python' '-m' 'unittest' '-q'\nBisecting: 0 revisions left to test after this (roughly 0 steps)\n[9999b9728d54523b723e0a8ba714baea21e7ade1] break discount\nrunning 'python' '-m' 'unittest' '-q'\n9999b9728d54523b723e0a8ba714baea21e7ade1 is the first 'bad' commit\ncommit 9999b9728d54523b723e0a8ba714baea21e7ade1\nAuthor: bench <bench@example.com>\nDate:   Tue Oct 20 00:55:24 2026 +0530\n\n    break discount\n\n src/app.py | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\nbisect found first 'bad' commit\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n======================================================================\nFAIL: test_discount (tests.test_app.T.test_discount)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S8\\Git\\project\\tests\\test_app.py\", line 7, in test_discount\n    self.assertEqual(total(100, 0.1), 90.0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 99.9 != 90.0\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n======================================================================\nFAIL: test_discount (tests.test_app.T.test_discount)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\runs\\S8\\Git\\project\\tests\\test_app.py\", line 7, in test_discount\n    self.assertEqual(total(100, 0.1), 90.0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 99.9 != 90.0\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "refs/bisect/bad"
+        ],
+        "code": 0,
+        "out": "9999b9728d54523b723e0a8ba714baea21e7ade1\n"
+      },
+      {
+        "cmd": [
+          "git",
+          "bisect",
+          "reset"
+        ],
+        "code": 0,
+        "out": "Previous HEAD position was 9999b97 break discount\nSwitched to branch 'master'\n"
+      }
+    ],
+    "S9/Fabric": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "init",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"checkpoint\": {\n    \"changes\": {\n      \"added\": 8,\n      \"modified\": 0,\n      \"removed\": 0,\n      \"renamed\": 0\n    },\n    \"created_at\": \"2026-10-19T19:25:26Z\",\n    \"kind\": \"init\",\n    \"label\": \"start recording\",\n    \"seq\": 1,\n    \"snapshot\": \"blake3:53f6b984adeaf0f259831e2ddeeba33cb1e47b01a89f16b716a911cefb302957\"\n  },\n  \"newly_registered\": true,\n  \"project\": {\n    \"id\": \"d6b5ee76cfe10f2c\",\n    \"root\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S9\\\\Fabric\\\\project\"\n  },\n  \"schema\": \"fabric.init/v1\",\n  \"skipped\": [],\n  \"store\": \"C:\\\\Users\\\\Harsha\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Harsha-Pictures-project\\\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\\\scratchpad\\\\bench\\\\runs\\\\S9\\\\Fabric\\\\data\\\\fabric-home\\\\store\"\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "guard",
+          "check",
+          "rm -rf src",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"schema\": \"fabric.guard.check/v1\",\n  \"verdict\": {\n    \"decision\": \"ask\",\n    \"reason\": \"Deleting directories recursively\",\n    \"rule\": \"recursive-delete\"\n  }\n}\n"
+      },
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\Pictures\\project\\target\\release\\fabric.exe",
+          "guard",
+          "check",
+          "git clean -fdx",
+          "--json"
+        ],
+        "code": 0,
+        "out": "{\n  \"schema\": \"fabric.guard.check/v1\",\n  \"verdict\": {\n    \"decision\": \"ask\",\n    \"reason\": \"Discarding work or rewriting Git history\",\n    \"rule\": \"git-history-rewrite\"\n  }\n}\n"
+      }
+    ],
+    "S9/Turnback": [],
+    "S9/agent-safepoint": [
+      {
+        "cmd": [
+          "C:\\Users\\Harsha\\AppData\\Local\\Temp\\claude\\C--Users-Harsha-Pictures-project\\e13a0b5b-aacb-4a47-8a19-f07a82221c9c\\scratchpad\\bench\\tools\\safepoint-target\\release\\safepoint.exe",
+          "checkpoint",
+          "-m",
+          "base"
+        ],
+        "code": 0,
+        "out": "\u2713 Created checkpoint @1 (base: Initial baseline (6 files))\n"
+      }
+    ],
+    "S9/git (commit every step)": [
+      {
+        "cmd": [
+          "git",
+          "rev-parse",
+          "HEAD"
+        ],
+        "code": 0,
+        "out": "53d5ec0434bdac2f65d5d438782c9d61d0c001a9\n"
+      }
+    ]
+  },
+  "perf_files": 3000
+}

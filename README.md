@@ -10,11 +10,17 @@ agent query that history, and lets you undo any single step with a verified resu
 ## Try it
 
 ```sh
-cargo install --path crates/fabric-cli   # installs the `fabric` command
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/Project-Fabric/fabric/main/install.sh | sh
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Project-Fabric/fabric/main/install.ps1 | iex
+# or from source
+cargo install --path crates/fabric-cli
 
 cd your-project
 fabric init                      # start recording
 fabric integrate claude-code     # checkpoint every Claude Code prompt and change
+fabric integrate codex           # let Codex see what Claude did, and vice versa
 # ... let the agent work ...
 fabric log                       # the timeline of what happened
 fabric diff 3                    # what changed since checkpoint 3
@@ -22,7 +28,12 @@ fabric restore 3 --yes           # go back; verified, and undoable
 
 fabric bisect --test "pytest -x" # which agent step broke the tests?
 fabric revert 7 --yes            # undo just that step, keep everything after it
+fabric show 7                    # exactly what step 7 changed
+fabric history src/auth.py       # every change to a file, and which agent made it
 ```
+
+Connected agents get the same history through Fabric's MCP server: before touching a file,
+Codex can ask what Claude already tried on it and whether the tests passed.
 
 See [docs/CLI.md](docs/CLI.md) for every command, JSON output and exit codes.
 

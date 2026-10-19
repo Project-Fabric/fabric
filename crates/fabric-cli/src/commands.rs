@@ -16,6 +16,7 @@ use crate::checkpoint::{
 };
 use crate::error::{CliError, exit};
 use crate::home::{Home, Project, display_path};
+use crate::query;
 
 /// Most operations listed in human-readable restore output; JSON always has all of them.
 const MAX_LISTED: usize = 30;
@@ -92,15 +93,48 @@ pub fn init(ctx: &Ctx, path: Option<PathBuf>) -> Result<u8, CliError> {
             "checkpoint": checkpoint,
             "skipped": snapshot.as_ref().map(|s| &s.skipped),
         }),
-        || match (&checkpoint, &snapshot) {
-            (Some(c), Some(s)) => format!(
-                "Recording {root}\nCheckpoint #{}: {} files, {} directories\n",
-                c.seq, s.stats.files, s.stats.dirs
-            ),
-            _ => format!("Already recording {root}\n"),
+        || {
+            let mut out = match (&checkpoint, &snapshot) {
+                (Some(c), Some(s)) => format!(
+                    "Recording {root}\nCheckpoint #{}: {} files, {} directories\n",
+                    c.seq, s.stats.files, s.stats.dirs
+                ),
+                _ => format!("Already recording {root}\n"),
+            };
+            out.push_str(&next_steps());
+            out
         },
     );
     Ok(exit::OK)
+}
+
+/// Suggests connecting the agents that appear to be installed.
+fn next_steps() -> String {
+    let on_path = |names: &[&str]| {
+        env::var_os("PATH").is_some_and(|path| {
+            env::split_paths(&path).any(|dir| names.iter().any(|n| dir.join(n).is_file()))
+        })
+    };
+    let mut steps = Vec::new();
+    if on_path(&["claude", "claude.exe", "claude.cmd"]) {
+        steps.push(
+            "fabric integrate claude-code   # checkpoint every Claude Code prompt and change",
+        );
+    }
+    if on_path(&["codex", "codex.exe", "codex.cmd"])
+        || dirs::home_dir().is_some_and(|home| home.join(".codex").is_dir())
+    {
+        steps.push("fabric integrate codex         # let Codex see what other agents did");
+    }
+    if steps.is_empty() {
+        return "Next: run `fabric integrate claude-code` or `fabric integrate codex` to connect an agent.\n"
+            .to_owned();
+    }
+    let mut out = String::from("\nConnect your agents:\n");
+    for step in steps {
+        let _ = writeln!(out, "  {step}");
+    }
+    out
 }
 
 pub fn checkpoint(
@@ -447,6 +481,33 @@ fn run_plan(
             }
             out
         },
+    );
+    Ok(exit::OK)
+}
+
+pub fn show(ctx: &Ctx, seq: u64) -> Result<u8, CliError> {
+    let project = ctx.project()?;
+    let store = ctx.home.open_store()?;
+    let text = query::step(&store, &project, seq)?;
+    ctx.emit(
+        "fabric.show/v1",
+        json!({ "checkpoint": seq, "text": text }),
+        || text.clone(),
+    );
+    Ok(exit::OK)
+}
+
+pub fn history(ctx: &Ctx, path: &str, limit: usize) -> Result<u8, CliError> {
+    let project = ctx.project()?;
+    let store = ctx.home.open_store()?;
+    // Paths typed by people are relative to where they are, not to the project root.
+    let cwd = env::current_dir().map_err(|e| CliError::io(&PathBuf::from("."), e))?;
+    let absolute = cwd.join(path);
+    let text = query::file_history(&store, &project, &absolute.to_string_lossy(), limit)?;
+    ctx.emit(
+        "fabric.history/v1",
+        json!({ "path": path, "text": text }),
+        || text.clone(),
     );
     Ok(exit::OK)
 }

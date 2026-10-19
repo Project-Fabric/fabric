@@ -179,6 +179,38 @@ fn canonical_dir(path: &Path) -> Result<PathBuf, CliError> {
     Ok(canonical)
 }
 
+/// A path as an agent or person gave it, made relative to the project root with `/`
+/// separators — the form used in manifests and timelines. Returned unchanged (apart from
+/// separators) if it is not inside the project.
+///
+/// Agents report paths as they see them, which can differ from the project's canonical root
+/// (macOS `/var` vs `/private/var`, Windows 8.3 short names), so the path is resolved first.
+/// A deleted file cannot be resolved, so its parent directory is.
+pub fn project_relative(target: &str, root: &Path) -> String {
+    let path = Path::new(target);
+    let resolved = fs::canonicalize(path).ok().or_else(|| {
+        let parent = fs::canonicalize(path.parent()?).ok()?;
+        Some(parent.join(path.file_name()?))
+    });
+    resolved
+        .as_deref()
+        .and_then(|resolved| resolved.strip_prefix(root).ok())
+        .map(|relative| {
+            relative
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .unwrap_or_else(|| {
+            if cfg!(windows) {
+                target.replace('\\', "/")
+            } else {
+                target.to_owned()
+            }
+        })
+}
+
 /// Paths as people expect to read them: without Windows' `\\?\` verbatim prefix.
 pub fn display_path(path: &Path) -> String {
     let text = path.to_string_lossy();
@@ -196,4 +228,34 @@ pub fn write_durably(path: &Path, contents: &[u8]) -> Result<(), CliError> {
         .map_err(|e| CliError::io(&temp, e))?;
     drop(file);
     fs::rename(&temp, path).map_err(|e| CliError::io(path, e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_relative_resolves_paths_before_comparing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "").unwrap();
+
+        // The non-canonical form an agent may report (e.g. /var vs /private/var on macOS).
+        let reported = dir.path().join("src").join("main.rs");
+        assert_eq!(
+            project_relative(&reported.to_string_lossy(), &root),
+            "src/main.rs"
+        );
+        let deleted = dir.path().join("src").join("gone.rs");
+        assert_eq!(
+            project_relative(&deleted.to_string_lossy(), &root),
+            "src/gone.rs"
+        );
+        assert_eq!(project_relative("src/lib.rs", &root), "src/lib.rs");
+        assert_eq!(
+            project_relative("/elsewhere/x.rs", &root),
+            "/elsewhere/x.rs"
+        );
+    }
 }

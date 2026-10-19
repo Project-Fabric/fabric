@@ -7,35 +7,23 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::fs::File;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use fabric_recovery::{RecoveryError, apply_restore, plan_restore};
 use fabric_snapshot::{Manifest, capture, diff};
 use fabric_store::{ObjectId, Store};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::checkpoint::{Checkpoint, CheckpointKind, Meta, read_log, record_manifest, resolve};
 use crate::commands::{Ctx, changes_text, diff_lines};
 use crate::error::{CliError, exit};
 use crate::home::Project;
+use crate::results::{self, TestResult};
 use crate::timefmt;
 
-const RESULTS_FILE: &str = "test-results.jsonl";
 const OUTPUT_FILE: &str = "last-test-output.log";
-
-/// A recorded test outcome: the history of which states passed which test command.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct TestResult {
-    snapshot: ObjectId,
-    command: String,
-    passed: bool,
-    exit_code: Option<i32>,
-    tested_at: String,
-}
 
 struct Tester<'a> {
     ctx: &'a Ctx,
@@ -57,7 +45,7 @@ impl Tester<'_> {
         let (passed, exit_code) = run_test(self.project, self.command)?;
         self.runs += 1;
         self.known.insert(checkpoint.snapshot, passed);
-        append_result(
+        results::append(
             self.project,
             &TestResult {
                 snapshot: checkpoint.snapshot,
@@ -287,16 +275,4 @@ fn shell(command: &str) -> Command {
     let mut shell = Command::new("sh");
     shell.arg("-c").arg(command);
     shell
-}
-
-fn append_result(project: &Project, result: &TestResult) -> Result<(), CliError> {
-    let path = project.dir.join(RESULTS_FILE);
-    let mut line = serde_json::to_string(result).expect("results always serialize");
-    line.push('\n');
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .and_then(|mut file| file.write_all(line.as_bytes()))
-        .map_err(|e| CliError::io(&path, e))
 }

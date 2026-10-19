@@ -39,10 +39,9 @@ impl Fixture {
     }
 
     fn run_with_stdin(&self, args: &[&str], stdin: &str) -> Run {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_fabric"))
+        let mut child = self
+            .command()
             .args(args)
-            .current_dir(&self.project)
-            .env("FABRIC_HOME", &self.home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -60,6 +59,21 @@ impl Fixture {
             stdout: String::from_utf8(output.stdout).unwrap(),
             stderr: String::from_utf8(output.stderr).unwrap(),
         }
+    }
+
+    /// `fabric`, isolated from the real user configuration: its own data directory, a Codex
+    /// home inside the fixture, and no access to the real `claude` CLI.
+    fn command(&self) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_fabric"));
+        command
+            .current_dir(&self.project)
+            .env("FABRIC_HOME", &self.home)
+            .env("CODEX_HOME", self.home.with_file_name("codex-home"))
+            .env(
+                "FABRIC_CLAUDE_BIN",
+                self.home.with_file_name("no-such-claude"),
+            );
+        command
     }
 
     fn run(&self, args: &[&str]) -> Run {
@@ -199,10 +213,10 @@ fn works_from_subdirectories_of_the_project() {
     let fx = Fixture::new();
     fx.write("deep/nested/file.txt", "x");
     fx.ok_json(&["init", "--json"]);
-    let output = Command::new(env!("CARGO_BIN_EXE_fabric"))
+    let output = fx
+        .command()
         .args(["log", "--json"])
         .current_dir(fx.project.join("deep/nested"))
-        .env("FABRIC_HOME", &fx.home)
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -421,6 +435,193 @@ fn revert_refuses_when_a_later_step_changed_the_same_file() {
     assert_eq!(out["conflicts"][0]["path"], "x.txt");
     assert_eq!(out["conflicts"][0]["reason"], "changed_later");
     assert_eq!(fx.read("x.txt"), "3");
+}
+
+/// Speaks MCP to `fabric mcp`: sends every request, closes stdin, returns responses by id.
+fn mcp_session(fx: &Fixture, requests: &[Value]) -> std::collections::HashMap<u64, Value> {
+    let input: String = requests.iter().map(|r| format!("{r}\n")).collect();
+    let run = fx.run_with_stdin(&["mcp"], &input);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    run.stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .map(|response| (response["id"].as_u64().unwrap(), response))
+        .collect()
+}
+
+fn tool_call(id: u64, name: &str, arguments: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": { "name": name, "arguments": arguments } })
+}
+
+fn tool_text(response: &Value) -> &str {
+    assert_ne!(response["result"]["isError"], true, "{response}");
+    response["result"]["content"][0]["text"].as_str().unwrap()
+}
+
+#[test]
+fn mcp_server_lets_another_agent_see_what_claude_did() {
+    let fx = Fixture::new();
+    fx.write("src/auth.py", "def login():\n    return check(user)\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.write(
+        "src/auth.py",
+        "def login():\n    return check(user, token)\n",
+    );
+    fx.ok_json(&[
+        "checkpoint",
+        "-m",
+        "Edit src/auth.py",
+        "--agent",
+        "claude-code",
+        "--json",
+    ]);
+    // Codex then fixes something, and records it through MCP.
+    fx.write(
+        "src/auth.py",
+        "def login():\n    return check(user, token, mfa)\n",
+    );
+
+    let responses = mcp_session(
+        &fx,
+        &[
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": { "name": "codex-test", "version": "1" } } }),
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
+            tool_call(3, "fabric_file_history", json!({ "path": "src/auth.py" })),
+            tool_call(4, "fabric_step", json!({ "checkpoint": 2 })),
+            tool_call(5, "fabric_timeline", json!({ "limit": 5 })),
+            tool_call(
+                6,
+                "fabric_checkpoint",
+                json!({ "message": "add MFA to login" }),
+            ),
+            tool_call(7, "fabric_step", json!({})),
+            json!({ "jsonrpc": "2.0", "id": 8, "method": "no/such/method" }),
+        ],
+    );
+
+    let init = &responses[&1]["result"];
+    assert_eq!(init["protocolVersion"], "2025-06-18");
+    assert_eq!(init["serverInfo"]["name"], "fabric");
+    assert!(
+        init["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("fabric_file_history")
+    );
+
+    let tools: Vec<_> = responses[&2]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        tools,
+        [
+            "fabric_timeline",
+            "fabric_file_history",
+            "fabric_step",
+            "fabric_test_results",
+            "fabric_checkpoint"
+        ]
+    );
+    // No tool can restore, revert or delete: destructive actions stay with people.
+    assert!(
+        !tools
+            .iter()
+            .any(|t| t.contains("restore") || t.contains("revert"))
+    );
+
+    let history = tool_text(&responses[&3]);
+    assert!(history.contains("History of src/auth.py"), "{history}");
+    assert!(
+        history.contains("#2") && history.contains("claude-code"),
+        "{history}"
+    );
+    assert!(history.contains("modified"), "{history}");
+
+    let step = tool_text(&responses[&4]);
+    assert!(step.contains("-    return check(user)"), "{step}");
+    assert!(step.contains("+    return check(user, token)"), "{step}");
+
+    assert!(tool_text(&responses[&5]).contains("Edit src/auth.py"));
+    assert!(tool_text(&responses[&6]).contains("Recorded checkpoint #3"));
+    assert_eq!(responses[&7]["result"]["isError"], true);
+    assert_eq!(responses[&8]["error"]["code"], -32601);
+
+    let latest = &fx.log()[0];
+    assert_eq!(latest["label"], "add MFA to login");
+    assert_eq!(latest["agent"], "codex-test");
+    assert_eq!(latest["kind"], "agent_step");
+}
+
+#[test]
+fn show_and_history_explain_steps_to_people() {
+    let fx = Fixture::new();
+    fx.write("app.py", "x = 1\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.write("app.py", "x = 2\n");
+    fx.ok_json(&["checkpoint", "-m", "bump x", "--agent", "codex", "--json"]);
+
+    let show = fx.run(&["show", "2"]);
+    assert_eq!(show.code, 0, "{}", show.stderr);
+    assert!(
+        show.stdout.contains("-x = 1") && show.stdout.contains("+x = 2"),
+        "{}",
+        show.stdout
+    );
+
+    let history = fx.run(&["history", "app.py"]);
+    assert_eq!(history.code, 0, "{}", history.stderr);
+    assert!(history.stdout.contains("codex"), "{}", history.stdout);
+    assert!(history.stdout.contains("created"), "{}", history.stdout);
+}
+
+#[test]
+fn integrate_codex_adds_the_mcp_server_and_keeps_existing_config() {
+    let fx = Fixture::new();
+    let codex_home = fx.home.with_file_name("codex-home");
+    fs::create_dir_all(&codex_home).unwrap();
+    fs::write(
+        codex_home.join("config.toml"),
+        "# my settings\nmodel = \"gpt-5\"\n\n[mcp_servers.other]\ncommand = \"other-server\"\n",
+    )
+    .unwrap();
+
+    let first = fx.ok_json(&["integrate", "codex", "--json"]);
+    assert_eq!(first["changed"], true);
+    assert_eq!(
+        fx.ok_json(&["integrate", "codex", "--json"])["changed"],
+        false
+    );
+
+    let config = fs::read_to_string(codex_home.join("config.toml")).unwrap();
+    assert!(
+        config.starts_with("# my settings\nmodel = \"gpt-5\""),
+        "{config}"
+    );
+    assert!(config.contains("[mcp_servers.other]"), "{config}");
+    assert!(config.contains("[mcp_servers.fabric]"), "{config}");
+    assert!(config.contains("args = [\"mcp\"]"), "{config}");
+}
+
+#[test]
+fn integrate_claude_code_explains_how_to_add_the_mcp_server_when_claude_is_missing() {
+    let fx = Fixture::new();
+    fx.ok_json(&["init", "--json"]);
+    let out = fx.ok_json(&["integrate", "claude-code", "--json"]);
+    assert_eq!(out["mcp_server"]["status"], "manual");
+    assert!(
+        out["mcp_server"]["command"]
+            .as_str()
+            .unwrap()
+            .starts_with("claude mcp add --scope user fabric -- ")
+    );
 }
 
 #[test]

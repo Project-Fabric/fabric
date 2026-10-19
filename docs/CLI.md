@@ -9,8 +9,56 @@ fabric diff [FROM] [TO]            # default: latest checkpoint -> the project n
 fabric restore CHECKPOINT [--yes]  # shows the plan; applies only with --yes
 fabric revert CHECKPOINT [--yes]   # undo one checkpoint's changes, keep everything after it
 fabric bisect --test CMD [--good N] [--bad N]   # find where CMD started failing
+fabric show CHECKPOINT             # what one checkpoint changed, with diffs
+fabric history PATH [-n N]         # every recorded change to a file, and who made it
 fabric resume                      # finish an interrupted restore
+fabric integrate claude-code|codex # connect an agent
+fabric mcp                         # MCP server (started by agents, not people)
 ```
+
+## Installing
+
+macOS and Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Project-Fabric/fabric/main/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Project-Fabric/fabric/main/install.ps1 | iex
+```
+
+Both download the latest release for your platform, verify its SHA-256 checksum, install
+`fabric`, and tell you if it is not on your `PATH`. From source: `cargo install --path
+crates/fabric-cli`. Releases are built by `.github/workflows/release.yml` when a `v*` tag is
+pushed. (While the repository is private, the install scripts need it to be public, or a
+download through `gh release download`.)
+
+## Sharing history between agents: MCP
+
+`fabric mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio.
+Any agent connected to it can ask what other agents did in the project:
+
+| Tool | What it answers |
+|------|-----------------|
+| `fabric_timeline` | Recent checkpoints across all agents, with test results |
+| `fabric_file_history` | Every change to one file: which agent, which step, did tests pass |
+| `fabric_step` | Exactly what one checkpoint changed, with unified diffs |
+| `fabric_test_results` | Recorded test runs and the checkpoint each ran against |
+| `fabric_checkpoint` | Record the current state with a description (agents without hooks, like Codex, use this) |
+
+Agents can read history and add checkpoints, but there is no tool to restore, revert or delete:
+destructive operations stay with people. The server finds the project from its working
+directory (or a `project` argument), opens the store only for the duration of each call, and
+tells connecting agents in its instructions to check a file's history before changing it.
+
+- `fabric integrate claude-code` registers it for all your projects with
+  `claude mcp add --scope user`, alongside the hooks. If the `claude` command is not found it
+  prints the command to run instead.
+- `fabric integrate codex` adds `[mcp_servers.fabric]` to `$CODEX_HOME/config.toml` (default
+  `~/.codex/config.toml`), keeping the rest of the file exactly as it was.
 
 ## Undoing one step: `revert`
 
@@ -74,7 +122,8 @@ projects; a stat cache to skip unchanged files is the next performance task.
 Pass `--json` to any command. Output is one JSON object with a `schema` field naming its
 versioned format: `fabric.init/v1`, `fabric.checkpoint/v1`, `fabric.log/v1`,
 `fabric.diff/v1`, `fabric.restore/v1`, `fabric.revert/v1`, `fabric.bisect/v1`,
-`fabric.resume/v1`, `fabric.integrate/v1`, and on failure `fabric.error/v1`:
+`fabric.show/v1`, `fabric.history/v1`, `fabric.resume/v1`, `fabric.integrate/v1`, and on
+failure `fabric.error/v1`:
 
 ```json
 { "schema": "fabric.error/v1", "error": { "kind": "not_a_project", "message": "…" } }

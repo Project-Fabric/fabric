@@ -7,6 +7,8 @@
 //!   with the prompt, so "undo everything since I asked X" is always possible.
 //! - `PostToolUse` on file-changing tools: checkpoint after each step that changed the project.
 //!
+//! It also registers `fabric mcp` with Claude Code, so Claude can query what other agents did.
+//!
 //! Hooks run `fabric hook claude-code`, which reads Claude Code's event JSON on stdin. It
 //! must never disrupt the agent: it prints nothing (stdout from a prompt hook would be added
 //! to Claude's context), always exits 0, and records failures in `<home>/hook-errors.log`.
@@ -15,13 +17,14 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use fabric_snapshot::capture;
 use serde_json::{Value, json};
 
 use crate::checkpoint::{CheckpointKind, Meta, record};
 use crate::error::{CliError, exit};
-use crate::home::{Home, display_path, write_durably};
+use crate::home::{Home, display_path, project_relative, write_durably};
 use crate::timefmt;
 
 const AGENT: &str = "claude-code";
@@ -77,7 +80,7 @@ fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
             let target = ["file_path", "notebook_path", "path"]
                 .iter()
                 .find_map(|key| input[*key].as_str())
-                .map(|path| relative_to(path, &project.root))
+                .map(|path| project_relative(path, &project.root))
                 .or_else(|| input["command"].as_str().map(str::to_owned))
                 .unwrap_or_default();
             let name = tool.as_deref().unwrap_or("tool");
@@ -99,30 +102,6 @@ fn handle_event(home: &Home, input: &str) -> Result<(), CliError> {
     let snapshot = capture(&store, &project.root)?;
     record(&store, &project, &snapshot, meta, if_changed)?;
     Ok(())
-}
-
-/// Shows a file path relative to the project, which is how people read it in a timeline.
-///
-/// Agents report paths as they see them, which can differ from the project's canonical root
-/// (macOS `/var` vs `/private/var`, Windows 8.3 short names), so the path is resolved first.
-/// A deleted file cannot be resolved, so its parent directory is.
-fn relative_to(target: &str, root: &Path) -> String {
-    let path = Path::new(target);
-    let resolved = fs::canonicalize(path).ok().or_else(|| {
-        let parent = fs::canonicalize(path.parent()?).ok()?;
-        Some(parent.join(path.file_name()?))
-    });
-    resolved
-        .as_deref()
-        .and_then(|resolved| resolved.strip_prefix(root).ok())
-        .map(|relative| {
-            relative
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy())
-                .collect::<Vec<_>>()
-                .join("/")
-        })
-        .unwrap_or_else(|| target.to_owned())
 }
 
 /// The first line, whitespace collapsed, cut to a readable length.
@@ -171,10 +150,8 @@ pub fn integrate(home: &Home, json_output: bool) -> Result<u8, CliError> {
         ));
     }
 
-    let exe = env::current_exe().map_err(|e| CliError::io(Path::new("fabric"), e))?;
-    let exe = fs::canonicalize(&exe).unwrap_or(exe);
-    // Forward slashes work in every shell Claude Code may run hooks with on Windows.
-    let command = format!("\"{}\" {HOOK_ARGS}", display_path(&exe).replace('\\', "/"));
+    let exe = fabric_exe()?;
+    let command = format!("\"{exe}\" {HOOK_ARGS}");
     let mut changed = ensure_hook(&mut settings, "UserPromptSubmit", None, &command)?;
     changed |= ensure_hook(&mut settings, "PostToolUse", Some(CHANGING_TOOLS), &command)?;
 
@@ -184,6 +161,7 @@ pub fn integrate(home: &Home, json_output: bool) -> Result<u8, CliError> {
         bytes.push(b'\n');
         write_durably(&path, &bytes)?;
     }
+    let mcp = register_mcp_server(&exe);
 
     let shown = display_path(&path);
     if json_output {
@@ -193,19 +171,111 @@ pub fn integrate(home: &Home, json_output: bool) -> Result<u8, CliError> {
             "settings": shown,
             "changed": changed,
             "command": command,
+            "mcp_server": mcp.status(),
         });
         println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("output always serializes")
         );
-    } else if changed {
+        return Ok(exit::OK);
+    }
+    if changed {
         println!(
-            "Claude Code will now checkpoint before each prompt and after each change.\nHooks added to {shown}\nRestart Claude Code (or run /hooks) to pick them up."
+            "Claude Code will now checkpoint before each prompt and after each change.\nHooks added to {shown}"
         );
     } else {
-        println!("Claude Code integration is already installed in {shown}");
+        println!("Claude Code hooks are already installed in {shown}");
+    }
+    match &mcp {
+        McpRegistration::Added => {
+            println!("Claude Code can now ask Fabric what other agents did (MCP server added).");
+        }
+        McpRegistration::AlreadyPresent => println!("Fabric's MCP server is already registered."),
+        McpRegistration::Manual { command, reason } => {
+            println!("To let Claude Code query Fabric, run this ({reason}):\n  {command}")
+        }
+    }
+    if changed || matches!(mcp, McpRegistration::Added) {
+        println!("Restart Claude Code to pick up the changes.");
     }
     Ok(exit::OK)
+}
+
+/// The running `fabric` executable, with forward slashes, which work in every shell an agent
+/// may launch it from on Windows.
+pub fn fabric_exe() -> Result<String, CliError> {
+    let exe = env::current_exe().map_err(|e| CliError::io(Path::new("fabric"), e))?;
+    let exe = fs::canonicalize(&exe).unwrap_or(exe);
+    Ok(display_path(&exe).replace('\\', "/"))
+}
+
+enum McpRegistration {
+    Added,
+    AlreadyPresent,
+    /// Could not register automatically; the user can run `command` themselves.
+    Manual {
+        command: String,
+        reason: String,
+    },
+}
+
+impl McpRegistration {
+    fn status(&self) -> Value {
+        match self {
+            Self::Added => json!({ "status": "added" }),
+            Self::AlreadyPresent => json!({ "status": "already_present" }),
+            Self::Manual { command, reason } => {
+                json!({ "status": "manual", "command": command, "reason": reason })
+            }
+        }
+    }
+}
+
+/// Registers `fabric mcp` for all of the user's projects through Claude Code's own CLI
+/// (`claude mcp add --scope user`), rather than editing Claude Code's config files directly.
+/// The server finds the project from its working directory, so one registration serves
+/// every recorded project.
+fn register_mcp_server(exe: &str) -> McpRegistration {
+    let args = ["mcp", "add", "--scope", "user", "fabric", "--", exe, "mcp"];
+    let manual = |reason: &str| McpRegistration::Manual {
+        command: format!("claude mcp add --scope user fabric -- \"{exe}\" mcp"),
+        reason: reason.to_owned(),
+    };
+    let Some(claude) = find_claude() else {
+        return manual("the `claude` command was not found on PATH");
+    };
+    let quiet = |command: &mut Command| {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+    };
+    if quiet(Command::new(&claude).args(["mcp", "get", "fabric"])).is_ok_and(|s| s.success()) {
+        return McpRegistration::AlreadyPresent;
+    }
+    match quiet(Command::new(&claude).args(args)) {
+        Ok(status) if status.success() => McpRegistration::Added,
+        Ok(status) => manual(&format!("`claude mcp add` exited with {status}")),
+        Err(e) => manual(&format!("`claude` could not be run: {e}")),
+    }
+}
+
+/// Finds Claude Code's CLI. `FABRIC_CLAUDE_BIN` overrides the search (used by tests, which
+/// must never touch the real user configuration).
+fn find_claude() -> Option<PathBuf> {
+    if let Some(path) = env::var_os("FABRIC_CLAUDE_BIN") {
+        let path = PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    let names: &[&str] = if cfg!(windows) {
+        &["claude.exe", "claude.cmd"]
+    } else {
+        &["claude"]
+    };
+    env::split_paths(&env::var_os("PATH")?)
+        .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
+        .find(|candidate| candidate.is_file())
 }
 
 /// Adds Fabric's hook for `event`, or updates its command if Fabric is already there.
@@ -276,27 +346,6 @@ mod tests {
             summarize("ü".repeat(200).as_str()).chars().count(),
             LABEL_CHARS
         );
-    }
-
-    #[test]
-    fn relative_to_resolves_paths_before_comparing() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = fs::canonicalize(dir.path()).unwrap();
-        fs::create_dir(root.join("src")).unwrap();
-        fs::write(root.join("src/main.rs"), "").unwrap();
-
-        // The non-canonical form an agent may report (e.g. /var vs /private/var on macOS).
-        let reported = dir.path().join("src").join("main.rs");
-        assert_eq!(
-            relative_to(&reported.to_string_lossy(), &root),
-            "src/main.rs"
-        );
-        let deleted = dir.path().join("src").join("gone.rs");
-        assert_eq!(
-            relative_to(&deleted.to_string_lossy(), &root),
-            "src/gone.rs"
-        );
-        assert_eq!(relative_to("/elsewhere/x.rs", &root), "/elsewhere/x.rs");
     }
 
     #[test]

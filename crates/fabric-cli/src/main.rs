@@ -6,9 +6,13 @@
 mod bisect;
 mod checkpoint;
 mod claude;
+mod codex;
 mod commands;
 mod error;
 mod home;
+mod mcp;
+mod query;
+mod results;
 mod timefmt;
 
 use std::path::PathBuf;
@@ -99,10 +103,27 @@ enum Command {
         bad: Option<String>,
     },
 
+    /// Show what one checkpoint changed, with diffs.
+    Show {
+        /// Checkpoint number from `fabric log`.
+        checkpoint: u64,
+    },
+
+    /// Show every recorded change to one file, and which agent made it.
+    History {
+        /// File path, relative to the current directory or absolute.
+        path: String,
+        #[arg(short = 'n', long, default_value_t = 20)]
+        limit: usize,
+    },
+
     /// Finish a restore that was interrupted.
     Resume,
 
-    /// Connect a coding agent so its prompts and changes are checkpointed automatically.
+    /// Run the MCP server that lets agents query this project's history (started by agents).
+    Mcp,
+
+    /// Connect a coding agent: record its work and let it query what other agents did.
     Integrate {
         #[command(subcommand)]
         agent: Agent,
@@ -120,6 +141,8 @@ enum Command {
 enum Agent {
     /// Anthropic's Claude Code.
     ClaudeCode,
+    /// OpenAI's Codex.
+    Codex,
 }
 
 fn main() -> ExitCode {
@@ -131,11 +154,10 @@ fn main() -> ExitCode {
     };
 
     // Hooks must never fail from the agent's point of view.
-    if let Command::Hook {
-        agent: Agent::ClaudeCode,
-    } = cli.command
-    {
-        claude::hook(&home);
+    if let Command::Hook { agent } = &cli.command {
+        if matches!(agent, Agent::ClaudeCode) {
+            claude::hook(&home);
+        }
         return ExitCode::SUCCESS;
     }
 
@@ -152,10 +174,16 @@ fn main() -> ExitCode {
         Command::Restore { checkpoint, yes } => commands::restore(&ctx, &checkpoint, yes),
         Command::Revert { checkpoint, yes } => commands::revert(&ctx, &checkpoint, yes),
         Command::Bisect { test, good, bad } => bisect::bisect(&ctx, &test, good, bad),
+        Command::Show { checkpoint } => commands::show(&ctx, checkpoint),
+        Command::History { path, limit } => commands::history(&ctx, &path, limit),
         Command::Resume => commands::resume(&ctx),
+        Command::Mcp => mcp::serve(&ctx.home).map(|()| error::exit::OK),
         Command::Integrate {
             agent: Agent::ClaudeCode,
         } => claude::integrate(&ctx.home, json),
+        Command::Integrate {
+            agent: Agent::Codex,
+        } => codex::integrate(json),
         Command::Hook { .. } => unreachable!("handled above"),
     };
     match result {

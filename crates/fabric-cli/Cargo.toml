@@ -18,6 +18,8 @@ fabric-snapshot = { path = "../fabric-snapshot" }
 fabric-store = { path = "../fabric-store" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+similar.workspace = true
+toml_edit.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

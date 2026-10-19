@@ -178,7 +178,7 @@ fn ignored_file_in_the_way_is_a_conflict_and_is_never_overwritten() {
 }
 
 #[test]
-fn ignored_file_inside_a_directory_to_remove_is_a_conflict() {
+fn a_directory_holding_ignored_files_is_kept_and_only_its_recorded_files_removed() {
     let fx = Fixture::new();
     fx.write("keep.txt", b"k");
     let target = fx.snapshot();
@@ -186,14 +186,70 @@ fn ignored_file_inside_a_directory_to_remove_is_a_conflict() {
     fx.write("gen/model.bin", b"hours of compute");
 
     let plan = plan_restore(&fx.store, &fx.project, &target).unwrap();
+    assert!(plan.conflicts.is_empty(), "{:?}", plan.conflicts);
+    assert_eq!(plan.kept, [rel("gen")]);
+    assert_eq!(plan.summary.delete, 1, "only gen/.gitignore is deleted");
+
+    let report = apply_restore(&fx.store, &fx.project, &plan).unwrap();
+    assert_eq!(fx.read("gen/model.bin"), b"hours of compute");
+    assert!(!fx.project.join("gen/.gitignore").exists());
+    // With its .gitignore gone, model.bin is visible, never captured, and left alone.
+    assert!(report.untracked_kept.contains(&rel("gen")));
+    assert!(report.untracked_kept.contains(&rel("gen/model.bin")));
+}
+
+#[test]
+fn a_tool_folder_created_after_the_checkpoint_does_not_block_restore() {
+    // Found in a live Claude Code session: `fabric integrate` creates `.claude/` holding only
+    // an ignored local settings file, after the first checkpoint.
+    let fx = Fixture::new();
+    fx.write(".gitignore", b".claude/settings.local.json\n");
+    fx.write("app.py", b"v1");
+    let target = fx.snapshot();
+    fx.write(".claude/settings.local.json", b"{\"hooks\":{}}");
+    fx.write("app.py", b"v2");
+
+    let report = fx.restore(&target);
+    assert_eq!(fx.read("app.py"), b"v1");
+    assert_eq!(fx.read(".claude/settings.local.json"), b"{\"hooks\":{}}");
+    assert_eq!(report.untracked_kept, [rel(".claude")]);
+}
+
+#[test]
+fn parents_of_kept_directories_are_kept_too() {
+    let fx = Fixture::new();
+    fx.write("keep.txt", b"k");
+    let target = fx.snapshot();
+    fx.write("a/x.txt", b"tracked");
+    fx.write("a/b/.gitignore", b"cache\n");
+    fx.write("a/b/cache", b"ignored");
+
+    let plan = plan_restore(&fx.store, &fx.project, &target).unwrap();
+    assert!(plan.conflicts.is_empty(), "{:?}", plan.conflicts);
+    assert_eq!(plan.kept, [rel("a"), rel("a/b")]);
+    apply_restore(&fx.store, &fx.project, &plan).unwrap();
+    assert!(!fx.project.join("a/x.txt").exists());
+    assert_eq!(fx.read("a/b/cache"), b"ignored");
+}
+
+#[test]
+fn a_directory_that_must_become_a_file_still_conflicts_over_ignored_contents() {
+    let fx = Fixture::new();
+    fx.write("thing", b"a file");
+    let target = fx.snapshot();
+    fx.remove("thing");
+    fx.write("thing/.gitignore", b"*.bin\n");
+    fx.write("thing/data.bin", b"precious");
+
+    let plan = plan_restore(&fx.store, &fx.project, &target).unwrap();
     assert_eq!(plan.conflicts.len(), 1, "{:?}", plan.conflicts);
-    assert_eq!(plan.conflicts[0].path, "gen/model.bin");
+    assert_eq!(plan.conflicts[0].path, "thing/data.bin");
     assert_eq!(
         plan.conflicts[0].kind,
         ConflictKind::UntrackedInRemovedDirectory
     );
     assert!(apply_restore(&fx.store, &fx.project, &plan).is_err());
-    assert_eq!(fx.read("gen/model.bin"), b"hours of compute");
+    assert_eq!(fx.read("thing/data.bin"), b"precious");
 }
 
 #[test]

@@ -45,6 +45,9 @@ struct Journal {
     target: ObjectId,
     base: ObjectId,
     operations: Vec<Operation>,
+    /// Directories deliberately left in place because they hold unrecorded files.
+    #[serde(default)]
+    kept: Vec<RelPath>,
 }
 
 /// Applies a plan produced by [`plan_restore`](crate::plan_restore).
@@ -86,6 +89,7 @@ pub fn apply_restore_with(
         target: plan.target,
         base: plan.base,
         operations: plan.operations.clone(),
+        kept: plan.kept.clone(),
     };
     fs::create_dir(&dir).map_err(io_at(&dir))?;
     let bytes = serde_json::to_vec(&journal).expect("journals always serialize");
@@ -183,7 +187,7 @@ fn verify(store: &Store, root: &Path, journal: &Journal) -> Result<RestoreReport
         if target.get(entry.path()).is_some() {
             continue;
         }
-        if base.get(entry.path()).is_some() {
+        if base.get(entry.path()).is_some() && !journal.kept.contains(entry.path()) {
             return Err(failed(format!("{} should have been removed", entry.path())));
         }
         untracked_kept.push(entry.path().clone());

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -23,6 +24,10 @@ pub struct RestorePlan {
     /// Anything that would make the restore lose data or produce the wrong result. A plan
     /// with conflicts cannot be applied.
     pub conflicts: Vec<Conflict>,
+    /// Directories the target does not have that are kept anyway, because they hold files
+    /// Fabric never recorded (for example, ignored ones). Their recorded contents are still
+    /// removed; the unrecorded files are never touched.
+    pub kept: Vec<RelPath>,
     pub summary: RestoreSummary,
     /// Whether applying would delete or overwrite anything in the project.
     pub destructive: bool,
@@ -82,7 +87,8 @@ pub enum ConflictKind {
     /// Something not in the current snapshot (ignored, unreadable or otherwise uncaptured)
     /// exists where the restore needs to write.
     UntrackedWouldBeOverwritten,
-    /// A directory the restore must remove contains something not in the current snapshot.
+    /// A directory the restore must replace with a file or symlink contains something not in
+    /// the current snapshot.
     UntrackedInRemovedDirectory,
     /// The name cannot be created faithfully on this platform.
     UnrepresentableName { reason: &'static str },
@@ -118,20 +124,97 @@ pub fn plan_restore(
 
     let current = capture(store, &root)?;
     let base = &current.manifest;
-    let operations = operations(base, &target_manifest);
+    let (operations, kept) = keep_directories_in_use(
+        &root,
+        base,
+        &target_manifest,
+        operations(base, &target_manifest),
+    )?;
 
-    let mut conflicts = untracked_conflicts(&root, base, &operations)?;
+    let mut conflicts = untracked_conflicts(&root, base, &target_manifest, &operations)?;
     conflicts.extend(portability::conflicts(&target_manifest));
 
-    let summary = summarize(base, &target_manifest);
+    let mut summary = summarize(base, &target_manifest);
+    summary.delete -= kept.len();
     Ok(RestorePlan {
         target: *target,
         base: current.id,
         destructive: summary.modify > 0 || summary.delete > 0,
         operations,
         conflicts,
+        kept,
         summary,
     })
+}
+
+/// Directories the target does not have, but which hold files Fabric never recorded, are kept
+/// rather than reported as conflicts: their recorded contents are still removed, and the
+/// unrecorded files stay exactly where they are. A directory that is ignored-content-only
+/// (such as `.claude/` holding a local settings file) is common, and blocking every restore on
+/// it would make restores unusable. Parents of kept directories are kept too.
+fn keep_directories_in_use(
+    root: &Path,
+    base: &Manifest,
+    target: &Manifest,
+    operations: Vec<Operation>,
+) -> Result<(Vec<Operation>, Vec<RelPath>), RecoveryError> {
+    let removed_dirs: BTreeSet<&RelPath> = operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Remove { path }
+                if matches!(base.get(path), Some(Entry::Dir { .. }))
+                    && target.get(path).is_none() =>
+            {
+                Some(path)
+            }
+            _ => None,
+        })
+        .collect();
+
+    let mut kept = BTreeSet::new();
+    for &dir in &removed_dirs {
+        if !untracked_children(root, base, dir)?.is_empty() {
+            let mut current = Some(dir.clone());
+            while let Some(path) = current {
+                if !removed_dirs.contains(&path) {
+                    break;
+                }
+                current = path.parent();
+                kept.insert(path);
+            }
+        }
+    }
+    let operations = operations
+        .into_iter()
+        .filter(|op| !matches!(op, Operation::Remove { path } if kept.contains(path)))
+        .collect();
+    Ok((operations, kept.into_iter().collect()))
+}
+
+/// Entries inside the live directory `dir` that the snapshot `base` did not record.
+fn untracked_children(
+    root: &Path,
+    base: &Manifest,
+    dir: &RelPath,
+) -> Result<Vec<String>, RecoveryError> {
+    let live = dir.to_fs_path(root);
+    let entries = match fs::read_dir(&live) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_at(&live)(e)),
+    };
+    let mut untracked = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(io_at(&live))?;
+        let child = format!("{dir}/{}", entry.file_name().to_string_lossy());
+        let tracked = RelPath::new(child.clone())
+            .ok()
+            .is_some_and(|child| base.get(&child).is_some());
+        if !tracked {
+            untracked.push(child);
+        }
+    }
+    Ok(untracked)
 }
 
 /// Whether an existing entry must be removed before the target entry can be created, rather
@@ -184,10 +267,12 @@ fn operations(base: &Manifest, target: &Manifest) -> Vec<Operation> {
 }
 
 /// Finds anything on disk that the current snapshot did not capture but the plan would
-/// destroy: ignored or unreadable files in the way of a write, or inside a removed directory.
+/// destroy: ignored or unreadable files in the way of a write, or inside a directory that
+/// must become a file or symlink.
 fn untracked_conflicts(
     root: &Path,
     base: &Manifest,
+    target: &Manifest,
     operations: &[Operation],
 ) -> Result<Vec<Conflict>, RecoveryError> {
     let mut conflicts = Vec::new();
@@ -196,26 +281,17 @@ fn untracked_conflicts(
         let live = path.to_fs_path(root);
         match op {
             Operation::Remove { .. } => {
-                if !matches!(base.get(path), Some(Entry::Dir { .. })) {
+                // Directories the target lacks were already kept if in use; only a directory
+                // that must be replaced by something else can still lose untracked files.
+                if !matches!(base.get(path), Some(Entry::Dir { .. })) || target.get(path).is_none()
+                {
                     continue;
                 }
-                let entries = match fs::read_dir(&live) {
-                    Ok(entries) => entries,
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-                    Err(e) => return Err(io_at(&live)(e)),
-                };
-                for entry in entries {
-                    let entry = entry.map_err(io_at(&live))?;
-                    let child = format!("{path}/{}", entry.file_name().to_string_lossy());
-                    let tracked = RelPath::new(child.clone())
-                        .ok()
-                        .is_some_and(|child| base.get(&child).is_some());
-                    if !tracked {
-                        conflicts.push(Conflict {
-                            path: child,
-                            kind: ConflictKind::UntrackedInRemovedDirectory,
-                        });
-                    }
+                for child in untracked_children(root, base, path)? {
+                    conflicts.push(Conflict {
+                        path: child,
+                        kind: ConflictKind::UntrackedInRemovedDirectory,
+                    });
                 }
             }
             _ if base.get(path).is_some() => {}

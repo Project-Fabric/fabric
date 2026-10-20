@@ -375,7 +375,7 @@ pub fn change_report(
         .iter()
         .filter(|c| c.seq <= end_seq && c.session == session && c.kind == CheckpointKind::Prompt)
         .map(|c| c.label.trim_start_matches("prompt: ").replace('|', "\\|"))
-        .next_back();
+        .next();
     let mut exceptions = Vec::new();
     for step in &steps {
         exceptions.extend(exceptions_for(store, project, policy, log, records, step)?);
@@ -392,6 +392,14 @@ pub fn change_report(
         None => "**open: not yet reviewed**".to_owned(),
     };
     let _ = writeln!(out, "| Status | {status} |");
+    let reverted = format!("reverted change #{id}:");
+    for c in log.iter().filter(|c| c.label.starts_with(&reverted)) {
+        let _ = writeln!(
+            out,
+            "| Reverted | {} at checkpoint #{} (`fabric revert --change {id}`) |",
+            c.created_at, c.seq
+        );
+    }
     let covers: Vec<String> = paths.iter().map(|p| format!("`{p}`")).collect();
     let _ = writeln!(out, "| Covers | {} |", covers.join(", "));
     let _ = writeln!(
@@ -400,7 +408,8 @@ pub fn change_report(
         session.as_deref().unwrap_or("-")
     );
     if let Some(prompt) = &prompt {
-        let _ = writeln!(out, "| Prompt | {prompt} |");
+        // The session's first prompt: the task the agent was given.
+        let _ = writeln!(out, "| Task | {prompt} |");
     }
     let requests: Vec<String> = o["requests"]
         .as_array()

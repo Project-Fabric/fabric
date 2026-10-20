@@ -8,9 +8,9 @@
 //! 1. `fabric approve <n> --change "<title>"` approves the held request and opens a change for
 //!    the agent's session covering the given paths (by default, the requested files). Further
 //!    edits by that session to those paths proceed without separate approvals; each is recorded
-//!    in the evidence as `change_edit`.
+//!    in the evidence as `change_edit`. The change starts at the prompt that began the task.
 //! 2. `fabric review <change>` shows everything that changed under the change's paths since it
-//!    was authorized, and records the reviewer's decision bound to that exact content (the
+//!    started, and records the reviewer's decision bound to that exact content (the
 //!    reviewed state is a checkpoint, and each file's content id is in the evidence). Review
 //!    closes the change: later edits need a new approval.
 //!
@@ -62,7 +62,8 @@ pub struct Change {
     pub session: Option<String>,
     /// The approval requests whose approval opened the change.
     pub requests: Vec<u64>,
-    /// The latest checkpoint when the change was authorized: the review compares against it.
+    /// Where the change starts: the session's latest prompt before it was authorized (else the
+    /// latest checkpoint). The review compares against it.
     pub base_checkpoint: u64,
     pub status: Status,
     pub authorized_by: String,
@@ -193,7 +194,15 @@ pub fn validate_paths(paths: &[String]) -> Result<(), CliError> {
 /// Opens a change and records it in the evidence.
 pub fn open(project: &Project, a: Authorization<'_>) -> Result<Change, CliError> {
     validate_paths(&a.paths)?;
-    let base_checkpoint = read_log(project)?.last().map_or(0, |c| c.seq);
+    // The change starts where the task did: at the session's latest prompt (the state before
+    // the agent acted on it), so edits made before its first held change belong to it too.
+    let log = read_log(project)?;
+    let base_checkpoint = log
+        .iter()
+        .rev()
+        .find(|c| c.kind == CheckpointKind::Prompt && c.session == a.session)
+        .or(log.last())
+        .map_or(0, |c| c.seq);
     let change = with_changes(project, |changes| {
         let change = Change {
             id: changes.iter().map(|c| c.id).max().unwrap_or(0) + 1,
@@ -300,6 +309,40 @@ pub fn open_in_evidence(records: &[Record], end: usize) -> Vec<(Option<String>, 
         }
     }
     open.into_values().collect()
+}
+
+/// Where a change starts and ends, from the evidence alone.
+pub struct Span {
+    pub title: String,
+    pub session: Option<String>,
+    /// The checkpoint when it was authorized.
+    pub base: u64,
+    /// The reviewed checkpoint, or the latest one if the change is still open.
+    pub end: u64,
+}
+
+pub fn span(records: &[Record], latest: u64, id: u64) -> Result<Span, CliError> {
+    let event = |kind: &str| {
+        records
+            .iter()
+            .map(|r| &r.body.event)
+            .find(|e| e["kind"] == kind && e["change"].as_u64() == Some(id))
+    };
+    let opened = event("change_opened").ok_or_else(|| {
+        CliError::new(
+            exit::ERROR,
+            "unknown_change",
+            format!("no change #{id} in the evidence; see `fabric changes --all`"),
+        )
+    })?;
+    Ok(Span {
+        title: opened["title"].as_str().unwrap_or_default().to_owned(),
+        session: opened["session"].as_str().map(str::to_owned),
+        base: opened["base_checkpoint"].as_u64().unwrap_or(0),
+        end: event("change_reviewed")
+            .and_then(|e| e["checkpoint"].as_u64())
+            .unwrap_or(latest),
+    })
 }
 
 // ---- `fabric changes` and `fabric review` -------------------------------------------------

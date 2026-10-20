@@ -51,10 +51,14 @@ records who approved what, and exports evidence an auditor can verify:
 fabric guard pack finance --scope "src/billing/**" --scope "migrations/**"
 fabric approvals                 # changes the agent is waiting on
 fabric approve 4                 # review the exact diff, approve (or --reject)
+fabric approve 4 --change "CHG-1042: late fees" --path "src/billing/**"   # or authorize the task
+fabric review 1                  # ...and review its whole result once, when the agent is done
 fabric evidence verify           # chain intact? any controlled change made without approval?
+fabric evidence report --change 1        # one page per change ticket, for the auditor
 fabric evidence export --out audit-q3/   # signed pack; check with `fabric evidence verify-pack`
 ```
 
+Changes made around the hold (a script editing a controlled file) are rolled back at once.
 Committed migrations cannot be edited, direct SQL writes to financial tables need approval,
 and production configuration is off limits. See [docs/PIVOT_FINANCE.md](docs/PIVOT_FINANCE.md)
 and the testbed in [testbeds/ledgerly](testbeds/ledgerly).

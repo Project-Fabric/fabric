@@ -1494,4 +1494,142 @@ fn a_change_is_authorized_once_and_its_result_reviewed_once() {
         "--json",
     ]);
     assert_eq!(checked["ok"], true);
+
+    // The whole change can be undone at once: every file its session touched goes back to
+    // how it was when the change was authorized, including the shell-made change.
+    fx.write("notes.txt", "later work by a person\n");
+    let reverted = fx.ok_json(&["revert", "--change", "1", "--yes", "--json"]);
+    assert_eq!(reverted["status"], "applied");
+    assert_eq!(reverted["change"], 1);
+    assert_eq!(fx.read("ledger/fees.py"), "FEE = 0\n");
+    assert_eq!(fx.read("ledger/journal.py"), "def post(): pass\n");
+    assert!(!fx.project.join("ledger/late.py").exists());
+    assert_eq!(fx.read("notes.txt"), "later work by a person\n");
+    let page = fx.ok_json(&["evidence", "report", "--change", "1", "--json"])["markdown"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(page.contains("| Reverted |"), "{page}");
+    assert_eq!(
+        fx.run(&["revert", "--change", "1", "--yes"]).code,
+        0,
+        "reverting again changes nothing"
+    );
+}
+
+#[test]
+fn reverting_a_change_refuses_to_overwrite_later_edits_to_its_files() {
+    let fx = Fixture::new();
+    fx.write("ledger/fees.py", "FEE = 0\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance", "--scope", "ledger/**", "--json"]);
+    let path = fx
+        .project
+        .join("ledger/fees.py")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "Write",
+            json!({ "file_path": path, "content": "FEE = 5\n" })
+        )),
+        "deny"
+    );
+    fx.ok_json(&[
+        "approve",
+        "1",
+        "--change",
+        "Fees",
+        "--yes",
+        "--as",
+        "c@example.com",
+        "--json",
+    ]);
+    fx.write("ledger/fees.py", "FEE = 5\n");
+    hook_event(
+        &fx,
+        json!({
+            "hook_event_name": "PostToolUse", "session_id": "s-1",
+            "cwd": fx.project.to_string_lossy(),
+            "tool_name": "Write", "tool_input": { "file_path": path },
+        }),
+    );
+    fx.ok_json(&["review", "1", "--yes", "--as", "r@example.com", "--json"]);
+    // A person edits the file after the review; reverting the change must not discard that.
+    fx.write("ledger/fees.py", "FEE = 6\n");
+    let refused = fx.run(&["revert", "--change", "1", "--yes", "--json"]);
+    assert_eq!(refused.code, 4);
+    assert_eq!(refused.json()["status"], "conflicts");
+    assert_eq!(fx.read("ledger/fees.py"), "FEE = 6\n");
+}
+
+#[test]
+fn a_change_starts_at_the_prompt_that_began_the_task() {
+    let fx = Fixture::new();
+    fx.write("ledger/tax.py", "MODE = 'half-even'\n");
+    fx.write("tests/test_tax.py", "assert MODE == 'half-even'\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance", "--scope", "ledger/**", "--json"]);
+    let root = fx.project.to_string_lossy().into_owned();
+    let after = |tool: &str, file: &str| {
+        hook_event(
+            &fx,
+            json!({
+                "hook_event_name": "PostToolUse", "session_id": "s-1", "cwd": root,
+                "tool_name": tool,
+                "tool_input": { "file_path": fx.project.join(file).to_string_lossy() },
+            }),
+        )
+    };
+    hook_event(
+        &fx,
+        json!({
+            "hook_event_name": "UserPromptSubmit", "session_id": "s-1", "cwd": root,
+            "prompt": "Round tax half up",
+        }),
+    );
+    // The agent changes a test first (not controlled), then is held on the tax code.
+    fx.write("tests/test_tax.py", "assert MODE == 'half-up'\n");
+    after("Edit", "tests/test_tax.py");
+    let tax = fx
+        .project
+        .join("ledger/tax.py")
+        .to_string_lossy()
+        .into_owned();
+    let write = json!({ "file_path": tax, "content": "MODE = 'half-up'\n" });
+    assert_eq!(decision(&pre_tool_use(&fx, "Write", write.clone())), "deny");
+    fx.ok_json(&[
+        "approve",
+        "1",
+        "--change",
+        "Tax",
+        "--yes",
+        "--as",
+        "c@example.com",
+        "--json",
+    ]);
+    assert_eq!(decision(&pre_tool_use(&fx, "Write", write)), "silent");
+    fx.write("ledger/tax.py", "MODE = 'half-up'\n");
+    after("Write", "ledger/tax.py");
+
+    // Review covers the task from its prompt; reverting the change undoes the test edit too.
+    let unconfirmed = fx.run(&["review", "1"]);
+    assert!(
+        unconfirmed.stderr.contains("Edit tests/test_tax.py"),
+        "{}",
+        unconfirmed.stderr
+    );
+    fx.ok_json(&[
+        "review",
+        "1",
+        "--reject",
+        "--yes",
+        "--as",
+        "r@example.com",
+        "--json",
+    ]);
+    fx.ok_json(&["revert", "--change", "1", "--yes", "--json"]);
+    assert_eq!(fx.read("ledger/tax.py"), "MODE = 'half-even'\n");
+    assert_eq!(fx.read("tests/test_tax.py"), "assert MODE == 'half-even'\n");
 }

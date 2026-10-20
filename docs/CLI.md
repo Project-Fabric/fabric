@@ -23,6 +23,7 @@ fabric approve N [N...] [--reject] [--as NAME] [--note TEXT] [--yes]
 fabric approve N [N...] --change TITLE [--path GLOB]...   # also authorize the whole task
 fabric changes [--all]             # authorized changes waiting for review
 fabric review N [--reject] [--as NAME] [--note TEXT] [--yes]
+fabric revert --change N [--yes]   # undo a whole change, keeping other work
 fabric evidence verify [--deep]    # is the record intact? any unapproved controlled changes?
 fabric evidence report N           # a reviewer's page for one checkpoint
 fabric evidence report --change N  # an auditor's page for one authorized change
@@ -113,19 +114,27 @@ first held request together with the whole task:
 fabric approve 1 --change "CHG-1042: late fees" --path "src/billing/**"
 # ... the agent finishes the task; its further edits under src/billing/ proceed, recorded ...
 fabric changes                        # #1 open  CHG-1042: late fees  [src/billing/**]
-fabric review 1                       # the full diff since authorization; accept or --reject
+fabric review 1                       # the task's full diff; accept or --reject
 ```
 
 While the change is open, file edits by *that agent session* to the change's paths proceed
 without separate approvals; each is recorded in the evidence (`change_edit`), and shell
 commands that change those files are not rolled back. Without `--path`, the change covers
-exactly the requested files. `fabric review` shows the agent steps and the complete diff of
-the change's paths since it was authorized, then records the decision bound to exactly that
-state: the reviewed state becomes a checkpoint and each file's content id goes into the
+exactly the requested files. A change starts where the task did: at the session's latest
+prompt before it was authorized (the state before the agent acted on that prompt), so edits
+the agent made before its first held change belong to it. `fabric review` shows the agent
+steps and the complete diff of the change's paths since it started, then records the
+decision bound to exactly that state: the reviewed state becomes a checkpoint and each file's content id goes into the
 evidence; if the project changes while the reviewer reads, nothing is recorded. Review closes
 the change; later edits need a new approval. A rejected change stays in the project until it
-is reverted (`fabric revert` of its steps, or `fabric restore` to the change's starting
-checkpoint). A change never covers shell commands a rule holds (such as `finance-ledger-sql`),
+is reverted: `fabric revert --change N` puts every file the change's session touched between
+its start and its review (or now, while it is open) back as it was when the change started,
+including files outside the change's paths such as the agent's tests, and keeps all other
+work. A file changed again after the change is a conflict and nothing is changed, as with
+`fabric revert` of one step. The result is recorded as a checkpoint labelled
+`reverted change #N: <title>`, and the change's report shows it.
+
+A change never covers shell commands a rule holds (such as `finance-ledger-sql`),
 other sessions, or files under a `deny` rule. Agents are denied `fabric review`, and it
 refuses to run inside an agent session, as `fabric approve` does.
 
@@ -220,6 +229,10 @@ conflict (exit code 4) and changes nothing — Fabric never merges file contents
 Like `restore`, it shows the plan first, needs `--yes`, records the current state so it can be
 undone, and verifies the result.
 
+`fabric revert --change N` does the same for a whole authorized change at once (see
+"Changes: authorize once, review once"). A change spread over several steps often cannot be
+undone one step at a time, because its later steps change the same files again.
+
 ## Finding the breaking step: `bisect`
 
 `fabric bisect --test "pytest -x"` binary-searches the checkpoints between `--good` (default:
@@ -283,7 +296,8 @@ on failure `fabric.error/v1`:
 { "schema": "fabric.error/v1", "error": { "kind": "not_a_project", "message": "…" } }
 ```
 
-`fabric restore --json` and `fabric revert --json` report `"status"`:
+`fabric restore --json` and `fabric revert --json` report `"status"`
+(`fabric revert --change` adds `"change"`, with `"checkpoint": null`):
 `requires_confirmation`, `conflicts`, `already_at_target` or `applied`, with the full plan;
 once applied, also `report`, `undo_checkpoint` and the `recorded` checkpoint:
 

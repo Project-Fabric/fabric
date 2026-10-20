@@ -92,7 +92,12 @@ enum Command {
     /// Undo one checkpoint's changes, keeping everything recorded after it.
     Revert {
         /// Checkpoint number (as in `fabric log`) whose changes to undo.
-        checkpoint: String,
+        #[arg(required_unless_present = "change", conflicts_with = "change")]
+        checkpoint: Option<String>,
+        /// Undo a whole authorized change instead (as in `fabric changes --all`): every file
+        /// its agent session touched goes back to how it was when the change started.
+        #[arg(long)]
+        change: Option<u64>,
         /// Apply the revert. The current state is checkpointed first, so it can be undone.
         #[arg(long)]
         yes: bool,
@@ -362,7 +367,15 @@ fn main() -> ExitCode {
         Command::Log { limit } => commands::log(&ctx, limit),
         Command::Diff { from, to } => commands::diff_cmd(&ctx, from, to),
         Command::Restore { checkpoint, yes } => commands::restore(&ctx, &checkpoint, yes),
-        Command::Revert { checkpoint, yes } => commands::revert(&ctx, &checkpoint, yes),
+        Command::Revert {
+            checkpoint,
+            change,
+            yes,
+        } => match (checkpoint, change) {
+            (_, Some(id)) => commands::revert_change(&ctx, id, yes),
+            (Some(checkpoint), None) => commands::revert(&ctx, &checkpoint, yes),
+            (None, None) => unreachable!("clap requires a checkpoint or --change"),
+        },
         Command::Bisect { test, good, bad } => bisect::bisect(&ctx, &test, good, bad),
         Command::Show { checkpoint } => commands::show(&ctx, checkpoint),
         Command::History { path, limit } => commands::history(&ctx, &path, limit),

@@ -172,7 +172,8 @@ number, snapshot id, parent snapshot id, type, label, agent, session, tool, chan
 `approval_rejected`, `approval_used` (request number, action digest, approver and OS
 accounts), `rollback` (the step, the paths put back, paths that could not be, and the rules
 involved), `change_opened` (change number, title, path globs, session, the requests it was
-approved with, the starting checkpoint, approver and OS accounts), `change_edit` (change
+approved with, the starting checkpoint (the session's latest prompt before authorization),
+approver and OS accounts), `change_edit` (change
 number, tool, action digest, target), `change_reviewed` (change number, outcome `accepted` or
 `rejected`, reviewer and OS account, the checkpoint and snapshot reviewed, and the content id
 of every file under the change's paths that changed, `null` if removed), and

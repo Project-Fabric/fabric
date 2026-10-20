@@ -3,18 +3,20 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use fabric_recovery::{
-    Operation, RestorePlan, RevertConflictReason, apply_restore, plan_restore, resume_restore,
-    revert_step,
+    Operation, RestorePlan, RevertConflict, RevertConflictReason, apply_restore, plan_restore,
+    resume_restore, revert_step,
 };
 use fabric_snapshot::{Diff, Manifest, SkipReason, Snapshot, diff};
 use fabric_store::{ObjectId, Store};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::changes;
 use crate::checkpoint::{
     ChangeCounts, CheckpointKind, Meta, read_log, record, record_manifest, resolve,
 };
 use crate::error::{CliError, exit};
+use crate::evidence;
 use crate::home::{Home, Project, display_path};
 use crate::query;
 
@@ -329,32 +331,12 @@ pub fn revert(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
     let label = format!("#{} ({})", step.seq, step.label);
 
     if !outcome.conflicts.is_empty() {
-        ctx.emit(
-            "fabric.revert/v1",
-            json!({
-                "status": "conflicts",
-                "checkpoint": step.seq,
-                "conflicts": outcome.conflicts,
-            }),
-            || {
-                let mut out = format!(
-                    "Cannot revert {label}: later steps changed the same paths.\n"
-                );
-                for conflict in &outcome.conflicts {
-                    let reason = match conflict.reason {
-                        RevertConflictReason::ChangedLater => "changed again later",
-                        RevertConflictReason::DirectoryInUse => "later work is inside it",
-                        RevertConflictReason::ParentIsNotADirectory => {
-                            "a file is where its directory belongs"
-                        }
-                    };
-                    let _ = writeln!(out, "  {}  ({reason})", conflict.path);
-                }
-                out.push_str("Nothing was changed. To go back to before this step entirely, use `fabric restore`.\n");
-                out
-            },
-        );
-        return Ok(exit::CONFLICTS);
+        return Ok(emit_revert_conflicts(
+            ctx,
+            &label,
+            json!({ "checkpoint": step.seq }),
+            &outcome.conflicts,
+        ));
     }
 
     let target = outcome.manifest.store(&store)?;
@@ -373,6 +355,116 @@ pub fn revert(ctx: &Ctx, reference: &str, yes: bool) -> Result<u8, CliError> {
         }),
     };
     run_plan(ctx, &store, &project, plan, yes, action)
+}
+
+/// Undoes a whole authorized change: every file its agent session touched between the
+/// change's start and its review (or now, while it is open) goes back to how it was when the
+/// change started. Later work on other files is kept; files changed again after the change
+/// are conflicts, as for `revert`.
+pub fn revert_change(ctx: &Ctx, id: u64, yes: bool) -> Result<u8, CliError> {
+    let project = ctx.project()?;
+    let store = ctx.home.open_store()?;
+    let log = read_log(&project)?;
+    let (_, records) = evidence::verify_chain(&evidence::read_chain(&project)?);
+    let span = changes::span(&records, log.last().map_or(0, |c| c.seq), id)?;
+    let manifest_at = |seq: u64| -> Result<Manifest, CliError> {
+        let checkpoint = log.iter().find(|c| c.seq == seq).ok_or_else(|| {
+            CliError::new(
+                exit::INTEGRITY,
+                "missing_checkpoint",
+                format!("change #{id} refers to checkpoint #{seq}, which is not in the log"),
+            )
+        })?;
+        Ok(Manifest::load(&store, &checkpoint.snapshot)?)
+    };
+    let before = manifest_at(span.base)?;
+    let end = manifest_at(span.end)?;
+
+    // Every path the session's steps changed, including Fabric's rollbacks within them.
+    let mut touched = std::collections::BTreeSet::new();
+    for pair in log.windows(2) {
+        let (previous, step) = (&pair[0], &pair[1]);
+        if step.seq <= span.base || step.seq > span.end || step.session != span.session {
+            continue;
+        }
+        let d = diff(
+            &Manifest::load(&store, &previous.snapshot)?,
+            &Manifest::load(&store, &step.snapshot)?,
+        );
+        touched.extend(d.added.into_iter().chain(d.modified).chain(d.removed));
+        touched.extend(d.renamed.into_iter().flat_map(|r| [r.from, r.to]));
+    }
+    // The change's own result: the starting state with the touched paths as they ended.
+    let mut entries: std::collections::BTreeMap<_, _> = before
+        .entries()
+        .iter()
+        .map(|e| (e.path().clone(), e.clone()))
+        .collect();
+    for path in &touched {
+        match end.get(path) {
+            Some(entry) => entries.insert(path.clone(), entry.clone()),
+            None => entries.remove(path),
+        };
+    }
+    let after = Manifest::new(entries.into_values().collect())?;
+
+    let current = project.capture(&store)?;
+    ctx.warn_skipped(&current);
+    let outcome = revert_step(&before, &after, &current.manifest)?;
+    let label = format!("change #{id} ({})", span.title);
+    if !outcome.conflicts.is_empty() {
+        return Ok(emit_revert_conflicts(
+            ctx,
+            &label,
+            json!({ "checkpoint": null, "change": id }),
+            &outcome.conflicts,
+        ));
+    }
+    let target = outcome.manifest.store(&store)?;
+    let plan = plan_restore(&store, &project.root, &target)?;
+    let action = Action {
+        schema: "fabric.revert/v1",
+        title: format!("Revert {label}, keeping other work"),
+        confirm: format!("fabric revert --change {id} --yes"),
+        done: format!("Reverted {label}"),
+        kind: CheckpointKind::Revert,
+        log_label: format!("reverted change #{id}: {}", span.title),
+        extra: json!({
+            "checkpoint": null,
+            "change": id,
+            "reverted": outcome.reverted,
+            "already_reverted": outcome.already_reverted,
+        }),
+    };
+    run_plan(ctx, &store, &project, plan, yes, action)
+}
+
+fn emit_revert_conflicts(
+    ctx: &Ctx,
+    label: &str,
+    mut value: Value,
+    conflicts: &[RevertConflict],
+) -> u8 {
+    value["status"] = "conflicts".into();
+    value["conflicts"] = json!(conflicts);
+    ctx.emit("fabric.revert/v1", value, || {
+        let mut out = format!("Cannot revert {label}: later steps changed the same paths.\n");
+        for conflict in conflicts {
+            let reason = match conflict.reason {
+                RevertConflictReason::ChangedLater => "changed again later",
+                RevertConflictReason::DirectoryInUse => "later work is inside it",
+                RevertConflictReason::ParentIsNotADirectory => {
+                    "a file is where its directory belongs"
+                }
+            };
+            let _ = writeln!(out, "  {}  ({reason})", conflict.path);
+        }
+        out.push_str(
+            "Nothing was changed. To go back to before this step entirely, use `fabric restore`.\n",
+        );
+        out
+    });
+    exit::CONFLICTS
 }
 
 /// Shows a plan, and applies it if confirmed: records the undo point, applies, verifies, and

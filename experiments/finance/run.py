@@ -26,6 +26,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -34,7 +35,8 @@ REPO = HERE.parent.parent
 TESTBED = REPO / "testbeds" / "ledgerly"
 FABRIC = os.environ.get("FABRIC_BIN", "fabric")
 CLAUDE = os.environ.get("CLAUDE_BIN", "claude")
-OUT = Path(os.environ.get("OUT", HERE / "runs"))
+# Outside this repository: an agent working inside it would also find Fabric's own AGENTS.md.
+OUT = Path(os.environ.get("OUT", Path(tempfile.gettempdir()) / "fabric-finance-runs")).resolve()
 RUNS = int(os.environ.get("RUNS", "1"))
 CONDITIONS = os.environ.get("CONDITIONS", "A,F").split(",")
 MAX_ROUNDS = 6
@@ -260,10 +262,18 @@ def one(scenario, index, condition):
             _, bis = fabric_json(["bisect", "--test", test, "--good", env["_BASE"]], project, env, person=True)
             bad = (bis.get("first_bad") or {}).get("seq")
             remediation = {"first_bad": bad, "label": (bis.get("first_bad") or {}).get("label")}
-            if bad:
+            if change is not None:
+                # The reviewer rejects the change as a whole and undoes it.
+                code, rev = fabric_json(["revert", "--change", str(change), "--yes"], project, env, person=True)
+                remediation["revert"] = f"change #{change}"
+                remediation["revert_exit"] = code
+                remediation["controls_ok_after"], remediation["failing_after"] = controls_pass(project, controls)
+                remediation["repo_tests_ok_after"] = repo_tests_pass(project)[0]
+            elif bad:
                 code, rev = fabric_json(["revert", str(bad), "--yes"], project, env, person=True)
                 remediation["revert_exit"] = code
                 remediation["controls_ok_after"], remediation["failing_after"] = controls_pass(project, controls)
+                remediation["repo_tests_ok_after"] = repo_tests_pass(project)[0]
             record["remediation"] = remediation
     return record
 
@@ -279,7 +289,8 @@ def summarize(results):
                      f"  evidence {'ok' if r.get('evidence_ok') else 'BROKEN'}  pack {'ok' if r.get('pack_ok') else 'FAIL'}")
             if "remediation" in r:
                 rem = r["remediation"]
-                line += f"  bisect->#{rem.get('first_bad')} revert->controls {'PASS' if rem.get('controls_ok_after') else 'FAIL'}"
+                line += (f"  bisect->#{rem.get('first_bad')} revert {rem.get('revert', 'step')}->controls "
+                         f"{'PASS' if rem.get('controls_ok_after') else 'FAIL'}, tests {'ok' if rem.get('repo_tests_ok_after') else 'FAIL'}")
         line += f"  ${r['cost_usd']}"
         lines.append(line)
     return "\n".join(lines)
@@ -290,6 +301,8 @@ def main():
     wanted = set(sys.argv[1:])
     if wanted:
         scenarios = [s for s in scenarios if s["id"] in wanted]
+    if OUT.is_relative_to(REPO):
+        sys.exit(f"OUT must be outside the repository (agents would read its AGENTS.md): {OUT}")
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
     for scenario in scenarios:

@@ -88,6 +88,9 @@ Next, in order:
 8. **Approval from another person or machine.** Segregation of duties beyond "not the agent".
    *Done* (#59): approvers sign approvals and reviews with their own key on their own
    machine; a project can require it; signatures are re-verified from the evidence.
+10. **Agents that act through tools.** *Done* (#60): rules over MCP tool calls, the
+   `finance-ops` pack and `fabric mcp-proxy` for any agent; a material refund an agent made
+   unapproved 3/3 alone was held and rejected 3/3 through Fabric (`EXPERIMENT_FINANCE_OPS.md`).
 9. **Other agents.** Codex and others get checkpoints, undo and evidence but no hold or
    rollback (#46).
 

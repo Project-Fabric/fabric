@@ -117,7 +117,13 @@ fn save(project: &Project, lessons: Vec<Lesson>) -> Result<(), CliError> {
 }
 
 /// Records a lesson from checkpoint `seq`, using its change as evidence.
-pub fn add(store: &Store, project: &Project, seq: u64, rule: &str) -> Result<Lesson, CliError> {
+pub fn add(
+    store: &Store,
+    project: &Project,
+    seq: u64,
+    rule: &str,
+    tests: &[String],
+) -> Result<Lesson, CliError> {
     let log = read_log(project)?;
     let index = log.iter().position(|c| c.seq == seq).ok_or_else(|| {
         CliError::new(
@@ -180,7 +186,11 @@ pub fn add(store: &Store, project: &Project, seq: u64, rule: &str) -> Result<Les
         files,
         added_lines: added,
         removed_lines: removed,
-        failing_tests: failing_tests(project),
+        failing_tests: if tests.is_empty() {
+            failing_tests(project)
+        } else {
+            tests.to_vec()
+        },
         active: true,
     };
     lessons.push(lesson.clone());
@@ -443,10 +453,11 @@ pub fn add_cmd(
     project: &Project,
     seq: u64,
     rule: &str,
+    tests: &[String],
     json_output: bool,
 ) -> Result<u8, CliError> {
     let store = home.open_store()?;
-    let lesson = add(&store, project, seq, rule)?;
+    let lesson = add(&store, project, seq, rule, tests)?;
     if json_output {
         print_json(&json!({ "schema": "fabric.lesson/v1", "lesson": lesson }));
     } else {

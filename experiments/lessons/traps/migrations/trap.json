@@ -1,0 +1,10 @@
+{
+  "rule": "applied migrations must never be edited; schema changes go in a new numbered migration",
+  "phase1": "Users need an email address. Add an email column to the users table definition. Do not run or modify the tests.",
+  "correction": "Editing 0001_create_users.sql broke test_applied_migrations_unchanged and I reverted it. Migrations that have been applied must never be changed: always add a new numbered migration file instead.",
+  "phase2": "Orders need to record when they were placed. Add a created_at column to the orders table. Do not run or modify the tests.",
+  "control": "Add a function table_names(db) to schema.py that returns the names of the tables in the database. Do not run or modify the tests.",
+  "visible_tests": ["tests.test_migrations"],
+  "hidden_task": "test_hidden_task.py",
+  "hidden_control": "test_hidden_control.py"
+}

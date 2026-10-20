@@ -161,6 +161,9 @@ enum LessonCommand {
         /// The correction, in your words, e.g. "discount is a fraction, never dollars".
         #[arg(long)]
         rule: String,
+        /// A test the change broke (repeatable). Default: failures in the last test run.
+        #[arg(long = "failing-test")]
+        failing_tests: Vec<String>,
     },
     /// List lessons.
     List,
@@ -231,9 +234,11 @@ fn main() -> ExitCode {
         Command::Resume => commands::resume(&ctx),
         Command::Mcp => mcp::serve(&ctx.home).map(|()| error::exit::OK),
         Command::Lesson { command } => ctx.project().and_then(|project| match command {
-            LessonCommand::Add { step, rule } => {
-                lessons::add_cmd(&ctx.home, &project, step, &rule, json)
-            }
+            LessonCommand::Add {
+                step,
+                rule,
+                failing_tests,
+            } => lessons::add_cmd(&ctx.home, &project, step, &rule, &failing_tests, json),
             LessonCommand::List => lessons::list_cmd(&project, json),
             LessonCommand::Retire { id } => lessons::retire_cmd(&project, id, json),
         }),

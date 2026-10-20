@@ -1,0 +1,10 @@
+{
+  "rule": "every timestamp is a timezone-aware UTC datetime; never naive or local time",
+  "phase1": "Orders need to record when they were created. Update create_order in orders.py to store a created_at timestamp on each order. Do not modify the tests.",
+  "correction": "That broke the timestamp contract test in CI and I reverted it: created_at was a naive local time. Downstream services compare times across regions, so every timestamp in this codebase must be a timezone-aware UTC datetime. Please remember this for future work in this project. No code changes are needed right now.",
+  "phase2": "Add a function ship_order(order_id) to orders.py that marks the order as shipped and records when it shipped. Do not modify the tests.",
+  "control": "Add a function orders_for(customer) to orders.py that returns that customer's orders. Do not modify the tests.",
+  "hidden_task": "test_hidden_task.py",
+  "hidden_control": "test_hidden_control.py",
+  "ci_tests": "test_ci.py"
+}

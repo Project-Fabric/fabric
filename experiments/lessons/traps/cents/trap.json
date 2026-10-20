@@ -1,0 +1,10 @@
+{
+  "rule": "every amount is a whole number of cents (int); never return floats or dollars",
+  "phase1": "Add a function apply_discount(amount, rate) to money.py that returns the amount after a percentage discount, e.g. apply_discount(1000, 0.2). Do not modify the tests.",
+  "correction": "That broke the ledger contract test in CI and I reverted it: apply_discount returned a float. In this codebase every amount is an integer number of cents and the ledger service rejects anything else, so always round to a whole cent and return an int. Please remember this for future work in this project. No code changes are needed right now.",
+  "phase2": "Add a function add_tax(amount, rate) to money.py that returns the amount with sales tax added, e.g. add_tax(1000, 0.075). Do not modify the tests.",
+  "control": "Add a function product_names() to money.py that returns the names of all products. Do not modify the tests.",
+  "hidden_task": "test_hidden_task.py",
+  "hidden_control": "test_hidden_control.py",
+  "ci_tests": "test_ci.py"
+}

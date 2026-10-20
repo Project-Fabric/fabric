@@ -122,6 +122,27 @@ All reuses Fabric's existing step log, `bisect`, `revert`, guard hook and MCP se
 | 2 | 3 trap repositories, the harness, the pilot run; fix what the pilot breaks |
 | 3 | Remaining traps, main run (unattended), write-up with every result |
 
+## Changes after the smoke test (20 October 2026, before any counted run)
+
+Recorded openly because they depart from the design above. No result has been counted yet.
+
+1. **Rules moved to hidden CI tests.** In the first smoke test Claude read the visible test
+   enforcing the rule and refused the phase-1 change, so the trap never fired. Real hidden
+   constraints live in CI, other services or people's heads, not in tests the agent reads. Each
+   trap's rule is now enforced only by a CI test run after the agent finishes (`ci.py`); the
+   repository keeps ordinary tests that do not reveal it.
+2. **Fair correction for Claude's memory.** In the second smoke test Claude edited code while
+   acknowledging the correction (so setup B started phase 2 from a different project) and saved
+   no memory. The correction now ends: *"Please remember this for future work in this project. No
+   code changes are needed right now."*, and B is restored to the starting point afterwards.
+3. **Calibration before comparison.** In the second smoke test even setup A (no memory) avoided
+   the mistake in phase 2, so the trap could not show any difference. A calibration pass (5 traps
+   × 1 run) measures which traps make the memory-less agent repeat the mistake; only those go into
+   the main comparison. Two traps were added where the natural default breaks a hidden rule:
+   **cents** (amounts are integer cents; the natural `amount * 1.075` returns a float) and
+   **utc** (timestamps must be timezone-aware UTC; the natural `datetime.now()` is local and naive).
+   Calibration results are reported alongside the main results.
+
 ## Decision after the experiment
 
 - **H1 and H2 hold, H3 holds:** pivot the product and pitch to verified lessons; the number is the

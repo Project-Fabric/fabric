@@ -153,11 +153,13 @@ def warnings(workdir):
 
 
 def evaluate(project, trap_dir, trap, task_file, before_digest):
-    visible_ok, visible_failing, _ = unittest(project, trap["visible_tests"])
+    repo_ok, repo_failing, _ = unittest(project, [])
+    ci_ok, ci_failing = hidden(project, trap_dir, trap["ci_tests"])
     task_ok, task_failing = hidden(project, trap_dir, task_file)
     return {
-        "visible_ok": visible_ok,
-        "visible_failing": visible_failing,
+        "repo_tests_ok": repo_ok,
+        "visible_ok": ci_ok,
+        "visible_failing": ci_failing + repo_failing,
         "task_ok": task_ok,
         "task_failing": task_failing,
         "tests_modified": test_files_digest(project) != before_digest,
@@ -166,7 +168,7 @@ def evaluate(project, trap_dir, trap, task_file, before_digest):
 
 def one_run(trap_name, index, results):
     trap_dir = TRAPS_DIR / trap_name
-    trap = json.loads((trap_dir / "trap.json").read_text())
+    trap = json.loads((trap_dir / "trap.json").read_text(encoding="utf-8-sig"))
     base = OUT / trap_name / f"run{index}"
     remove_tree(base)
     base.mkdir(parents=True)
@@ -181,7 +183,7 @@ def one_run(trap_name, index, results):
     digest = test_files_digest(project_b)
     log(f"{trap_name} run{index}: phase 1")
     p1 = claude(trap["phase1"], project_b, setup_env(env_b, "B"))
-    triggered_ok, failing, _ = unittest(project_b, trap["visible_tests"])
+    triggered_ok, failing = hidden(project_b, trap_dir, trap["ci_tests"])
     record["phase1"] = {"claude": p1, "trap_fired": not triggered_ok, "failing": failing}
     if triggered_ok:
         log(f"{trap_name} run{index}: trap did not fire in phase 1; run dropped")
@@ -189,13 +191,17 @@ def one_run(trap_name, index, results):
         results.append(record)
         return
 
-    test_cmd = "python -m unittest -q " + " ".join(trap["visible_tests"])
+    # Bisect with the CI tests, which live outside the project like a real CI suite.
+    test_cmd = f'python -I "{HERE / "ci.py"}" "{trap_dir / "hidden" / trap["ci_tests"]}"'
     _, bis = fabric_json(["bisect", "--test", test_cmd, "--good", env_b["_BASE"]], project_b, env_b)
     bad = (bis.get("first_bad") or {}).get("seq")
     fabric_json(["restore", env_b["_BASE"], "--yes"], project_b, env_b)
     record["phase1"]["breaking_step"] = bad
     correction = claude(trap["correction"], project_b, setup_env(env_b, "B"), resume=p1.get("session"))
     record["phase1"]["correction"] = correction
+    # Every setup must start phase 2 from the same project, even if Claude edited code while
+    # acknowledging the correction.
+    fabric_json(["restore", env_b["_BASE"], "--yes"], project_b, env_b)
     lesson_args = ["lesson", "add", "--step", str(bad), "--rule", trap["correction"]]
     for t in failing:
         lesson_args += ["--failing-test", t]
@@ -224,7 +230,8 @@ def one_run(trap_name, index, results):
         trap_tests_failed = not result["visible_ok"] or (
             trap.get("hidden_task_is_trap") and not result["task_ok"])
         result.update(claude=info, repeated_mistake=trap_tests_failed,
-                      success=result["visible_ok"] and result["task_ok"] and not result["tests_modified"],
+                      success=result["visible_ok"] and result["repo_tests_ok"] and result["task_ok"]
+                      and not result["tests_modified"],
                       guard_warnings=warnings(wd) if condition == "D" else 0)
         record["phase2"][condition] = result
 
@@ -240,7 +247,7 @@ def one_run(trap_name, index, results):
         before = test_files_digest(project)
         info = claude(trap["control"], project, setup_env(env, condition))
         result = evaluate(project, trap_dir, trap, trap["hidden_control"], before)
-        result.update(claude=info, success=result["visible_ok"] and result["task_ok"],
+        result.update(claude=info, success=result["visible_ok"] and result["repo_tests_ok"] and result["task_ok"],
                       guard_warnings=warnings(wd) if condition == "D" else 0)
         record["control"][condition] = result
     results.append(record)

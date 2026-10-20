@@ -25,9 +25,9 @@ use serde_json::{Value, json};
 
 use crate::checkpoint::{CheckpointKind, Meta, record};
 use crate::error::{CliError, exit};
-use crate::guard;
 use crate::home::{Home, display_path, project_relative, write_durably};
 use crate::timefmt;
+use crate::{guard, lessons};
 
 const AGENT: &str = "claude-code";
 const HOOK_ARGS: &str = "hook claude-code";
@@ -74,7 +74,14 @@ fn handle_event(home: &Home, input: &str) -> Result<Option<Value>, CliError> {
 
     let tool = event["tool_name"].as_str().map(str::to_owned);
     let (mut meta, if_changed) = match event["hook_event_name"].as_str() {
-        Some("PreToolUse") => return guard::pre_tool_use(home, &project, &event),
+        Some("PreToolUse") => {
+            // Fixed consent rules first; the learned guard only speaks when they are silent.
+            let decision = guard::pre_tool_use(home, &project, &event)?;
+            if decision.is_none() && lessons::learned_guard_enabled() {
+                return lessons::learned_guard(&project, &event);
+            }
+            return Ok(decision);
+        }
         Some("UserPromptSubmit") => {
             let prompt = event["prompt"].as_str().unwrap_or_default();
             (
@@ -108,9 +115,13 @@ fn handle_event(home: &Home, input: &str) -> Result<Option<Value>, CliError> {
     meta.session = event["session_id"].as_str().map(str::to_owned);
     meta.tool = tool;
 
+    let is_prompt = meta.kind == CheckpointKind::Prompt;
     let store = home.open_store()?;
     let snapshot = project.capture(&store)?;
     record(&store, &project, &snapshot, meta, if_changed)?;
+    if is_prompt && lessons::lessons_enabled() {
+        return lessons::prompt_context(&project);
+    }
     Ok(None)
 }
 

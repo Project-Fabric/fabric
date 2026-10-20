@@ -115,6 +115,24 @@ impl Server<'_> {
             "fabric_test_results" => self
                 .project(args)
                 .and_then(|p| query::test_results(&p, limit(args, 20))),
+            "fabric_lessons" => self.project(args).and_then(|p| {
+                let paths: Vec<String> = args["paths"]
+                    .as_array()
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(|path| crate::home::project_relative(path, &p.root))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let text = crate::lessons::briefing(&crate::lessons::load(&p)?, &paths);
+                Ok(if text.is_empty() {
+                    "No lessons recorded for these files.".to_owned()
+                } else {
+                    text
+                })
+            }),
             "fabric_checkpoint" => self.checkpoint(args),
             other => Err(invalid(&format!("unknown tool {other:?}"))),
         };
@@ -237,6 +255,19 @@ fn tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": { "limit": limit(20), "project": project },
+            },
+            "annotations": { "readOnlyHint": true },
+        },
+        {
+            "name": "fabric_lessons",
+            "title": "Lessons for these files",
+            "description": "Lessons Fabric recorded from changes that broke tests and were reverted, optionally only those about the given files. Check before changing files that have failed before.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Files you are about to change (default: all lessons)" },
+                    "project": project,
+                },
             },
             "annotations": { "readOnlyHint": true },
         },

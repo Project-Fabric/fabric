@@ -357,13 +357,13 @@ fn status_test() -> &'static str {
 
 /// Five agent steps, the third of which breaks the tests.
 fn agent_session_with_a_breaking_step(fx: &Fixture) {
-    fx.write("status.txt", "green");
+    fx.write("status.txt", "service status: green");
     fx.write("app/a.txt", "a1");
     fx.ok_json(&["init", "--json"]);
     let steps = [
         ("app/b.txt", "b1", "add b"),
         ("app/c.txt", "c1", "add c"),
-        ("status.txt", "red", "refactor status"),
+        ("status.txt", "service status: red", "refactor status"),
         ("app/d.txt", "d1", "add d"),
         ("app/a.txt", "a2", "edit a"),
     ];
@@ -393,13 +393,13 @@ fn bisect_finds_the_breaking_step_and_revert_undoes_only_it() {
     assert_eq!(found["diff"]["modified"], json!(["status.txt"]));
 
     // Bisecting left the project exactly as it was.
-    assert_eq!(fx.read("status.txt"), "red");
+    assert_eq!(fx.read("status.txt"), "service status: red");
     assert_eq!(fx.read("app/a.txt"), "a2");
     assert_eq!(fx.read("app/d.txt"), "d1");
 
     let preview = fx.run(&["revert", "4", "--json"]);
     assert_eq!(preview.code, 3, "{}", preview.stdout);
-    assert_eq!(fx.read("status.txt"), "red");
+    assert_eq!(fx.read("status.txt"), "service status: red");
 
     let reverted = fx.ok_json(&["revert", "4", "--yes", "--json"]);
     assert_eq!(reverted["schema"], "fabric.revert/v1");
@@ -407,7 +407,7 @@ fn bisect_finds_the_breaking_step_and_revert_undoes_only_it() {
     assert_eq!(reverted["reverted"], json!(["status.txt"]));
 
     // Only the breaking step is gone; work from later steps is kept.
-    assert_eq!(fx.read("status.txt"), "green");
+    assert_eq!(fx.read("status.txt"), "service status: green");
     assert_eq!(fx.read("app/a.txt"), "a2");
     assert_eq!(fx.read("app/d.txt"), "d1");
     assert_eq!(fx.log()[0]["kind"], "revert");
@@ -415,13 +415,13 @@ fn bisect_finds_the_breaking_step_and_revert_undoes_only_it() {
     // And the revert itself can be undone.
     let undo = reverted["undo_checkpoint"].as_u64().unwrap().to_string();
     fx.ok_json(&["restore", &undo, "--yes", "--json"]);
-    assert_eq!(fx.read("status.txt"), "red");
+    assert_eq!(fx.read("status.txt"), "service status: red");
 }
 
 #[test]
 fn bisect_refuses_when_there_is_nothing_to_find_and_leaves_the_project_alone() {
     let fx = Fixture::new();
-    fx.write("status.txt", "green");
+    fx.write("status.txt", "service status: green");
     fx.ok_json(&["init", "--json"]);
     fx.write("other.txt", "x");
     fx.ok_json(&["checkpoint", "--json"]);
@@ -541,6 +541,7 @@ fn mcp_server_lets_another_agent_see_what_claude_did() {
             "fabric_file_history",
             "fabric_step",
             "fabric_test_results",
+            "fabric_lessons",
             "fabric_checkpoint"
         ]
     );
@@ -767,6 +768,138 @@ fn integrate_installs_the_guard_hook() {
             .as_str()
             .unwrap()
             .ends_with("hook claude-code")
+    );
+}
+
+/// Sends a hook event with experiment flags set, as Claude Code would run the hook.
+fn hook_with(fx: &Fixture, flags: &[(&str, &str)], event: Value) -> Run {
+    let mut command = fx.command();
+    command
+        .args(["hook", "claude-code"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (key, value) in flags {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(event.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    Run {
+        code: output.status.code().unwrap(),
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: String::from_utf8(output.stderr).unwrap(),
+    }
+}
+
+#[test]
+fn lessons_are_learned_from_the_breaking_step_and_reach_the_next_agent() {
+    let fx = Fixture::new();
+    agent_session_with_a_breaking_step(&fx);
+    let found = fx.ok_json(&["bisect", "--test", status_test(), "--json"]);
+    let bad = found["first_bad"]["seq"].as_u64().unwrap().to_string();
+
+    let added = fx.ok_json(&[
+        "lesson",
+        "add",
+        "--step",
+        &bad,
+        "--rule",
+        "status.txt must say green; never write red",
+        "--json",
+    ]);
+    let lesson = &added["lesson"];
+    assert_eq!(lesson["from_checkpoint"], 4);
+    assert_eq!(lesson["files"], json!(["status.txt"]));
+    assert_eq!(
+        fx.ok_json(&["lesson", "list", "--json"])["lessons"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let root = fx.project.to_string_lossy().into_owned();
+    let prompt = json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "s-2",
+        "cwd": root,
+        "prompt": "update the status",
+    });
+    // Off by default: the hook stays silent.
+    assert_eq!(hook_with(&fx, &[], prompt.clone()).stdout, "");
+    // With the experiment on, the next agent is told the lesson with its evidence.
+    let run = hook_with(&fx, &[("FABRIC_EXPERIMENT_LESSONS", "1")], prompt);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let context: Value = serde_json::from_str(&run.stdout).unwrap();
+    let text = context["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        context["hookSpecificOutput"]["hookEventName"],
+        "UserPromptSubmit"
+    );
+    assert!(text.contains("never write red"), "{text}");
+    assert!(text.contains("status.txt"), "{text}");
+}
+
+#[test]
+fn the_learned_guard_stops_a_repeated_mistake_once() {
+    let fx = Fixture::new();
+    agent_session_with_a_breaking_step(&fx);
+    fx.ok_json(&[
+        "lesson",
+        "add",
+        "--step",
+        "4",
+        "--rule",
+        "status.txt must stay green",
+        "--json",
+    ]);
+    let flags = [("FABRIC_EXPERIMENT_LEARNED_GUARD", "1")];
+    let edit = |session: &str, content: &str| {
+        json!({
+            "hook_event_name": "PreToolUse",
+            "session_id": session,
+            "cwd": fx.project.to_string_lossy(),
+            "tool_name": "Write",
+            "tool_input": { "file_path": fx.project.join("status.txt").to_string_lossy(), "content": content },
+        })
+    };
+
+    // Writing "red" again repeats the reverted change: stopped, with the lesson as the reason.
+    let first = hook_with(&fx, &flags, edit("s-3", "service status: red"));
+    let answer: Value = serde_json::from_str(&first.stdout).unwrap();
+    assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny");
+    let reason = answer["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap();
+    assert!(reason.contains("status.txt must stay green"), "{reason}");
+    assert!(reason.contains("#4"), "{reason}");
+
+    // A retry in the same session is allowed: the agent has been told, the person decides.
+    assert_eq!(
+        hook_with(&fx, &flags, edit("s-3", "service status: red")).stdout,
+        ""
+    );
+    // An unrelated edit is never stopped, and nothing fires with the experiment off.
+    assert_eq!(
+        hook_with(
+            &fx,
+            &flags,
+            edit("s-4", "service status: green and healthy")
+        )
+        .stdout,
+        ""
+    );
+    assert_eq!(
+        hook_with(&fx, &[], edit("s-5", "service status: red")).stdout,
+        ""
     );
 }
 

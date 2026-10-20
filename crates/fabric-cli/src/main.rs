@@ -11,6 +11,7 @@ mod commands;
 mod error;
 mod guard;
 mod home;
+mod lessons;
 mod mcp;
 mod query;
 mod results;
@@ -124,6 +125,12 @@ enum Command {
     /// Run the MCP server that lets agents query this project's history (started by agents).
     Mcp,
 
+    /// Lessons learned from steps that broke things (experimental).
+    Lesson {
+        #[command(subcommand)]
+        command: LessonCommand,
+    },
+
     /// Consent rules: which agent actions need your approval or are blocked.
     Guard {
         #[command(subcommand)]
@@ -142,6 +149,23 @@ enum Command {
         #[command(subcommand)]
         agent: Agent,
     },
+}
+
+#[derive(Subcommand)]
+enum LessonCommand {
+    /// Record a lesson from a checkpoint whose change broke something.
+    Add {
+        /// The checkpoint that caused the failure (as in `fabric log` or `fabric bisect`).
+        #[arg(long)]
+        step: u64,
+        /// The correction, in your words, e.g. "discount is a fraction, never dollars".
+        #[arg(long)]
+        rule: String,
+    },
+    /// List lessons.
+    List,
+    /// Stop using a lesson.
+    Retire { id: u64 },
 }
 
 #[derive(Subcommand)]
@@ -206,6 +230,13 @@ fn main() -> ExitCode {
         Command::History { path, limit } => commands::history(&ctx, &path, limit),
         Command::Resume => commands::resume(&ctx),
         Command::Mcp => mcp::serve(&ctx.home).map(|()| error::exit::OK),
+        Command::Lesson { command } => ctx.project().and_then(|project| match command {
+            LessonCommand::Add { step, rule } => {
+                lessons::add_cmd(&ctx.home, &project, step, &rule, json)
+            }
+            LessonCommand::List => lessons::list_cmd(&project, json),
+            LessonCommand::Retire { id } => lessons::retire_cmd(&project, id, json),
+        }),
         Command::Guard { command } => ctx.project().and_then(|project| match command {
             GuardCommand::Rules => guard::rules(&project, json),
             GuardCommand::Check { command, file } => guard::check(

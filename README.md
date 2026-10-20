@@ -4,6 +4,9 @@
 did to your project — step by step, across Claude Code, Codex, Cursor and others — lets any
 agent query that history, and lets you undo any single step with a verified result.
 
+> **Direction:** change control for AI agents on financially significant systems: see
+> [`docs/PIVOT_FINANCE.md`](docs/PIVOT_FINANCE.md).
+>
 > Status: early development. Works end to end with Claude Code; not yet tuned for large
 > repositories. Not ready for production use.
 

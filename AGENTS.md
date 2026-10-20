@@ -24,4 +24,8 @@ Project Fabric is a safety tool: a bug here can destroy the work it exists to pr
 
 ## Not in scope yet
 
-Desktop app, multi-model orchestration, cloud sync, team features.
+Desktop app, multi-model orchestration, cloud sync, a hosted team server.
+
+In scope since the finance pivot (`docs/PIVOT_FINANCE.md`): local approvals, tamper-evident
+evidence export and finance rule packs. Evidence is audit material: never claim it proves
+more than its verifier checks.

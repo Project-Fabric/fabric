@@ -47,6 +47,10 @@ Vendors have no incentive to make their agents interoperate. A neutral layer doe
 
 ## Roadmap
 
+Since the finance pivot (20 October 2026), the current build order and status are in
+`PIVOT_FINANCE.md` ("What we build"). The plan below is the original one; weeks 1 to 5 were
+built.
+
 | Week | Engineering |
 |------|-------------|
 | 1 | Workspace, object store, manifests, snapshots, diff, undoable restore |

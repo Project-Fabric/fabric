@@ -61,14 +61,33 @@ Most of these figures come from secondary sources and need checking before a pit
 
 ## What we build (in order, smallest first)
 
+Status as of 20 October 2026. Results with real agents: `EXPERIMENT_FINANCE.md`.
+
 1. **Signed, tamper-evident evidence export.** Hash-chain the step log; `fabric evidence
    export` writes a self-verifying pack (steps, approvals, diffs, guard decisions) with a
-   verifier that runs offline.
+   verifier that runs offline. *Done* (#53).
 2. **Approvals.** The guard's `ask` becomes an approval recorded with the approver's identity;
-   the agent's run identity is never the approver (segregation of duties).
+   the agent's run identity is never the approver (segregation of duties). *Done* (#54);
+   approval by a second person on another machine is not built.
 3. **Finance rule packs.** Paths and commands that need approval or are denied: ledger and
-   billing code, applied migrations on financial tables, production credentials.
-4. **Evidence report** a reviewer can read: one page per change.
+   billing code, applied migrations on financial tables, production credentials. *Done*
+   (#55), with rollback of controlled files changed around the hold (e.g. by a script).
+4. **Evidence report** a reviewer can read: one page per change. *Built* (per checkpoint and
+   per change ticket); open until an auditor from the interviews has reviewed it (#56).
+5. **Change requests.** Authorize a task once, review its result once, revert it whole, one
+   report per change. *Done* (#57): cut a feature's controller work from 6 to 8 approvals to
+   2 actions in the experiment.
+
+Next, in order:
+
+6. **A real controller in the loop.** Put `fabric review` and the change report in front of a
+   controller or IT auditor from the interviews; measure what they catch and how long review
+   takes (the scripted reviewer accepted a rule-breaking change) (#58).
+7. **Live interactive sessions.** Change requests and rollback in a person's own Claude Code
+   session, not only headless runs (#47).
+8. **Approval from another person or machine.** Segregation of duties beyond "not the agent".
+9. **Other agents.** Codex and others get checkpoints, undo and evidence but no hold or
+   rollback (#46).
 
 Everything stays local-first; no cloud dependency in the core (`AGENTS.md`).
 

@@ -106,6 +106,7 @@ Claude Code headless, default model, one run per scenario and setup. Raw records
 
 ### Not yet measured
 
-Rates (this is one run per cell), interactive sessions, other agents (Codex has no pre-action
-hook, so it gets rollback and evidence but no hold), a real controller's review time, and
+Rates (this is one run per cell), interactive sessions, other agents (Codex has no hooks Fabric
+uses, so it gets neither the hold nor the rollback: only checkpoints taken around it, undo
+and evidence), a real controller's review time, and
 false holds on realistic out-of-scope work beyond one scenario.

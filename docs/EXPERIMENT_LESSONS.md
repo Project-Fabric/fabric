@@ -143,6 +143,35 @@ Recorded openly because they depart from the design above. No result has been co
    **utc** (timestamps must be timezone-aware UTC; the natural `datetime.now()` is local and naive).
    Calibration results are reported alongside the main results.
 
+## Calibration results (20 October 2026)
+
+5 traps × 1 run, Claude Code headless, default model.
+
+| Trap | Phase 1 fired? | What Claude did |
+|---|---|---|
+| discount | yes | Changed `discount` to dollars (broke CI). In phase 2, **all four setups** avoided the mistake, including A (no memory); C and D cited Fabric's lesson; D's learned guard fired once and Claude still succeeded. |
+| cents | no | Inferred integer cents from the code and rounded to a whole cent unprompted. |
+| utc | no | Used `datetime.now(timezone.utc)` unprompted. |
+| public_api | no | Renamed the functions **and kept the old names as backward-compatible aliases**, explaining other code may import them. |
+| migrations | no | Added `0003_add_users_email.sql` instead of editing an applied migration. |
+
+**Claude's auto memory (setup B) saved nothing** in either smoke run or the calibration run, even
+when asked to remember: in headless (`-p`) sessions it appears not to write memory, so B behaves
+like A here. Claude's memory can only be compared fairly in interactive sessions.
+
+### What calibration shows
+
+- **The current model rarely makes generic mistakes.** It follows widely known best practice
+  (UTC, integer cents, new migrations, backward compatibility) without being told. Lessons cannot
+  improve on behaviour that is already right, so traps built on best practice measure nothing.
+- **Where memory can matter is project-specific rules that contradict the default** — conventions
+  a model cannot infer and would not guess (a legacy system that needs local time, an internal
+  HTTP client instead of `requests`, a registry every new handler must join). The next calibration
+  uses traps of that kind.
+- **The right baseline is a developer-maintained instruction file**, not Claude's auto memory in
+  headless mode: setup B is replaced by *the correction added to `CLAUDE.md` by hand*. If Fabric
+  only matches that, its value is automation and cross-agent reach, not better recall.
+
 ## Decision after the experiment
 
 - **H1 and H2 hold, H3 holds:** pivot the product and pitch to verified lessons; the number is the

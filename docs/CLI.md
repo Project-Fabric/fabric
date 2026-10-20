@@ -15,6 +15,16 @@ fabric resume                      # finish an interrupted restore
 fabric integrate claude-code|codex # connect an agent
 fabric mcp                         # MCP server (started by agents, not people)
 fabric guard rules|check|set|log   # consent rules for agent actions
+fabric guard pack finance [--scope GLOB]...      # SOX change-control rules
+fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--committed-only]
+fabric guard remove-rule ID
+fabric approvals [--all]           # changes waiting for a person's approval
+fabric approve N [--reject] [--as NAME] [--note TEXT] [--yes]
+fabric evidence verify [--deep]    # is the record intact? any unapproved controlled changes?
+fabric evidence report N           # a reviewer's page for one change
+fabric evidence export --out DIR   # signed evidence pack
+fabric evidence verify-pack DIR [--key FINGERPRINT]
+fabric evidence key                # this installation's signing key fingerprint
 ```
 
 ## Installing
@@ -75,6 +85,35 @@ Overrides are stored in Fabric's data directory, not the project, and an agent r
 `fabric guard set` is itself denied, so an agent cannot loosen its own rules. Every `ask` and
 `deny` is appended to an audit log with the time, session, tool, target and rule.
 
+### Project rules, approvals and the finance pack
+
+Projects can add their own rules over file paths (globs) or commands (patterns), with a fourth
+decision, `approve`: the action is held until a person approves that exact action with
+`fabric approve N` in their own terminal. The agent is told the request number; when it
+retries the same action, the approval is used up and the action proceeds. A different action
+needs its own approval, rejections are final for that action, and unused approvals expire
+after 4 hours.
+
+```sh
+fabric guard pack finance --scope "src/billing/**" --scope "migrations/**"
+fabric approvals                      # #1 pending  Edit src/billing/tax.py (finance-in-scope-code)
+fabric approve 1                      # shows the proposed diff, asks for confirmation
+fabric approve 2 --reject --note "post a reversing entry instead"
+```
+
+The finance pack adds `finance-in-scope-code` (approve; the given scope),
+`finance-applied-migrations` (deny; committed files under `migrations/`), `finance-ledger-sql`
+(approve; SQL that writes to journal, ledger, invoice, payment, refund, account, period,
+revenue or balance tables), `finance-controls` (approve; `controls/`, `CODEOWNERS`) and
+`finance-production-config` (deny). Change any of them with `fabric guard set`.
+
+Segregation of duties, and its limits: an agent running `fabric approve` is denied by the
+guard, and the command refuses to run where a known agent marks its shell (`CLAUDECODE`,
+`CODEX_SANDBOX`). These stop an agent approving its own change by mistake, not one set on
+evading them, and the developer who prompted the agent can approve its work. The evidence
+records the approver, their OS account, and whether it is the same account the agent ran
+under. Approval by a second person on another machine is not provided yet.
+
 Limits, stated plainly: the guard recognizes common destructive commands by pattern; it is not
 a sandbox, and a determined agent could phrase a destructive action it does not recognize.
 Patterns also match inside quoted text, so `grep 'rm -rf'` asks too; for consent, a false
@@ -82,6 +121,25 @@ alarm is the safer mistake. If the hook itself fails it stays silent rather than
 agent, and Claude Code's own permission system still applies. Only agents with pre-action
 hooks (Claude Code today) can be guarded; Codex and others are covered by checkpoints and
 undo, but not by consent prompts.
+
+## Evidence for reviewers and auditors
+
+Every checkpoint, guard decision, approval and rule change is appended to a hash-chained
+evidence log (format in `STORAGE_FORMAT.md`).
+
+- `fabric evidence verify` checks every hash and link, that recorded snapshots are present
+  (`--deep` re-hashes their content), and that the checkpoint log matches the evidence. It
+  also lists **exceptions**: files under an `approve` or `deny` project rule that an agent step
+  changed without an approval in that step, for example through a shell command. Exit code 5
+  if the chain is broken.
+- `fabric evidence report N` shows one change as a reviewer reads it: agent, prompt, guard
+  decisions, approvals, exceptions, the diff, and how to reverse it.
+- `fabric evidence export --out DIR` writes a signed pack; `fabric evidence verify-pack DIR
+  --key FINGERPRINT` checks it anywhere, without the project or Fabric's data directory.
+
+The guard's JSON schemas are now `fabric.guard.rules/v2`, `fabric.guard.check/v2`,
+`fabric.guard.set/v2` and `fabric.guard.log/v2` (v2: the `approve` decision, project rules,
+and `rule` may name a project rule).
 
 ## Sharing history between agents: MCP
 

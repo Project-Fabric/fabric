@@ -73,6 +73,14 @@ impl Fixture {
                 "FABRIC_CLAUDE_BIN",
                 self.home.with_file_name("no-such-claude"),
             );
+        // Tests may themselves run inside an agent; approvals must behave as for a person.
+        for marker in [
+            "CLAUDECODE",
+            "CODEX_SANDBOX",
+            "CODEX_SANDBOX_NETWORK_DISABLED",
+        ] {
+            command.env_remove(marker);
+        }
         command
     }
 
@@ -911,4 +919,241 @@ fn integrate_refuses_to_overwrite_invalid_settings() {
     let run = fx.run(&["integrate", "claude-code", "--json"]);
     assert_eq!(run.code, 1);
     assert_eq!(fx.read(".claude/settings.local.json"), "{ not json");
+}
+
+fn reason(answer: &Option<Value>) -> String {
+    answer.as_ref().map_or(String::new(), |a| {
+        a["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    })
+}
+
+#[test]
+fn finance_changes_need_a_recorded_approval_and_leave_verifiable_evidence() {
+    let fx = Fixture::new();
+    fx.write("ledger/journal.py", "def post(): pass\n");
+    fx.write("tools/report.py", "print('hi')\n");
+    fx.ok_json(&["init", "--json"]);
+    let pack = fx.ok_json(&["guard", "pack", "finance", "--scope", "ledger/**", "--json"]);
+    assert_eq!(pack["rules"][0], "finance-in-scope-code");
+    let root = fx.project.to_string_lossy().into_owned();
+    let journal = fx
+        .project
+        .join("ledger/journal.py")
+        .to_string_lossy()
+        .into_owned();
+    let edit = |new: &str| {
+        pre_tool_use(
+            &fx,
+            "Edit",
+            json!({ "file_path": journal, "old_string": "pass", "new_string": new }),
+        )
+    };
+
+    // Out-of-scope work is not interrupted.
+    let tools = fx.project.join("tools/report.py");
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "Write",
+            json!({ "file_path": tools.to_string_lossy(), "content": "x" })
+        )),
+        "silent"
+    );
+
+    // An in-scope change is held until a person approves it; retrying does not pile up requests.
+    let held = edit("return 1");
+    assert_eq!(decision(&held), "deny");
+    assert!(
+        reason(&held).contains("fabric approve 1"),
+        "{}",
+        reason(&held)
+    );
+    assert_eq!(decision(&edit("return 1")), "deny");
+    let waiting = fx.ok_json(&["approvals", "--json"]);
+    assert_eq!(waiting["requests"].as_array().unwrap().len(), 1);
+    assert_eq!(waiting["requests"][0]["target"], "ledger/journal.py");
+
+    // The agent cannot approve its own change: the guard blocks the command, and the command
+    // itself refuses to run inside an agent session.
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "Bash",
+            json!({ "command": "fabric approve 1 --yes" })
+        )),
+        "deny"
+    );
+    let output = fx
+        .command()
+        .args(["approve", "1", "--yes", "--json"])
+        .env("CLAUDECODE", "1")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("approval_from_agent"));
+    // Without a terminal, approving needs --yes after reviewing.
+    assert_eq!(fx.run(&["approve", "1"]).code, 3);
+
+    let approved = fx.ok_json(&[
+        "approve",
+        "1",
+        "--yes",
+        "--as",
+        "controller@example.com",
+        "--note",
+        "CHG-1042",
+        "--json",
+    ]);
+    assert_eq!(approved["request"]["status"], "approved");
+    assert_eq!(approved["request"]["approver"], "controller@example.com");
+
+    // The approved action proceeds once; a different change needs its own approval.
+    assert_eq!(decision(&edit("return 1")), "silent");
+    fx.write("ledger/journal.py", "def post(): return 1\n");
+    hook_event(
+        &fx,
+        json!({
+            "hook_event_name": "PostToolUse", "session_id": "s-1", "cwd": root,
+            "tool_name": "Edit", "tool_input": { "file_path": journal },
+        }),
+    );
+    assert_eq!(decision(&edit("return 1")), "deny");
+    assert!(reason(&edit("return 2")).contains("fabric approve 3"));
+    let rejected = fx.ok_json(&[
+        "approve",
+        "3",
+        "--reject",
+        "--yes",
+        "--as",
+        "c@example.com",
+        "--json",
+    ]);
+    assert_eq!(rejected["request"]["status"], "rejected");
+    assert!(reason(&edit("return 2")).contains("rejected"));
+
+    // A controlled file changed by a shell command, with no approval, is an exception.
+    fx.write("ledger/fees.py", "FEE = 3\n");
+    hook_event(
+        &fx,
+        json!({
+            "hook_event_name": "PostToolUse", "session_id": "s-1", "cwd": root,
+            "tool_name": "Bash", "tool_input": { "command": "python gen.py" },
+        }),
+    );
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["chain"]["ok"], true);
+    let exceptions = verify["exceptions"].as_array().unwrap();
+    assert_eq!(exceptions.len(), 1, "{verify}");
+    assert_eq!(exceptions[0]["path"], "ledger/fees.py");
+
+    // The approved step's report shows the approval and no exception.
+    let step = fx.log()[1]["seq"].as_u64().unwrap();
+    let report = fx.ok_json(&["evidence", "report", &step.to_string(), "--json"]);
+    let markdown = report["markdown"].as_str().unwrap();
+    assert!(
+        markdown.contains("approved** by controller@example.com"),
+        "{markdown}"
+    );
+    assert!(markdown.contains("No exceptions"), "{markdown}");
+
+    // A signed pack verifies anywhere, and any change to it is detected.
+    let out = fx.home.with_file_name("pack");
+    let exported = fx.ok_json(&[
+        "evidence",
+        "export",
+        "--out",
+        &out.to_string_lossy(),
+        "--json",
+    ]);
+    let fingerprint = exported["fingerprint"].as_str().unwrap().to_owned();
+    let checked = fx.ok_json(&[
+        "evidence",
+        "verify-pack",
+        &out.to_string_lossy(),
+        "--key",
+        &fingerprint,
+        "--json",
+    ]);
+    assert_eq!(checked["ok"], true, "{checked}");
+    let wrong_key = fx.run(&[
+        "evidence",
+        "verify-pack",
+        &out.to_string_lossy(),
+        "--key",
+        "0000",
+    ]);
+    assert_eq!(wrong_key.code, 5);
+    let report_file = fs::read_dir(out.join("changes"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    fs::write(&report_file, "nothing to see here").unwrap();
+    let tampered = fx.run(&["evidence", "verify-pack", &out.to_string_lossy(), "--json"]);
+    assert_eq!(tampered.code, 5);
+    assert!(
+        tampered
+            .stdout
+            .contains("was changed after the pack was signed")
+    );
+
+    // Editing the project's own chain is detected too.
+    let chain = fs::read_dir(fx.home.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("evidence.jsonl");
+    let text = fs::read_to_string(&chain).unwrap();
+    fs::write(
+        &chain,
+        text.replacen("controller@example.com", "someone@else.com", 1),
+    )
+    .unwrap();
+    let broken = fx.run(&["evidence", "verify", "--json"]);
+    assert_eq!(broken.code, 5);
+    assert_eq!(broken.json()["chain"]["ok"], false);
+}
+
+#[test]
+fn committed_migrations_are_protected_but_new_ones_are_not() {
+    let fx = Fixture::new();
+    fx.write("migrations/0001_init.sql", "create table t (id int);\n");
+    let git = |args: &[&str]| {
+        let ok = Command::new("git")
+            .args(args)
+            .current_dir(&fx.project)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-qm",
+        "init",
+    ]);
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance", "--json"]);
+    let write = |name: &str| {
+        pre_tool_use(
+            &fx,
+            "Write",
+            json!({ "file_path": fx.project.join(name).to_string_lossy(), "content": "x" }),
+        )
+    };
+    assert_eq!(decision(&write("migrations/0001_init.sql")), "deny");
+    assert_eq!(decision(&write("migrations/0002_fees.sql")), "silent");
 }

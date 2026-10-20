@@ -1,1 +1,4 @@
 /target
+__pycache__/
+experiments/*/runs/
+testbeds/*/books.db

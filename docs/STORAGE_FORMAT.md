@@ -150,6 +150,62 @@ Operations are `remove`, `create_dir`, `write_file` (`id`, `size`, `executable`)
 during a crash can be repeated. The directory is deleted once all operations are applied, and
 excluded from captures.
 
+## Evidence chain (`evidence.jsonl`, record version 1)
+
+Per project, in `<home>/projects/<id>/evidence.jsonl`. Append-only; one record per line:
+
+```
+<hash> <body>\n
+```
+
+`body` is compact JSON `{"v":1,"seq":N,"prev":"<hex>","at":"<RFC 3339 UTC>","event":{…}}` and
+`hash` is the lowercase hex BLAKE3 hash of exactly the body's bytes. `seq` starts at 1 and
+increases by one; `prev` is the previous record's hash, or 64 zeros for the first record. A
+verifier needs only the file: it re-hashes each body and checks every `seq` and `prev`.
+Appends are serialized by `evidence.lock` (an exclusive OS file lock) and fsynced; a final line
+without a newline is an interrupted write, removed before the next append and reported by
+`fabric evidence verify`.
+
+Events (`event.kind`): `genesis` (project id, root, Fabric version), `checkpoint` (checkpoint
+number, snapshot id, parent snapshot id, type, label, agent, session, tool, change counts),
+`guard` (decision, rule, tool, target), `approval_requested`, `approval_granted`,
+`approval_rejected`, `approval_used` (request number, action digest, approver and OS
+accounts), and `policy_changed`. Commands and paths in events are cut to 2,000 characters;
+full content is in the referenced snapshots. Projects recorded before evidence existed start
+their chain at the first checkpoint taken afterwards.
+
+The chain shows that records were not changed, removed or reordered after later records were
+written, to anyone holding a later head (for example from an exported pack). It cannot stop
+someone with write access to Fabric's data directory from rewriting the whole chain before any
+head has been shared.
+
+## Approvals (`approvals.json`, format `fabric-approvals`, version 1)
+
+Per project, next to the evidence chain: `{"format","version","requests":[…]}`, rewritten
+durably under `approvals.lock`. Each request has a number, the action's digest (BLAKE3 of
+`{"input":…,"tool":…}` serialized with sorted keys), rule, tool, target, the tool input as the
+agent sent it, the requesting session and OS account, and its status: `pending`, `approved`,
+`rejected`, `used` (an approval is used by exactly one action) or `expired` (approved but
+unused for 4 hours).
+
+## Guard policy (`guard-policy.json`, format `fabric-guard-policy`, version 2)
+
+`{"format","version","overrides":{rule: decision},"custom":[…]}`. Version 2 added `custom`,
+project rules with `id`, `description`, `decision` (`allow`, `ask`, `approve`, `deny`), `paths`
+(globs over project-relative paths, `*` not crossing `/`), `commands` (case-insensitive
+regular expressions) and `committed_only`. Version 1 files are read as having no project
+rules; Fabric writes version 2.
+
+## Evidence pack (format `fabric-evidence-pack`, version 1)
+
+A directory written by `fabric evidence export`: `evidence.jsonl` (the chain's complete
+records), `changes/<checkpoint, 6 digits>.md` (one report per evidenced checkpoint),
+`README.md`, `summary.json` and `summary.sig`. `summary.json` lists the project, the chain's
+record count and head, the exceptions found, the BLAKE3 hash of every other file, and the
+Ed25519 public key and its fingerprint (the first 16 hex characters of the key's BLAKE3
+hash). `summary.sig` is the hex Ed25519 signature of `summary.json`'s exact bytes. The signing
+key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
+
 ## Not yet defined
 
-Checkpoint records, garbage collection, store format migrations.
+Garbage collection, store format migrations.

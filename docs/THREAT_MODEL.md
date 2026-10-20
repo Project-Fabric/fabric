@@ -33,6 +33,9 @@ malicious agent running with the user's privileges.
 | Agent runs destructive Fabric commands (`restore`, `revert`, `guard set`) | guard denies them for hooked agents; MCP exposes no destructive tools | implemented for Claude Code, tested |
 | Agent deletes files, rewrites Git history, drops data, destroys infrastructure or publishes without consent | guard asks the person first (pattern-based, not a sandbox); checkpoints make in-project damage undoable | implemented for Claude Code, tested; other agents: undo only |
 | Agent disables its own guard (edits hooks, Fabric data, `.git`) | writes to agent config ask; writes to Fabric data and `.git` are denied; policy lives outside the project | implemented, tested |
+| Agent approves its own held change | `fabric approve` denied by the guard; refused where a known agent marks its shell (`CLAUDECODE`, `CODEX_SANDBOX`); approval bound to the exact action's digest and used once | implemented, tested; not proof against an agent deliberately evading both, nor against the prompting developer approving (recorded: approver, OS account, same-account flag) |
+| Controlled file changed without approval (e.g. by a shell command the guard cannot attribute to a path) | evidence exceptions: every agent step's changed files are checked against `approve`/`deny` rules and that step's approvals | implemented, tested; detected after the fact, not prevented |
+| Evidence edited, removed or reordered after the fact | hash-chained records; exported packs signed with Ed25519 and hash every file | implemented, tested; a writer to Fabric's data directory can rewrite the whole chain before any head or pack has been shared |
 
 ## Out of scope
 

@@ -10,6 +10,7 @@ use fabric_store::{ObjectId, Store};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, exit};
+use crate::evidence;
 use crate::home::Project;
 use crate::timefmt;
 
@@ -171,6 +172,10 @@ pub fn record_manifest(
         changes,
     };
     append(project, &checkpoint)?;
+    evidence::append(
+        project,
+        evidence::checkpoint_event(&checkpoint, previous.map(|p| &p.snapshot)),
+    )?;
     Ok(Some(checkpoint))
 }
 

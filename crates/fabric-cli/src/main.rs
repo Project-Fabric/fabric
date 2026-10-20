@@ -3,17 +3,21 @@
 //! Every command accepts `--json` for versioned machine-readable output and uses the exit
 //! codes in [`error::exit`]. See `docs/CLI.md`.
 
+mod approvals;
 mod bisect;
 mod checkpoint;
 mod claude;
 mod codex;
 mod commands;
 mod error;
+mod evidence;
 mod guard;
 mod home;
 mod lessons;
 mod mcp;
+mod pack;
 mod query;
+mod report;
 mod results;
 mod timefmt;
 
@@ -31,7 +35,7 @@ use crate::home::Home;
 #[command(
     name = "fabric",
     version,
-    about = "Flight recorder for AI coding agents"
+    about = "Change control for AI coding agents: record, approve, undo and evidence every change"
 )]
 struct Cli {
     /// Print versioned JSON instead of human-readable output.
@@ -137,6 +141,39 @@ enum Command {
         command: GuardCommand,
     },
 
+    /// Approval requests waiting for a person's sign-off.
+    Approvals {
+        /// Show every request, not only those waiting.
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Review an agent's held change and approve (or reject) it. Run this in your own
+    /// terminal; agents cannot approve their own changes.
+    Approve {
+        /// Request number, as in `fabric approvals`.
+        id: u64,
+        /// Reject the change instead.
+        #[arg(long)]
+        reject: bool,
+        /// Who is approving (default: your Git email, then your OS account).
+        #[arg(long = "as")]
+        approver: Option<String>,
+        /// A note recorded with the decision, e.g. a change ticket.
+        #[arg(long)]
+        note: Option<String>,
+        /// Record the decision without asking for confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
+
+    /// Evidence for reviewers and auditors: verify the record, report on a change, export a
+    /// signed pack.
+    Evidence {
+        #[command(subcommand)]
+        command: EvidenceCommand,
+    },
+
     /// Connect a coding agent: record its work and let it query what other agents did.
     Integrate {
         #[command(subcommand)]
@@ -183,13 +220,71 @@ enum GuardCommand {
         #[arg(long)]
         file: Option<String>,
     },
-    /// Change a rule's decision for this project: allow, ask or deny.
+    /// Change a rule's decision for this project: allow, ask, approve or deny.
     Set { rule: String, decision: String },
+    /// Install a rule pack for this project. Available: finance.
+    Pack {
+        name: String,
+        /// Paths in scope, as globs (repeatable), e.g. "src/billing/**". The finance pack
+        /// defaults to common ledger, billing and payments directories.
+        #[arg(long)]
+        scope: Vec<String>,
+    },
+    /// Add (or replace) a project rule matching file paths or commands.
+    AddRule {
+        /// Lowercase id, e.g. "billing-code".
+        id: String,
+        /// allow, ask, approve or deny.
+        #[arg(long)]
+        decision: String,
+        /// A glob over project-relative paths (repeatable).
+        #[arg(long = "path")]
+        paths: Vec<String>,
+        /// A case-insensitive pattern over shell commands (repeatable).
+        #[arg(long = "command")]
+        commands: Vec<String>,
+        /// Only files already committed to Git (e.g. applied migrations).
+        #[arg(long)]
+        committed_only: bool,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Remove a project rule.
+    RemoveRule { id: String },
     /// Actions that needed approval or were blocked, newest first.
     Log {
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: usize,
     },
+}
+
+#[derive(Subcommand)]
+enum EvidenceCommand {
+    /// Check that the evidence chain is intact and list exceptions.
+    Verify {
+        /// Also re-hash every file content the recorded checkpoints refer to.
+        #[arg(long)]
+        deep: bool,
+    },
+    /// A reviewer's report on one change.
+    Report {
+        /// Checkpoint number, as in `fabric log`.
+        checkpoint: u64,
+    },
+    /// Write a signed evidence pack to a new directory.
+    Export {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Check an evidence pack (does not need the project or its history).
+    VerifyPack {
+        dir: PathBuf,
+        /// The signing key fingerprint you expect, obtained separately.
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// Show this installation's evidence signing key.
+    Key,
 }
 
 #[derive(Subcommand)]
@@ -253,7 +348,61 @@ fn main() -> ExitCode {
             ),
             GuardCommand::Set { rule, decision } => guard::set(&project, &rule, &decision, json),
             GuardCommand::Log { limit } => guard::log(&project, limit, json),
+            GuardCommand::Pack { name, scope } => guard::pack(&project, &name, &scope, json),
+            GuardCommand::AddRule {
+                id,
+                decision,
+                paths,
+                commands,
+                committed_only,
+                description,
+            } => guard::parse_decision(&decision).and_then(|decision| {
+                guard::add_rule(
+                    &project,
+                    guard::CustomRule {
+                        description: description.unwrap_or_else(|| format!("Project rule {id}")),
+                        id,
+                        decision,
+                        paths,
+                        commands,
+                        committed_only,
+                    },
+                    json,
+                )
+            }),
+            GuardCommand::RemoveRule { id } => guard::remove_rule(&project, &id, json),
         }),
+        Command::Approvals { all } => ctx
+            .project()
+            .and_then(|project| approvals::list_cmd(&project, all, json)),
+        Command::Approve {
+            id,
+            reject,
+            approver,
+            note,
+            yes,
+        } => ctx.project().and_then(|project| {
+            approvals::approve_cmd(
+                &project,
+                &approvals::Decision {
+                    id,
+                    reject,
+                    approver: approver.as_deref(),
+                    note: note.as_deref(),
+                    yes,
+                },
+                json,
+            )
+        }),
+        Command::Evidence { command } => match command {
+            EvidenceCommand::Verify { deep } => pack::verify_cmd(&ctx, deep),
+            EvidenceCommand::Report { checkpoint } => pack::report_cmd(&ctx, checkpoint),
+            EvidenceCommand::Export { out } => pack::export_cmd(&ctx, &out),
+            EvidenceCommand::VerifyPack { dir, key } => {
+                pack::verify_pack_cmd(&ctx, &dir, key.as_deref())
+            }
+            EvidenceCommand::Key => pack::key_cmd(&ctx),
+        },
         Command::Integrate {
             agent: Agent::ClaudeCode,
         } => claude::integrate(&ctx.home, json),

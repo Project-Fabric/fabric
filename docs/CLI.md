@@ -19,7 +19,7 @@ fabric guard pack finance [--scope GLOB]...      # SOX change-control rules
 fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--committed-only]
 fabric guard remove-rule ID
 fabric approvals [--all]           # changes waiting for a person's approval
-fabric approve N [--reject] [--as NAME] [--note TEXT] [--yes]
+fabric approve N [N...] [--reject] [--as NAME] [--note TEXT] [--yes]
 fabric evidence verify [--deep]    # is the record intact? any unapproved controlled changes?
 fabric evidence report N           # a reviewer's page for one change
 fabric evidence export --out DIR   # signed evidence pack
@@ -97,7 +97,7 @@ after 4 hours.
 ```sh
 fabric guard pack finance --scope "src/billing/**" --scope "migrations/**"
 fabric approvals                      # #1 pending  Edit src/billing/tax.py (finance-in-scope-code)
-fabric approve 1                      # shows the proposed diff, asks for confirmation
+fabric approve 1 3 4                  # shows each proposed diff, asks once, records each
 fabric approve 2 --reject --note "post a reversing entry instead"
 ```
 

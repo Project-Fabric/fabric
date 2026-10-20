@@ -1007,8 +1007,12 @@ fn finance_changes_need_a_recorded_approval_and_leave_verifiable_evidence() {
         "CHG-1042",
         "--json",
     ]);
-    assert_eq!(approved["request"]["status"], "approved");
-    assert_eq!(approved["request"]["approver"], "controller@example.com");
+    assert_eq!(approved["schema"], "fabric.approve/v2");
+    assert_eq!(approved["requests"][0]["status"], "approved");
+    assert_eq!(
+        approved["requests"][0]["approver"],
+        "controller@example.com"
+    );
 
     // The approved action proceeds once; a different change needs its own approval.
     assert_eq!(decision(&edit("return 1")), "silent");
@@ -1031,7 +1035,7 @@ fn finance_changes_need_a_recorded_approval_and_leave_verifiable_evidence() {
         "c@example.com",
         "--json",
     ]);
-    assert_eq!(rejected["request"]["status"], "rejected");
+    assert_eq!(rejected["requests"][0]["status"], "rejected");
     assert!(reason(&edit("return 2")).contains("rejected"));
 
     // A controlled file changed by a shell command, with no approval, is an exception.
@@ -1156,4 +1160,74 @@ fn committed_migrations_are_protected_but_new_ones_are_not() {
     };
     assert_eq!(decision(&write("migrations/0001_init.sql")), "deny");
     assert_eq!(decision(&write("migrations/0002_fees.sql")), "silent");
+}
+
+#[test]
+fn several_held_changes_are_approved_together_and_recorded_separately() {
+    let fx = Fixture::new();
+    fx.write(
+        "ledger/a.py",
+        "A = 1
+",
+    );
+    fx.write(
+        "ledger/b.py",
+        "B = 1
+",
+    );
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance", "--scope", "ledger/**", "--json"]);
+    let write = |name: &str| {
+        pre_tool_use(
+            &fx,
+            "Write",
+            json!({ "file_path": fx.project.join(name).to_string_lossy(), "content": "X = 2
+" }),
+        )
+    };
+    assert_eq!(decision(&write("ledger/a.py")), "deny");
+    assert_eq!(decision(&write("ledger/b.py")), "deny");
+
+    // A closed request in the batch means nothing is recorded.
+    fx.ok_json(&[
+        "approve",
+        "2",
+        "--reject",
+        "--yes",
+        "--as",
+        "c@example.com",
+        "--json",
+    ]);
+    let refused = fx.run(&[
+        "approve",
+        "1",
+        "2",
+        "--reject",
+        "--yes",
+        "--as",
+        "c@example.com",
+    ]);
+    assert_eq!(refused.code, 1);
+    assert_eq!(fx.ok_json(&["approvals", "--json"])["requests"][0]["id"], 1);
+
+    let both = fx.ok_json(&[
+        "approve",
+        "1",
+        "2",
+        "--yes",
+        "--as",
+        "c@example.com",
+        "--json",
+    ]);
+    let statuses: Vec<&Value> = both["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| &r["status"])
+        .collect();
+    assert_eq!(statuses, [&json!("approved"), &json!("approved")]);
+    assert_eq!(decision(&write("ledger/a.py")), "silent");
+    assert_eq!(decision(&write("ledger/b.py")), "silent");
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["chain"]["ok"], true);
 }

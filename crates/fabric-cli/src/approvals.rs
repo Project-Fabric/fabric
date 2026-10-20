@@ -442,11 +442,28 @@ fn git_identity(root: &Path) -> Option<String> {
 }
 
 pub struct Decision<'a> {
-    pub id: u64,
+    /// Requests decided together: each change is shown, confirmed once, recorded separately.
+    pub ids: &'a [u64],
     pub reject: bool,
     pub approver: Option<&'a str>,
     pub note: Option<&'a str>,
     pub yes: bool,
+}
+
+fn status_name(status: Status) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+fn decidable(status: Status, reject: bool) -> bool {
+    match (status, reject) {
+        (Status::Pending, _) => true,
+        // A person may change their mind about a rejection.
+        (Status::Rejected, false) => true,
+        _ => false,
+    }
 }
 
 pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Result<u8, CliError> {
@@ -459,26 +476,23 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
             ),
         ));
     }
-    let request = with_approvals(project, |requests| {
-        Ok((find_request(requests, d.id)?.clone(), false))
+    let mut ids = d.ids.to_vec();
+    ids.dedup();
+    let chosen = with_approvals(project, |requests| {
+        let chosen = ids
+            .iter()
+            .map(|id| find_request(requests, *id).cloned())
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((chosen, false))
     })?;
-    let allowed = match (request.status, d.reject) {
-        (Status::Pending, _) => true,
-        // A person may change their mind about a rejection.
-        (Status::Rejected, false) => true,
-        _ => false,
-    };
-    if !allowed {
+    if let Some(closed) = chosen.iter().find(|r| !decidable(r.status, d.reject)) {
         return Err(CliError::new(
             exit::ERROR,
             "request_closed",
             format!(
-                "approval request #{} is already {}",
-                request.id,
-                serde_json::to_value(request.status)
-                    .ok()
-                    .and_then(|v| v.as_str().map(str::to_owned))
-                    .unwrap_or_default()
+                "approval request #{} is already {}; nothing recorded",
+                closed.id,
+                status_name(closed.status)
             ),
         ));
     }
@@ -494,7 +508,7 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
                 "cannot tell who is approving; pass --as NAME",
             )
         })?;
-    if approver == request.agent {
+    if chosen.iter().any(|r| r.agent == approver) {
         return Err(CliError::new(
             exit::ERROR,
             "self_approval",
@@ -504,30 +518,37 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
 
     let verb = if d.reject { "Reject" } else { "Approve" };
     if !json_output || !d.yes {
-        eprintln!(
-            "Approval request #{} ({}: {})\nAgent {} wants to run {} on {}\nRequested {}\n",
-            request.id,
-            request.rule,
-            request.reason,
-            request.agent,
-            request.tool,
-            request.target,
-            request.requested_at
-        );
-        eprintln!("{}", describe_change(project, &request));
+        for request in &chosen {
+            eprintln!(
+                "Approval request #{} ({}: {})\nAgent {} wants to run {} on {}\nRequested {}\n",
+                request.id,
+                request.rule,
+                request.reason,
+                request.agent,
+                request.tool,
+                request.target,
+                request.requested_at
+            );
+            eprintln!("{}", describe_change(project, request));
+        }
     }
+    let what = if chosen.len() == 1 {
+        "this change".to_owned()
+    } else {
+        format!("these {} changes", chosen.len())
+    };
     if !d.yes {
         if !io::stdin().is_terminal() {
             return Err(CliError::new(
                 exit::NEEDS_CONFIRMATION,
                 "needs_confirmation",
                 format!(
-                    "review the change above, then rerun with --yes to {}",
+                    "review {what} above, then rerun with --yes to {}",
                     verb.to_lowercase()
                 ),
             ));
         }
-        eprint!("{verb} this change as {approver}? [y/N] ");
+        eprint!("{verb} {what} as {approver}? [y/N] ");
         let _ = io::stderr().flush();
         let mut answer = String::new();
         io::stdin()
@@ -541,64 +562,73 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
     }
 
     let os_user = evidence::os_user();
-    let same_os_account = os_user.is_some() && os_user == request.requested_os_user;
     let status = if d.reject {
         Status::Rejected
     } else {
         Status::Approved
     };
     let decided_at = timefmt::now_rfc3339();
+    // All or nothing: if any request changed while being reviewed, none is recorded.
     let updated = with_approvals(project, |requests| {
-        let request = requests
-            .iter_mut()
-            .find(|r| r.id == d.id)
-            .expect("the request was found above and requests are never removed");
-        if !matches!(request.status, Status::Pending | Status::Rejected) {
+        if requests
+            .iter()
+            .filter(|r| ids.contains(&r.id))
+            .any(|r| !decidable(r.status, d.reject))
+        {
             return Err(CliError::new(
                 exit::STATE_CHANGED,
                 "state_changed",
-                "the request changed while you were reviewing it; run the command again",
+                "a request changed while you were reviewing it; nothing recorded, run the command again",
             ));
         }
-        request.status = status;
-        request.approver = Some(approver.clone());
-        request.approver_os_user = os_user.clone();
-        request.decided_at = Some(decided_at.clone());
-        request.decided_unix = Some(now_unix());
-        request.note = d.note.map(str::to_owned);
-        Ok((request.clone(), true))
+        let mut updated = Vec::new();
+        for request in requests.iter_mut().filter(|r| ids.contains(&r.id)) {
+            request.status = status;
+            request.approver = Some(approver.clone());
+            request.approver_os_user = os_user.clone();
+            request.decided_at = Some(decided_at.clone());
+            request.decided_unix = Some(now_unix());
+            request.note = d.note.map(str::to_owned);
+            updated.push(request.clone());
+        }
+        Ok((updated, true))
     })?;
-    evidence::append(
-        project,
-        json!({
-            "kind": if d.reject { "approval_rejected" } else { "approval_granted" },
-            "request": updated.id,
-            "digest": updated.digest,
-            "rule": updated.rule,
-            "target": evidence::clip(&updated.target),
-            "approver": approver,
-            "approver_os_user": os_user,
-            "same_os_account_as_agent": same_os_account,
-            "note": d.note,
-        }),
-    )?;
+    for request in &updated {
+        evidence::append(
+            project,
+            json!({
+                "kind": if d.reject { "approval_rejected" } else { "approval_granted" },
+                "request": request.id,
+                "digest": request.digest,
+                "rule": request.rule,
+                "target": evidence::clip(&request.target),
+                "approver": approver,
+                "approver_os_user": os_user,
+                "same_os_account_as_agent": os_user.is_some() && os_user == request.requested_os_user,
+                "note": d.note,
+            }),
+        )?;
+    }
 
+    let numbers = updated
+        .iter()
+        .map(|r| format!("#{}", r.id))
+        .collect::<Vec<_>>()
+        .join(", ");
     if json_output {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "schema": "fabric.approve/v1",
-                "request": updated,
-                "same_os_account_as_agent": same_os_account,
+                "schema": "fabric.approve/v2",
+                "requests": updated,
             }))
             .expect("output always serializes")
         );
     } else if d.reject {
-        println!("Rejected request #{} as {approver}.", updated.id);
+        println!("Rejected {numbers} as {approver}.");
     } else {
         println!(
-            "Approved request #{} as {approver}. The agent can now retry exactly this change (valid for {} hours, once).",
-            updated.id,
+            "Approved {numbers} as {approver}. The agent can now retry exactly these changes (each once, within {} hours).",
             VALID_FOR_SECS / 3600
         );
     }

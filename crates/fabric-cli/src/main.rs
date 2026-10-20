@@ -151,8 +151,9 @@ enum Command {
     /// Review an agent's held change and approve (or reject) it. Run this in your own
     /// terminal; agents cannot approve their own changes.
     Approve {
-        /// Request number, as in `fabric approvals`.
-        id: u64,
+        /// Request numbers, as in `fabric approvals`; several are reviewed together.
+        #[arg(required = true)]
+        ids: Vec<u64>,
         /// Reject the change instead.
         #[arg(long)]
         reject: bool,
@@ -376,7 +377,7 @@ fn main() -> ExitCode {
             .project()
             .and_then(|project| approvals::list_cmd(&project, all, json)),
         Command::Approve {
-            id,
+            ids,
             reject,
             approver,
             note,
@@ -385,7 +386,7 @@ fn main() -> ExitCode {
             approvals::approve_cmd(
                 &project,
                 &approvals::Decision {
-                    id,
+                    ids: &ids,
                     reject,
                     approver: approver.as_deref(),
                     note: note.as_deref(),

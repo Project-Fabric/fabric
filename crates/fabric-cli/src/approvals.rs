@@ -16,6 +16,9 @@
 //! agent can approve its work. Evidence records whether the approval came from the same OS
 //! account as the agent, so a reviewer can tell. Approval by a second person on a separate
 //! machine is not provided yet.
+//!
+//! For work that needs many edits, `fabric approve <n> --change "<title>"` approves the
+//! request and authorizes the whole change at once (see `changes`).
 
 use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
@@ -28,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use similar::TextDiff;
 
+use crate::changes;
 use crate::error::{CliError, exit};
 use crate::evidence;
 use crate::guard::{Verdict, hook_decision};
@@ -191,6 +195,25 @@ pub fn gate(
     let session = event["session_id"].as_str().map(str::to_owned);
     let rule = verdict.rule.clone().unwrap_or_default();
 
+    // File edits inside an authorized change proceed and are recorded; the change's review
+    // covers their content. Shell commands always need their own approval.
+    // An exact approval waiting for this action is used first.
+    let approved = with_approvals(project, |requests| {
+        Ok((
+            requests
+                .iter()
+                .any(|r| r.digest == digest && r.status == Status::Approved),
+            false,
+        ))
+    })?;
+    if tool != "Bash"
+        && !approved
+        && let Some(change) = changes::covering(project, session.as_deref(), target)?
+    {
+        changes::record_edit(project, &change, &tool, &digest, target)?;
+        return Ok(None);
+    }
+
     enum Outcome {
         Proceed(u64),
         Rejected(Box<Request>),
@@ -288,7 +311,9 @@ pub fn gate(
                 &format!(
                     "Fabric: this change needs a recorded approval ({rule}: {}). Approval request #{id} is waiting. \
                      Tell the user to review and approve it in their own terminal with `fabric approve {id}`, \
-                     then retry exactly the same action. Do not try to approve it yourself.",
+                     then retry exactly the same action. Do not try to approve it yourself. \
+                     If this is one of several edits for the same task, tell the user they can authorize the whole task at once \
+                     with `fabric approve {id} --change \"<title>\"` and review the result with `fabric review` when you are done.",
                     verdict.reason
                 ),
             )))
@@ -421,14 +446,14 @@ fn edit_diff(path: &str, old: &str, new: &str) -> String {
         .to_string()
 }
 
-fn in_agent_environment() -> Option<&'static str> {
+pub fn in_agent_environment() -> Option<&'static str> {
     AGENT_MARKERS
         .iter()
         .copied()
         .find(|name| std::env::var_os(name).is_some())
 }
 
-fn git_identity(root: &Path) -> Option<String> {
+pub fn git_identity(root: &Path) -> Option<String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -448,6 +473,10 @@ pub struct Decision<'a> {
     pub approver: Option<&'a str>,
     pub note: Option<&'a str>,
     pub yes: bool,
+    /// Also authorize a change with this title, covering `paths` (default: the requested
+    /// files) for the requests' session.
+    pub change: Option<&'a str>,
+    pub paths: &'a [String],
 }
 
 fn status_name(status: Status) -> String {
@@ -515,6 +544,45 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
             "an agent cannot approve its own change",
         ));
     }
+    let change_paths = match d.change {
+        None if !d.paths.is_empty() => {
+            return Err(CliError::new(
+                exit::ERROR,
+                "invalid_change",
+                "--path is only used with --change",
+            ));
+        }
+        None => Vec::new(),
+        Some(_) if d.reject => {
+            return Err(CliError::new(
+                exit::ERROR,
+                "invalid_change",
+                "--change authorizes work; it cannot be used with --reject",
+            ));
+        }
+        Some(_) => {
+            if chosen.windows(2).any(|w| w[0].session != w[1].session) {
+                return Err(CliError::new(
+                    exit::ERROR,
+                    "invalid_change",
+                    "a change covers one agent session; these requests come from several",
+                ));
+            }
+            let mut paths = if d.paths.is_empty() {
+                chosen
+                    .iter()
+                    .filter(|r| r.tool != "Bash")
+                    .map(|r| globset::escape(&r.target))
+                    .collect()
+            } else {
+                d.paths.to_vec()
+            };
+            paths.sort();
+            paths.dedup();
+            changes::validate_paths(&paths)?;
+            paths
+        }
+    };
 
     let verb = if d.reject { "Reject" } else { "Approve" };
     if !json_output || !d.yes {
@@ -530,6 +598,14 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
                 request.requested_at
             );
             eprintln!("{}", describe_change(project, request));
+        }
+        if let Some(title) = d.change {
+            eprintln!(
+                "This also authorizes change \"{title}\": further edits by this agent session to {} 
+                 proceed without separate approvals until you review the result with `fabric review`.
+",
+                change_paths.join(", ")
+            );
         }
     }
     let what = if chosen.len() == 1 {
@@ -610,6 +686,24 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
         )?;
     }
 
+    let change = match d.change {
+        Some(title) => Some(changes::open(
+            project,
+            changes::Authorization {
+                title,
+                paths: change_paths,
+                session: updated.first().and_then(|r| r.session.clone()),
+                requests: updated.iter().map(|r| r.id).collect(),
+                approver: &approver,
+                os_user: os_user.clone(),
+                same_os_account_as_agent: os_user.is_some()
+                    && updated.iter().any(|r| r.requested_os_user == os_user),
+                note: d.note,
+            },
+        )?),
+        None => None,
+    };
+
     let numbers = updated
         .iter()
         .map(|r| format!("#{}", r.id))
@@ -621,6 +715,7 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
             serde_json::to_string_pretty(&json!({
                 "schema": "fabric.approve/v2",
                 "requests": updated,
+                "change": change,
             }))
             .expect("output always serializes")
         );
@@ -631,6 +726,15 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
             "Approved {numbers} as {approver}. The agent can now retry exactly these changes (each once, within {} hours).",
             VALID_FOR_SECS / 3600
         );
+        if let Some(change) = &change {
+            println!(
+                "Opened change #{} \"{}\" for {}. Review the result with `fabric review {}` when the agent is done.",
+                change.id,
+                change.title,
+                change.paths.join(", "),
+                change.id
+            );
+        }
     }
     Ok(exit::OK)
 }

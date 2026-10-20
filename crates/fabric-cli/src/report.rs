@@ -5,16 +5,18 @@
 
 use std::fmt::Write as _;
 
-use fabric_snapshot::{Manifest, diff};
+use fabric_snapshot::{Manifest, RelPath, diff};
 use fabric_store::Store;
+use globset::GlobSet;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::changes;
 use crate::checkpoint::{Checkpoint, CheckpointKind, read_log};
 use crate::commands::{changes_text, kind_name};
 use crate::error::{CliError, exit};
 use crate::evidence::{self, Record};
-use crate::guard::Policy;
+use crate::guard::{Decision, Policy, committed};
 use crate::home::Project;
 use crate::query;
 
@@ -45,6 +47,7 @@ fn window(records: &[Record], seq: u64) -> &[Record] {
 /// Controlled files changed by agent step `checkpoint` without an approval covering them.
 pub fn exceptions_for(
     store: &Store,
+    project: &Project,
     policy: &Policy,
     log: &[Checkpoint],
     records: &[Record],
@@ -56,11 +59,22 @@ pub fn exceptions_for(
     let Some(previous) = log.iter().take_while(|c| c.seq < checkpoint.seq).last() else {
         return Ok(Vec::new());
     };
-    let d = diff(
-        &Manifest::load(store, &previous.snapshot)?,
-        &Manifest::load(store, &checkpoint.snapshot)?,
-    );
+    let before = Manifest::load(store, &previous.snapshot)?;
+    let d = diff(&before, &Manifest::load(store, &checkpoint.snapshot)?);
     let events = window(records, checkpoint.seq);
+    // Changes authorized for this step's session before the step was recorded.
+    let end = records
+        .iter()
+        .position(|r| {
+            r.body.event["kind"] == "checkpoint"
+                && r.body.event["checkpoint"].as_u64() == Some(checkpoint.seq)
+        })
+        .unwrap_or(records.len());
+    let authorized: Vec<GlobSet> = changes::open_in_evidence(records, end)
+        .into_iter()
+        .filter(|(session, _)| *session == checkpoint.session)
+        .map(|(_, paths)| paths)
+        .collect();
     let used: Vec<&Value> = events
         .iter()
         .map(|r| &r.body.event)
@@ -93,8 +107,14 @@ pub fn exceptions_for(
         );
     let mut out = Vec::new();
     for path in changed {
-        let rules = policy.controlling_rules(&path);
-        if !rules.is_empty() && !covered(&path) {
+        // A file the step created was not committed before it.
+        let existed = RelPath::new(path.clone()).is_ok_and(|rel| before.get(&rel).is_some());
+        let rules =
+            policy.controlling_rules(&path, &mut || existed && committed(&project.root, &path));
+        // A change authorizes edits under `approve` rules; `deny` rules still apply.
+        let in_change = rules.iter().all(|r| r.decision == Decision::Approve)
+            && authorized.iter().any(|set| set.is_match(&path));
+        if !rules.is_empty() && !covered(&path) && !in_change {
             out.push(Exception {
                 checkpoint: checkpoint.seq,
                 path,
@@ -147,6 +167,37 @@ fn describe(event: &Value) -> Option<String> {
             s("tool"),
             s("target")
         ),
+        "change_opened" => format!(
+            "Change #{} \"{}\" **authorized** by {} for {}{}",
+            event["change"],
+            s("title"),
+            s("approver"),
+            event["paths"]
+                .as_array()
+                .map(|p| p
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "))
+                .unwrap_or_default(),
+            event["note"]
+                .as_str()
+                .map(|n| format!(": \"{n}\""))
+                .unwrap_or_default()
+        ),
+        "change_edit" => format!(
+            "{} `{}` made under change #{}",
+            s("tool"),
+            s("target"),
+            event["change"]
+        ),
+        "change_reviewed" => format!(
+            "Change #{} **{}** by {} at checkpoint #{}",
+            event["change"],
+            s("outcome"),
+            s("reviewer"),
+            event["checkpoint"]
+        ),
         "policy_changed" => format!("Guard rules changed ({}) by {}", s("change"), s("by")),
         "rollback" => format!(
             "Fabric **rolled back** unapproved changes from step #{} to {}",
@@ -191,7 +242,7 @@ pub fn render(
             format!("no checkpoint #{seq}; see `fabric log`"),
         )
     })?;
-    let exceptions = exceptions_for(store, policy, log, records, checkpoint)?;
+    let exceptions = exceptions_for(store, project, policy, log, records, checkpoint)?;
     let prompt = log
         .iter()
         .take_while(|c| c.seq <= seq)
@@ -262,4 +313,224 @@ pub fn render(
         seq.saturating_sub(1).max(1)
     );
     Ok((out, exceptions))
+}
+
+/// The report for change `id` (authorized with `fabric approve --change`), in Markdown, and the
+/// exceptions in its steps: one page per change ticket, as an auditor samples them. Built from
+/// the evidence chain and the snapshots alone.
+pub fn change_report(
+    store: &Store,
+    project: &Project,
+    policy: &Policy,
+    log: &[Checkpoint],
+    records: &[Record],
+    id: u64,
+) -> Result<(String, Vec<Exception>), CliError> {
+    let find = |kind: &str| {
+        records.iter().position(|r| {
+            r.body.event["kind"] == kind && r.body.event["change"].as_u64() == Some(id)
+        })
+    };
+    let opened_at = find("change_opened").ok_or_else(|| {
+        CliError::new(
+            exit::ERROR,
+            "unknown_change",
+            format!("no change #{id} in the evidence; see `fabric changes --all`"),
+        )
+    })?;
+    let reviewed_at = find("change_reviewed");
+    let opened = &records[opened_at];
+    let o = &opened.body.event;
+    let review = reviewed_at.map(|i| &records[i]);
+    let session = o["session"].as_str().map(str::to_owned);
+    let paths: Vec<String> = o["paths"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p.as_str().map(str::to_owned))
+        .collect();
+    let scope =
+        changes::globs(&paths).map_err(|e| CliError::new(exit::ERROR, "invalid_change", e))?;
+    let base_seq = o["base_checkpoint"].as_u64().unwrap_or(0);
+    let end_seq = match review {
+        Some(r) => r.body.event["checkpoint"].as_u64().unwrap_or(0),
+        None => log.last().map_or(0, |c| c.seq),
+    };
+    let checkpoint = |seq: u64| {
+        log.iter().find(|c| c.seq == seq).ok_or_else(|| {
+            CliError::new(
+                exit::INTEGRITY,
+                "missing_checkpoint",
+                format!("change #{id} refers to checkpoint #{seq}, which is not in the log"),
+            )
+        })
+    };
+    let (base, end) = (checkpoint(base_seq)?, checkpoint(end_seq)?);
+    let steps: Vec<&Checkpoint> = log
+        .iter()
+        .filter(|c| c.seq > base_seq && c.seq <= end_seq && c.session == session)
+        .filter(|c| c.kind != CheckpointKind::Prompt)
+        .collect();
+    let prompt = log
+        .iter()
+        .filter(|c| c.seq <= end_seq && c.session == session && c.kind == CheckpointKind::Prompt)
+        .map(|c| c.label.trim_start_matches("prompt: ").replace('|', "\\|"))
+        .next_back();
+    let mut exceptions = Vec::new();
+    for step in &steps {
+        exceptions.extend(exceptions_for(store, project, policy, log, records, step)?);
+    }
+
+    let text = |value: &Value| value.as_str().unwrap_or_default().replace('|', "\\|");
+    let approver = text(&o["approver"]);
+    let mut out = format!(
+        "# Change #{id}: {}\n\n| | |\n|---|---|\n",
+        text(&o["title"])
+    );
+    let status = match review {
+        Some(r) => format!("**{}**", text(&r.body.event["outcome"])),
+        None => "**open: not yet reviewed**".to_owned(),
+    };
+    let _ = writeln!(out, "| Status | {status} |");
+    let covers: Vec<String> = paths.iter().map(|p| format!("`{p}`")).collect();
+    let _ = writeln!(out, "| Covers | {} |", covers.join(", "));
+    let _ = writeln!(
+        out,
+        "| Agent session | `{}` |",
+        session.as_deref().unwrap_or("-")
+    );
+    if let Some(prompt) = &prompt {
+        let _ = writeln!(out, "| Prompt | {prompt} |");
+    }
+    let requests: Vec<String> = o["requests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|n| format!("#{n}"))
+        .collect();
+    let _ = writeln!(
+        out,
+        "| Authorized | {} by {approver}{}, with request {} (evidence record #{}) |",
+        opened.body.at,
+        if o["same_os_account_as_agent"] == true {
+            " (same OS account as the agent)"
+        } else {
+            ""
+        },
+        requests.join(", "),
+        opened.body.seq,
+    );
+    if o["note"].is_string() {
+        let _ = writeln!(out, "| Authorization note | {} |", text(&o["note"]));
+    }
+    if let Some(r) = review {
+        let e = &r.body.event;
+        let reviewer = text(&e["reviewer"]);
+        let _ = writeln!(
+            out,
+            "| Reviewed | {} by {reviewer}{} at checkpoint #{end_seq} (evidence record #{}) |",
+            r.body.at,
+            if reviewer == approver {
+                " (the same person who authorized it)"
+            } else {
+                ""
+            },
+            r.body.seq,
+        );
+        if e["note"].is_string() {
+            let _ = writeln!(out, "| Review note | {} |", text(&e["note"]));
+        }
+    }
+
+    let before = Manifest::load(store, &base.snapshot)?;
+    let after = Manifest::load(store, &end.snapshot)?;
+    let files = changes::changed_files(&before, &after, &scope);
+    if let Some(r) = review {
+        // The review recorded each file's content id; check them against the snapshot of the
+        // reviewed checkpoint.
+        let matches = r.body.event["files"].as_object().is_some_and(|recorded| {
+            recorded.len() == files.len()
+                && files.iter().all(|(path, id)| {
+                    recorded.get(path.as_str()).map(Value::as_str) == Some(id.as_deref())
+                })
+        });
+        out.push_str(if matches {
+            "\nThe content recorded at review matches the reviewed checkpoint's snapshot.\n"
+        } else {
+            "\n**The content recorded at review does not match the reviewed checkpoint's snapshot.**\n"
+        });
+    }
+
+    out.push_str("\n## Steps\n\n");
+    if steps.is_empty() {
+        out.push_str("No steps recorded.\n");
+    }
+    for step in &steps {
+        let _ = writeln!(
+            out,
+            "- #{} {} {} ({})",
+            step.seq,
+            step.created_at,
+            step.label,
+            changes_text(&step.changes)
+        );
+    }
+
+    out.push_str("\n## Controls\n\n");
+    let last = reviewed_at.map_or(records.len(), |i| i + 1);
+    for record in &records[opened_at..last] {
+        let e = &record.body.event;
+        let other_change = e["change"].as_u64().is_some_and(|c| c != id);
+        let other_session = e["session"]
+            .as_str()
+            .is_some_and(|s| Some(s) != session.as_deref());
+        if other_change || other_session {
+            continue;
+        }
+        if let Some(line) = describe(e) {
+            let _ = writeln!(out, "- {line}");
+        }
+    }
+    if exceptions.is_empty() {
+        out.push_str(
+            "\nNo exceptions: no controlled file changed without an approval or this change.\n",
+        );
+    } else {
+        out.push_str("\n**Exceptions: controlled files changed without an approval**\n\n");
+        for e in &exceptions {
+            let _ = writeln!(
+                out,
+                "- `{}` in step #{} ({})",
+                e.path,
+                e.checkpoint,
+                e.rules.join(", ")
+            );
+        }
+    }
+
+    let _ = write!(
+        out,
+        "\n## What changed under the change's paths (#{base_seq} to #{end_seq})\n\n```diff\n"
+    );
+    if files.is_empty() {
+        out.push_str("No changes.\n");
+    }
+    out.push_str(&changes::review_diff(store, &before, &after, &files)?);
+    out.push_str("```\n\n## Reversal\n\n");
+    let _ = writeln!(
+        out,
+        "`fabric revert N --yes` undoes one step above and keeps later work (newest first to undo \
+         them all); `fabric restore {base_seq} --yes` returns the whole project to the state \
+         before the change. Both are verified and recorded as new checkpoints."
+    );
+    Ok((out, exceptions))
+}
+
+/// Every change number in the evidence, in order.
+pub fn change_ids(records: &[Record]) -> Vec<u64> {
+    records
+        .iter()
+        .filter(|r| r.body.event["kind"] == "change_opened")
+        .filter_map(|r| r.body.event["change"].as_u64())
+        .collect()
 }

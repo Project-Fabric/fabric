@@ -20,8 +20,12 @@ fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--c
 fabric guard remove-rule ID
 fabric approvals [--all]           # changes waiting for a person's approval
 fabric approve N [N...] [--reject] [--as NAME] [--note TEXT] [--yes]
+fabric approve N [N...] --change TITLE [--path GLOB]...   # also authorize the whole task
+fabric changes [--all]             # authorized changes waiting for review
+fabric review N [--reject] [--as NAME] [--note TEXT] [--yes]
 fabric evidence verify [--deep]    # is the record intact? any unapproved controlled changes?
-fabric evidence report N           # a reviewer's page for one change
+fabric evidence report N           # a reviewer's page for one checkpoint
+fabric evidence report --change N  # an auditor's page for one authorized change
 fabric evidence export --out DIR   # signed evidence pack
 fabric evidence verify-pack DIR [--key FINGERPRINT]
 fabric evidence key                # this installation's signing key fingerprint
@@ -101,6 +105,30 @@ fabric approve 1 3 4                  # shows each proposed diff, asks once, rec
 fabric approve 2 --reject --note "post a reversing entry instead"
 ```
 
+**Changes: authorize once, review once.** Approving every held edit separately is how one
+feature ends up with half a dozen approvals. For a task that needs many edits, approve the
+first held request together with the whole task:
+
+```sh
+fabric approve 1 --change "CHG-1042: late fees" --path "src/billing/**"
+# ... the agent finishes the task; its further edits under src/billing/ proceed, recorded ...
+fabric changes                        # #1 open  CHG-1042: late fees  [src/billing/**]
+fabric review 1                       # the full diff since authorization; accept or --reject
+```
+
+While the change is open, file edits by *that agent session* to the change's paths proceed
+without separate approvals; each is recorded in the evidence (`change_edit`), and shell
+commands that change those files are not rolled back. Without `--path`, the change covers
+exactly the requested files. `fabric review` shows the agent steps and the complete diff of
+the change's paths since it was authorized, then records the decision bound to exactly that
+state: the reviewed state becomes a checkpoint and each file's content id goes into the
+evidence; if the project changes while the reviewer reads, nothing is recorded. Review closes
+the change; later edits need a new approval. A rejected change stays in the project until it
+is reverted (`fabric revert` of its steps, or `fabric restore` to the change's starting
+checkpoint). A change never covers shell commands a rule holds (such as `finance-ledger-sql`),
+other sessions, or files under a `deny` rule. Agents are denied `fabric review`, and it
+refuses to run inside an agent session, as `fabric approve` does.
+
 The finance pack adds `finance-in-scope-code` (approve; the given scope),
 `finance-applied-migrations` (deny; committed files under `migrations/`), `finance-ledger-sql`
 (approve; SQL that writes to journal, ledger, invoice, payment, refund, account, period,
@@ -140,11 +168,18 @@ evidence log (format in `STORAGE_FORMAT.md`).
 - `fabric evidence verify` checks every hash and link, that recorded snapshots are present
   (`--deep` re-hashes their content), and that the checkpoint log matches the evidence. It
   also lists **exceptions**: files under an `approve` or `deny` project rule that an agent step
-  changed without an approval in that step and that were not rolled back (for example a
+  changed without an approval or an open change in that step and that were not rolled back (for example a
   directory or symlink, or changes recorded before rollback existed). Exit code 5
   if the chain is broken.
-- `fabric evidence report N` shows one change as a reviewer reads it: agent, prompt, guard
-  decisions, approvals, exceptions, the diff, and how to reverse it.
+- `fabric evidence report N` shows one checkpoint as a reviewer reads it: agent, prompt,
+  guard decisions, approvals and change authorizations, exceptions, the diff, and how to
+  reverse it.
+- `fabric evidence report --change N` shows one authorized change as an auditor samples a
+  change ticket: who authorized it and when, with which note; the prompt and every step; the
+  controls in effect; exceptions; who reviewed it and the outcome, flagging when the same
+  person authorized and reviewed; a check that the content recorded at review matches the
+  reviewed checkpoint's snapshot; the complete diff; and how to reverse it. Built from the
+  evidence chain and snapshots alone. Exported packs include one per change in `tickets/`.
 - `fabric evidence export --out DIR` writes a signed pack; `fabric evidence verify-pack DIR
   --key FINGERPRINT` checks it anywhere, without the project or Fabric's data directory.
 
@@ -238,8 +273,11 @@ projects; a stat cache to skip unchanged files is the next performance task.
 Pass `--json` to any command. Output is one JSON object with a `schema` field naming its
 versioned format: `fabric.init/v1`, `fabric.checkpoint/v1`, `fabric.log/v1`,
 `fabric.diff/v1`, `fabric.restore/v1`, `fabric.revert/v1`, `fabric.bisect/v1`,
-`fabric.show/v1`, `fabric.history/v1`, `fabric.resume/v1`, `fabric.integrate/v1`, and on
-failure `fabric.error/v1`:
+`fabric.show/v1`, `fabric.history/v1`, `fabric.resume/v1`, `fabric.integrate/v1`,
+`fabric.approvals/v1`, `fabric.approve/v2` (with `change` when `--change` opened one),
+`fabric.changes/v1`, `fabric.review/v1` (the change and the reviewed files' content ids),
+`fabric.evidence.change-report/v1`, and
+on failure `fabric.error/v1`:
 
 ```json
 { "schema": "fabric.error/v1", "error": { "kind": "not_a_project", "message": "…" } }

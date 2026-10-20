@@ -5,6 +5,7 @@
 
 mod approvals;
 mod bisect;
+mod changes;
 mod checkpoint;
 mod claude;
 mod codex;
@@ -167,6 +168,39 @@ enum Command {
         /// Record the decision without asking for confirmation.
         #[arg(long)]
         yes: bool,
+        /// Also authorize the whole task as a change with this title: the agent session's
+        /// further edits to the change's paths proceed, recorded, until `fabric review`.
+        #[arg(long, value_name = "TITLE")]
+        change: Option<String>,
+        /// Paths the change covers, as globs (repeatable; default: the requested files).
+        #[arg(long = "path", value_name = "GLOB", requires = "change")]
+        paths: Vec<String>,
+    },
+
+    /// Changes authorized with `fabric approve --change`, waiting for review.
+    Changes {
+        /// Show every change, not only open ones.
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Review the result of an authorized change and accept (or reject) it. Run this in your
+    /// own terminal.
+    Review {
+        /// The change number, as in `fabric changes`.
+        id: u64,
+        /// Reject the result instead.
+        #[arg(long)]
+        reject: bool,
+        /// Who is reviewing (default: your Git email, then your OS account).
+        #[arg(long = "as")]
+        reviewer: Option<String>,
+        /// A note recorded with the decision.
+        #[arg(long)]
+        note: Option<String>,
+        /// Record the decision without asking for confirmation.
+        #[arg(long)]
+        yes: bool,
     },
 
     /// Evidence for reviewers and auditors: verify the record, report on a change, export a
@@ -271,7 +305,11 @@ enum EvidenceCommand {
     /// A reviewer's report on one change.
     Report {
         /// Checkpoint number, as in `fabric log`.
-        checkpoint: u64,
+        #[arg(required_unless_present = "change", conflicts_with = "change")]
+        checkpoint: Option<u64>,
+        /// Report on a whole authorized change instead (as in `fabric changes --all`).
+        #[arg(long)]
+        change: Option<u64>,
     },
     /// Write a signed evidence pack to a new directory.
     Export {
@@ -383,6 +421,8 @@ fn main() -> ExitCode {
             approver,
             note,
             yes,
+            change,
+            paths,
         } => ctx.project().and_then(|project| {
             approvals::approve_cmd(
                 &project,
@@ -392,13 +432,43 @@ fn main() -> ExitCode {
                     approver: approver.as_deref(),
                     note: note.as_deref(),
                     yes,
+                    change: change.as_deref(),
+                    paths: &paths,
+                },
+                json,
+            )
+        }),
+        Command::Changes { all } => ctx
+            .project()
+            .and_then(|project| changes::list_cmd(&project, all, json)),
+        Command::Review {
+            id,
+            reject,
+            reviewer,
+            note,
+            yes,
+        } => ctx.project().and_then(|project| {
+            let store = ctx.home.open_store()?;
+            changes::review_cmd(
+                &store,
+                &project,
+                &changes::Review {
+                    id,
+                    reject,
+                    reviewer: reviewer.as_deref(),
+                    note: note.as_deref(),
+                    yes,
                 },
                 json,
             )
         }),
         Command::Evidence { command } => match command {
             EvidenceCommand::Verify { deep } => pack::verify_cmd(&ctx, deep),
-            EvidenceCommand::Report { checkpoint } => pack::report_cmd(&ctx, checkpoint),
+            EvidenceCommand::Report { checkpoint, change } => match (checkpoint, change) {
+                (_, Some(id)) => pack::change_report_cmd(&ctx, id),
+                (Some(seq), None) => pack::report_cmd(&ctx, seq),
+                (None, None) => unreachable!("clap requires a checkpoint or --change"),
+            },
             EvidenceCommand::Export { out } => pack::export_cmd(&ctx, &out),
             EvidenceCommand::VerifyPack { dir, key } => {
                 pack::verify_pack_cmd(&ctx, &dir, key.as_deref())

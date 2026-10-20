@@ -131,7 +131,7 @@ const RULES: &[Rule] = &[
         description: "Agents changing Fabric's history, rules or data",
         default: Decision::Deny,
         matcher: Matcher::Command(&[
-            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve)\b",
+            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve|review)\b",
             r"\bfabric(\.exe)?\s+guard\s+(set|pack|add-rule|remove-rule)\b",
             r"\bfabric(\.exe)?\s+integrate\b",
         ]),
@@ -499,10 +499,19 @@ impl Policy {
 
     /// The project rules whose paths match `relative` and that control changes (approve or
     /// deny). Used by evidence reports to flag controlled files changed without approval.
-    pub fn controlling_rules(&self, relative: &str) -> Vec<&CustomRule> {
+    /// `committed` says whether the file was already committed before the change; it is asked
+    /// only for rules that protect committed files, so that a new file such as a new
+    /// migration is not mistaken for a change to an applied one.
+    pub fn controlling_rules(
+        &self,
+        relative: &str,
+        committed: &mut dyn FnMut() -> bool,
+    ) -> Vec<&CustomRule> {
+        let mut known = None;
         self.custom
             .iter()
             .filter(|c| c.rule.decision >= Decision::Approve && c.paths.is_match(relative))
+            .filter(|c| !c.rule.committed_only || *known.get_or_insert_with(&mut *committed))
             .map(|c| &c.rule)
             .collect()
     }
@@ -524,7 +533,7 @@ fn path_facts(home: &Home, project: &Project, path: &str, need_commit_status: bo
 /// Whether `relative` is committed in the project's Git repository. Without Git (or outside a
 /// repository) a file that exists counts as committed, the cautious answer for rules that
 /// protect existing files.
-fn committed(root: &Path, relative: &str) -> bool {
+pub fn committed(root: &Path, relative: &str) -> bool {
     let tracked = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -1222,6 +1231,7 @@ mod tests {
             ("fabric.exe revert 7 --yes", "fabric-tamper"),
             ("fabric guard set file-delete allow", "fabric-tamper"),
             ("fabric approve 3 --yes", "fabric-tamper"),
+            ("fabric review 1 --yes", "fabric-tamper"),
             ("fabric guard pack finance", "fabric-tamper"),
             (
                 "fabric guard remove-rule finance-ledger-sql",
@@ -1290,8 +1300,27 @@ mod tests {
             decide_with(&policy, "sqlite3 books.db 'select * from journal_entries'"),
             (Decision::Allow, None)
         );
-        assert_eq!(policy.controlling_rules("ledgerly/money.py").len(), 1);
-        assert!(policy.controlling_rules("README.md").is_empty());
+        assert_eq!(
+            policy
+                .controlling_rules("ledgerly/money.py", &mut || true)
+                .len(),
+            1
+        );
+        assert!(
+            policy
+                .controlling_rules("README.md", &mut || true)
+                .is_empty()
+        );
+        // The rule for applied migrations controls committed ones only.
+        let ids = |committed: bool| -> Vec<String> {
+            policy
+                .controlling_rules("migrations/0001.sql", &mut || committed)
+                .iter()
+                .map(|r| r.id.clone())
+                .collect()
+        };
+        assert!(ids(true).contains(&"finance-applied-migrations".to_owned()));
+        assert!(!ids(false).contains(&"finance-applied-migrations".to_owned()));
     }
 
     #[test]

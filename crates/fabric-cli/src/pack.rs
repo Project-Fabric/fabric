@@ -115,7 +115,7 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
     let mut exceptions = Vec::new();
     for checkpoint in &log {
         exceptions.extend(report::exceptions_for(
-            &store, &policy, &log, &records, checkpoint,
+            &store, &project, &policy, &log, &records, checkpoint,
         )?);
     }
     ctx.emit(
@@ -173,6 +173,26 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
     })
 }
 
+pub fn change_report_cmd(ctx: &Ctx, id: u64) -> Result<u8, CliError> {
+    let project = ctx.project()?;
+    let store = ctx.home.open_store()?;
+    let (_, records) = evidence::verify_chain(&evidence::read_chain(&project)?);
+    let (markdown, exceptions) = report::change_report(
+        &store,
+        &project,
+        &Policy::load(&project)?,
+        &read_log(&project)?,
+        &records,
+        id,
+    )?;
+    ctx.emit(
+        "fabric.evidence.change-report/v1",
+        json!({ "change": id, "markdown": markdown, "exceptions": exceptions }),
+        || markdown.clone(),
+    );
+    Ok(exit::OK)
+}
+
 pub fn report_cmd(ctx: &Ctx, seq: u64) -> Result<u8, CliError> {
     let project = ctx.project()?;
     let store = ctx.home.open_store()?;
@@ -210,7 +230,9 @@ pub fn export_cmd(ctx: &Ctx, out: &Path) -> Result<u8, CliError> {
             format!("{} already exists and is not empty", display_path(out)),
         ));
     }
-    fs::create_dir_all(out.join("changes")).map_err(|e| CliError::io(out, e))?;
+    for dir in ["changes", "tickets"] {
+        fs::create_dir_all(out.join(dir)).map_err(|e| CliError::io(out, e))?;
+    }
 
     let mut files: BTreeMap<String, String> = BTreeMap::new();
     let mut put = |name: &str, bytes: &[u8]| -> Result<(), CliError> {
@@ -235,6 +257,11 @@ pub fn export_cmd(ctx: &Ctx, out: &Path) -> Result<u8, CliError> {
         exceptions.extend(found);
         put(&format!("changes/{seq:06}.md"), markdown.as_bytes())?;
     }
+    let tickets = report::change_ids(&records);
+    for id in &tickets {
+        let (markdown, _) = report::change_report(&store, &project, &policy, &log, &records, *id)?;
+        put(&format!("tickets/change-{id:04}.md"), markdown.as_bytes())?;
+    }
     put("README.md", pack_readme().as_bytes())?;
 
     let key = signing_key(&ctx.home)?;
@@ -246,6 +273,7 @@ pub fn export_cmd(ctx: &Ctx, out: &Path) -> Result<u8, CliError> {
         "project": { "id": project.id, "root": display_path(&project.root) },
         "chain": { "records": chain.records, "head": chain.head },
         "checkpoints": evidenced,
+        "changes": tickets,
         "exceptions": exceptions,
         "files": files,
         "signing": {
@@ -295,7 +323,8 @@ fn pack_readme() -> String {
     "# Fabric evidence pack\n\n\
      This directory records what AI coding agents did to a project: every checkpoint, guard \
      decision, approval and rule change, in a hash-chained log (`evidence.jsonl`), with one \
-     report per change in `changes/`.\n\n\
+     report per checkpoint in `changes/` and one per authorized change (change ticket) in \
+     `tickets/`.\n\n\
      ## Verify\n\n\
      ```sh\nfabric evidence verify-pack <this directory> --key <fingerprint>\n```\n\n\
      Verification checks the Ed25519 signature over `summary.json`, the BLAKE3 hash of every \

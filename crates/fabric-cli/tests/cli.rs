@@ -1198,6 +1198,31 @@ fn committed_migrations_are_protected_but_new_ones_are_not() {
     };
     assert_eq!(decision(&write("migrations/0001_init.sql")), "deny");
     assert_eq!(decision(&write("migrations/0002_fees.sql")), "silent");
+
+    // The same holds after the fact: a shell command that adds a migration keeps it, one that
+    // edits an applied migration is rolled back.
+    fx.write("migrations/0002_fees.sql", "create table fees (id int);\n");
+    fx.write("migrations/0001_init.sql", "create table t (id bigint);\n");
+    let event = json!({
+        "hook_event_name": "PostToolUse", "session_id": "s-1",
+        "cwd": fx.project.to_string_lossy(),
+        "tool_name": "Bash", "tool_input": { "command": "python make_migrations.py" },
+    });
+    let run = fx.run_with_stdin(&["hook", "claude-code"], &event.to_string());
+    assert_eq!(run.code, 0, "hooks must never fail: {}", run.stderr);
+    let why = run.json()["reason"].as_str().unwrap().to_owned();
+    assert!(
+        why.contains("migrations/0001_init.sql") && !why.contains("0002"),
+        "{why}"
+    );
+    assert_eq!(
+        fx.read("migrations/0001_init.sql"),
+        "create table t (id int);\n"
+    );
+    assert_eq!(
+        fx.read("migrations/0002_fees.sql"),
+        "create table fees (id int);\n"
+    );
 }
 
 #[test]
@@ -1268,4 +1293,205 @@ fn several_held_changes_are_approved_together_and_recorded_separately() {
     assert_eq!(decision(&write("ledger/b.py")), "silent");
     let verify = fx.ok_json(&["evidence", "verify", "--json"]);
     assert_eq!(verify["chain"]["ok"], true);
+}
+
+#[test]
+fn a_change_is_authorized_once_and_its_result_reviewed_once() {
+    let fx = Fixture::new();
+    fx.write("ledger/fees.py", "FEE = 0\n");
+    fx.write("ledger/journal.py", "def post(): pass\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance", "--scope", "ledger/**", "--json"]);
+    let root = fx.project.to_string_lossy().into_owned();
+    let path = |name: &str| fx.project.join(name).to_string_lossy().into_owned();
+    let write = |name: &str, content: &str| {
+        pre_tool_use(
+            &fx,
+            "Write",
+            json!({ "file_path": path(name), "content": content }),
+        )
+    };
+    let after = |tool: &str, input: Value| {
+        hook_event(
+            &fx,
+            json!({
+                "hook_event_name": "PostToolUse", "session_id": "s-1", "cwd": root,
+                "tool_name": tool, "tool_input": input,
+            }),
+        )
+    };
+
+    // The first held edit is approved together with the whole task.
+    assert_eq!(decision(&write("ledger/fees.py", "FEE = 5\n")), "deny");
+    assert_eq!(
+        fx.run(&["approve", "1", "--path", "ledger/**", "--yes"])
+            .code,
+        2,
+        "--path needs --change"
+    );
+    let approved = fx.ok_json(&[
+        "approve",
+        "1",
+        "--change",
+        "Late fees",
+        "--path",
+        "ledger/**",
+        "--note",
+        "CHG-12",
+        "--yes",
+        "--as",
+        "controller@example.com",
+        "--json",
+    ]);
+    assert_eq!(approved["schema"], "fabric.approve/v2");
+    assert_eq!(approved["change"]["id"], 1);
+    assert_eq!(approved["change"]["status"], "open");
+    assert_eq!(approved["change"]["paths"], json!(["ledger/**"]));
+
+    // The approved edit uses its own approval; further edits proceed under the change,
+    // including a file the task creates and a change made through the shell.
+    assert_eq!(decision(&write("ledger/fees.py", "FEE = 5\n")), "silent");
+    fx.write("ledger/fees.py", "FEE = 5\n");
+    after("Write", json!({ "file_path": path("ledger/fees.py") }));
+    assert_eq!(decision(&write("ledger/late.py", "LATE = 1\n")), "silent");
+    fx.write("ledger/late.py", "LATE = 1\n");
+    after("Write", json!({ "file_path": path("ledger/late.py") }));
+    fx.write("ledger/journal.py", "def post(): return 1\n");
+    after("Bash", json!({ "command": "python gen.py" }));
+    assert_eq!(fx.read("ledger/journal.py"), "def post(): return 1\n");
+    let requests = fx.ok_json(&["approvals", "--all", "--json"]);
+    assert_eq!(requests["requests"].as_array().unwrap().len(), 1);
+    assert_eq!(requests["requests"][0]["status"], "used");
+
+    // The change covers file edits of its own session only, and never shell commands that a
+    // rule holds.
+    let other_session = fx.run_with_stdin(
+        &["hook", "claude-code"],
+        &json!({
+            "hook_event_name": "PreToolUse", "session_id": "s-2", "cwd": root,
+            "tool_name": "Write",
+            "tool_input": { "file_path": path("ledger/fees.py"), "content": "FEE = 9\n" },
+        })
+        .to_string(),
+    );
+    assert_eq!(decision(&Some(other_session.json())), "deny");
+    let sql = pre_tool_use(
+        &fx,
+        "Bash",
+        json!({ "command": "sqlite3 books.db \"delete from journal_lines\"" }),
+    );
+    assert_eq!(decision(&sql), "deny");
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "Bash",
+            json!({ "command": "fabric review 1 --yes" })
+        )),
+        "deny",
+        "agents cannot review their own change"
+    );
+
+    // Review shows the whole result and records the decision bound to it.
+    let unconfirmed = fx.run(&["review", "1"]);
+    assert_eq!(unconfirmed.code, 3);
+    assert!(
+        unconfirmed.stderr.contains("+FEE = 5"),
+        "{}",
+        unconfirmed.stderr
+    );
+    assert!(
+        unconfirmed.stderr.contains("+LATE = 1"),
+        "{}",
+        unconfirmed.stderr
+    );
+    let reviewed = fx.ok_json(&[
+        "review",
+        "1",
+        "--yes",
+        "--as",
+        "reviewer@example.com",
+        "--json",
+    ]);
+    assert_eq!(reviewed["schema"], "fabric.review/v1");
+    assert_eq!(reviewed["change"]["status"], "accepted");
+    assert_eq!(reviewed["change"]["reviewed_by"], "reviewer@example.com");
+    let files: Vec<&String> = reviewed["files"].as_object().unwrap().keys().collect();
+    assert_eq!(
+        files,
+        ["ledger/fees.py", "ledger/journal.py", "ledger/late.py"]
+    );
+    assert_eq!(fx.run(&["review", "1", "--yes"]).code, 1, "reviewed once");
+
+    // Review closes the change: the next edit needs a new approval.
+    assert_eq!(decision(&write("ledger/fees.py", "FEE = 7\n")), "deny");
+
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["chain"]["ok"], true);
+    assert_eq!(verify["exceptions"], json!([]));
+    let log = fx.log();
+    let late = log
+        .iter()
+        .find(|c| c["label"] == "Write ledger/late.py")
+        .unwrap();
+    let report = fx.ok_json(&[
+        "evidence",
+        "report",
+        &late["seq"].as_u64().unwrap().to_string(),
+        "--json",
+    ]);
+    let markdown = report["markdown"].as_str().unwrap();
+    assert!(markdown.contains("made under change #1"), "{markdown}");
+    assert_eq!(log[0]["label"], "accepted change #1: Late fees");
+    assert_eq!(
+        fx.ok_json(&["changes", "--all", "--json"])["changes"][0]["status"],
+        "accepted"
+    );
+
+    // One page per change, as an auditor samples change tickets, and in the signed pack.
+    let ticket = fx.ok_json(&["evidence", "report", "--change", "1", "--json"]);
+    assert_eq!(ticket["schema"], "fabric.evidence.change-report/v1");
+    assert_eq!(ticket["exceptions"], json!([]));
+    let page = ticket["markdown"].as_str().unwrap();
+    for expected in [
+        "# Change #1: Late fees",
+        "**accepted**",
+        "by controller@example.com",
+        "by reviewer@example.com",
+        "CHG-12",
+        "Write ledger/late.py",
+        "Bash python gen.py",
+        "content recorded at review matches",
+        "+FEE = 5",
+        "+def post(): return 1",
+    ] {
+        assert!(page.contains(expected), "missing {expected:?}:\n{page}");
+    }
+    assert!(
+        !page.contains("FEE = 9"),
+        "other sessions are not part of it"
+    );
+    assert_eq!(
+        fx.run(&["evidence", "report", "--change", "7"]).code,
+        1,
+        "unknown change"
+    );
+    let pack = fx.home.join("pack");
+    let exported = fx.ok_json(&[
+        "evidence",
+        "export",
+        "--out",
+        &pack.to_string_lossy(),
+        "--json",
+    ]);
+    let fingerprint = exported["fingerprint"].as_str().unwrap().to_owned();
+    assert!(pack.join("tickets/change-0001.md").exists());
+    let checked = fx.ok_json(&[
+        "evidence",
+        "verify-pack",
+        &pack.to_string_lossy(),
+        "--key",
+        &fingerprint,
+        "--json",
+    ]);
+    assert_eq!(checked["ok"], true);
 }

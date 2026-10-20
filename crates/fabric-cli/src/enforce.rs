@@ -58,7 +58,7 @@ pub fn rollback_unapproved(
     let policy = Policy::load(project)?;
     let log = read_log(project)?;
     let (_, records) = evidence::verify_chain(&evidence::read_chain(project)?);
-    let exceptions = report::exceptions_for(store, &policy, &log, &records, checkpoint)?;
+    let exceptions = report::exceptions_for(store, project, &policy, &log, &records, checkpoint)?;
     if exceptions.is_empty() {
         return Ok(None);
     }

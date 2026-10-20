@@ -171,7 +171,12 @@ number, snapshot id, parent snapshot id, type, label, agent, session, tool, chan
 `guard` (decision, rule, tool, target), `approval_requested`, `approval_granted`,
 `approval_rejected`, `approval_used` (request number, action digest, approver and OS
 accounts), `rollback` (the step, the paths put back, paths that could not be, and the rules
-involved), and `policy_changed`. Commands and paths in events are cut to 2,000 characters;
+involved), `change_opened` (change number, title, path globs, session, the requests it was
+approved with, the starting checkpoint, approver and OS accounts), `change_edit` (change
+number, tool, action digest, target), `change_reviewed` (change number, outcome `accepted` or
+`rejected`, reviewer and OS account, the checkpoint and snapshot reviewed, and the content id
+of every file under the change's paths that changed, `null` if removed), and
+`policy_changed`. Commands and paths in events are cut to 2,000 characters;
 full content is in the referenced snapshots. Projects recorded before evidence existed start
 their chain at the first checkpoint taken afterwards.
 
@@ -189,6 +194,16 @@ agent sent it, the requesting session and OS account, and its status: `pending`,
 `rejected`, `used` (an approval is used by exactly one action) or `expired` (approved but
 unused for 4 hours).
 
+## Changes (`changes.json`, format `fabric-changes`, version 1)
+
+Per project, next to the approvals: `{"format","version","changes":[…]}`, rewritten durably
+under `changes.lock`. Each change has a number, title, path globs (as in project rules), the
+agent session it covers, the approval requests it was opened with, the starting checkpoint,
+its status (`open`, `accepted`, `rejected`), who authorized it and when, and once reviewed,
+the reviewer, OS account, time, note and the checkpoint holding the reviewed state. Whether a
+past agent step was covered by a change is decided from the evidence chain
+(`change_opened`/`change_reviewed`), not from this file.
+
 ## Guard policy (`guard-policy.json`, format `fabric-guard-policy`, version 2)
 
 `{"format","version","overrides":{rule: decision},"custom":[…]}`. Version 2 added `custom`,
@@ -201,8 +216,10 @@ rules; Fabric writes version 2.
 
 A directory written by `fabric evidence export`: `evidence.jsonl` (the chain's complete
 records), `changes/<checkpoint, 6 digits>.md` (one report per evidenced checkpoint),
+`tickets/change-<change, 4 digits>.md` (one report per change authorized with `--change`),
 `README.md`, `summary.json` and `summary.sig`. `summary.json` lists the project, the chain's
-record count and head, the exceptions found, the BLAKE3 hash of every other file, and the
+record count and head, the evidenced checkpoints, the change numbers (`changes`, added within
+version 1; older packs have none), the exceptions found, the BLAKE3 hash of every other file, and the
 Ed25519 public key and its fingerprint (the first 16 hex characters of the key's BLAKE3
 hash). `summary.sig` is the hex Ed25519 signature of `summary.json`'s exact bytes. The signing
 key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.

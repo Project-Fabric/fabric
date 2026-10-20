@@ -177,7 +177,11 @@ approver and OS accounts), `change_edit` (change
 number, tool, action digest, target), `change_reviewed` (change number, outcome `accepted` or
 `rejected`, reviewer and OS account, the checkpoint and snapshot reviewed, and the content id
 of every file under the change's paths that changed, `null` if removed), `approver_added` and
-`approver_removed` (name, public key, fingerprint, by), and `policy_changed`. A decision
+`approver_removed` (name, public key, fingerprint, by), `tool_call` (from `fabric mcp-proxy`:
+server, tool as `server/tool`, agent, session, action digest, decision, rule, and either
+`arguments` with outcome `forwarded`, `held` or `blocked`, or the later record of a forwarded
+call's outcome `ok` or `error`; `result` is the server's text, cut to 2,000 characters), and
+`policy_changed`. `approval_used` records `via` (`hook` or `proxy`). A decision
 applied from a signed file adds to its `approval_granted`, `approval_rejected`,
 `change_opened` or `change_reviewed` event `approver_key` or `reviewer_key` (fingerprint) and
 `signed` (`public_key`, `signature`, `payload`, `same_installation`), so it can be verified
@@ -190,14 +194,15 @@ written, to anyone holding a later head (for example from an exported pack). It 
 someone with write access to Fabric's data directory from rewriting the whole chain before any
 head has been shared.
 
-## Approvals (`approvals.json`, format `fabric-approvals`, version 1)
+## Approvals (`approvals.json`, format `fabric-approvals`, version 2)
 
 Per project, next to the evidence chain: `{"format","version","requests":[…]}`, rewritten
 durably under `approvals.lock`. Each request has a number, the action's digest (BLAKE3 of
 `{"input":…,"tool":…}` serialized with sorted keys), rule, tool, target, the tool input as the
 agent sent it, the requesting session and OS account, and its status: `pending`, `approved`,
 `rejected`, `used` (an approval is used by exactly one action) or `expired` (approved but
-unused for 4 hours).
+unused for 4 hours). Version 2 added `used_via` (the checkpoints that used it: `hook`,
+`proxy`) and `used_unix`; one call may pass both within two minutes. Version 1 files are read.
 
 ## Approvers (`approvers.json`, format `fabric-approvers`, version 1)
 
@@ -232,13 +237,14 @@ the reviewer, OS account, time, note and the checkpoint holding the reviewed sta
 past agent step was covered by a change is decided from the evidence chain
 (`change_opened`/`change_reviewed`), not from this file.
 
-## Guard policy (`guard-policy.json`, format `fabric-guard-policy`, version 2)
+## Guard policy (`guard-policy.json`, format `fabric-guard-policy`, version 3)
 
 `{"format","version","overrides":{rule: decision},"custom":[…]}`. Version 2 added `custom`,
 project rules with `id`, `description`, `decision` (`allow`, `ask`, `approve`, `deny`), `paths`
 (globs over project-relative paths, `*` not crossing `/`), `commands` (case-insensitive
-regular expressions) and `committed_only`. Version 1 files are read as having no project
-rules; Fabric writes version 2.
+regular expressions) and `committed_only`. Version 3 added `tools` (globs over MCP tool calls
+as `server/tool`). Older files are read (version 1 as having no project rules); Fabric writes
+version 3.
 
 ## Evidence pack (format `fabric-evidence-pack`, version 1)
 

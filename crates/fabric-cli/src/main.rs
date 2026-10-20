@@ -17,6 +17,7 @@ mod guard;
 mod home;
 mod lessons;
 mod mcp;
+mod mcp_proxy;
 mod pack;
 mod query;
 mod report;
@@ -136,6 +137,17 @@ enum Command {
 
     /// Run the MCP server that lets agents query this project's history (started by agents).
     Mcp,
+
+    /// Put this project's rules and evidence in front of another MCP server: configure your
+    /// agent to start this instead of the server (started by agents, not people).
+    McpProxy {
+        /// The server's name as rules see it: tools are matched as `<name>/<tool>`.
+        #[arg(long)]
+        name: String,
+        /// The server's command and arguments, after `--`.
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
 
     /// Lessons learned from steps that broke things (experimental).
     Lesson {
@@ -302,6 +314,9 @@ enum GuardCommand {
         /// A case-insensitive pattern over shell commands (repeatable).
         #[arg(long = "command")]
         commands: Vec<String>,
+        /// A glob over MCP tool calls as `server/tool`, e.g. "*/post_journal_entry" (repeatable).
+        #[arg(long = "tool")]
+        tools: Vec<String>,
         /// Only files already committed to Git (e.g. applied migrations).
         #[arg(long)]
         committed_only: bool,
@@ -407,6 +422,12 @@ enum EvidenceCommand {
     },
     /// Show this installation's evidence signing key.
     Key,
+    /// Tool calls agents made through `fabric mcp-proxy`, newest first: what was called with
+    /// which arguments, the decision, and what came back.
+    Calls {
+        #[arg(short = 'n', long, default_value_t = 50)]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -458,6 +479,9 @@ fn main() -> ExitCode {
         Command::History { path, limit } => commands::history(&ctx, &path, limit),
         Command::Resume => commands::resume(&ctx),
         Command::Mcp => mcp::serve(&ctx.home).map(|()| error::exit::OK),
+        Command::McpProxy { name, command } => ctx
+            .project()
+            .and_then(|project| mcp_proxy::run(&ctx.home, project, &name, &command)),
         Command::Lesson { command } => ctx.project().and_then(|project| match command {
             LessonCommand::Add {
                 step,
@@ -484,6 +508,7 @@ fn main() -> ExitCode {
                 decision,
                 paths,
                 commands,
+                tools,
                 committed_only,
                 description,
             } => guard::parse_decision(&decision).and_then(|decision| {
@@ -495,6 +520,7 @@ fn main() -> ExitCode {
                         decision,
                         paths,
                         commands,
+                        tools,
                         committed_only,
                     },
                     json,
@@ -610,6 +636,7 @@ fn main() -> ExitCode {
                 pack::verify_pack_cmd(&ctx, &dir, key.as_deref())
             }
             EvidenceCommand::Key => pack::key_cmd(&ctx),
+            EvidenceCommand::Calls { limit } => pack::calls_cmd(&ctx, limit),
         },
         Command::Integrate {
             agent: Agent::ClaudeCode,

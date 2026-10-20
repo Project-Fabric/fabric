@@ -211,6 +211,89 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
     })
 }
 
+/// Tool calls from the evidence, one entry per call: a forwarded call is joined with its
+/// result; one never answered shows as `no_response`.
+pub fn tool_calls(records: &[evidence::Record]) -> Vec<Value> {
+    let mut calls: Vec<Value> = Vec::new();
+    for record in records {
+        let e = &record.body.event;
+        if e["kind"] != "tool_call" {
+            continue;
+        }
+        let entry = json!({
+            "record": record.body.seq,
+            "at": record.body.at,
+            "agent": e["agent"],
+            "session": e["session"],
+            "tool": e["tool"],
+            "digest": e["digest"],
+            "arguments": e["arguments"],
+            "decision": e["decision"],
+            "rule": e["rule"],
+            "outcome": if e["outcome"] == "forwarded" { json!("no_response") } else { e["outcome"].clone() },
+            "result": e["result"],
+        });
+        let answered = e["outcome"] != "forwarded"
+            && e["arguments"].is_null()
+            && calls
+                .iter_mut()
+                .rev()
+                .find(|c| {
+                    c["outcome"] == "no_response"
+                        && c["digest"] == e["digest"]
+                        && c["session"] == e["session"]
+                })
+                .map(|c| {
+                    c["outcome"] = e["outcome"].clone();
+                    c["result"] = e["result"].clone();
+                })
+                .is_some();
+        if !answered {
+            calls.push(entry);
+        }
+    }
+    calls
+}
+
+pub fn calls_cmd(ctx: &Ctx, limit: usize) -> Result<u8, CliError> {
+    let project = ctx.project()?;
+    let (_, records) = evidence::verify_chain(&evidence::read_chain(&project)?);
+    let calls: Vec<Value> = tool_calls(&records).into_iter().rev().take(limit).collect();
+    ctx.emit(
+        "fabric.evidence.calls/v1",
+        json!({ "calls": calls }),
+        || {
+            let mut out = String::new();
+            if calls.is_empty() {
+                out.push_str(
+                    "No tool calls recorded (agents call tools through `fabric mcp-proxy`).\n",
+                );
+            }
+            for c in &calls {
+                let s = |key: &str| c[key].as_str().unwrap_or("-").to_owned();
+                let _ = writeln!(
+                    out,
+                    "#{} {} {} {} {} -> {}{}\n    args: {}\n    result: {}",
+                    c["record"],
+                    s("at"),
+                    s("agent"),
+                    s("tool"),
+                    s("decision"),
+                    s("outcome"),
+                    c["rule"]
+                        .as_str()
+                        .map(|r| format!(" ({r})"))
+                        .unwrap_or_default(),
+                    s("arguments"),
+                    s("result").lines().next().unwrap_or_default(),
+                );
+            }
+            out
+        },
+    );
+    Ok(exit::OK)
+}
+
 pub fn change_report_cmd(ctx: &Ctx, id: u64) -> Result<u8, CliError> {
     let project = ctx.project()?;
     let store = ctx.home.open_store()?;

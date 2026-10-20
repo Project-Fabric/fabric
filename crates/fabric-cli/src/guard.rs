@@ -43,8 +43,9 @@ use crate::{approvals, evidence, timefmt};
 const POLICY_FILE: &str = "guard-policy.json";
 const AUDIT_FILE: &str = "guard-log.jsonl";
 const POLICY_FORMAT: &str = "fabric-guard-policy";
-/// Version 2 added project rules (`custom`). Version 1 files are still read.
-const POLICY_VERSION: u32 = 2;
+/// Version 2 added project rules (`custom`); version 3 added `tools` to project rules.
+/// Older versions are still read.
+const POLICY_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -303,6 +304,15 @@ fn command_regex(pattern: &str) -> Result<Regex, regex::Error> {
 pub enum Action<'a> {
     Command(&'a str),
     WriteFile(&'a str),
+    /// A tool call to an MCP server, as `server/tool`.
+    Tool(&'a str),
+}
+
+/// `server/tool` for Claude Code's name of an MCP tool, `mcp__<server>__<tool>`.
+pub fn mcp_tool_identity(name: &str) -> Option<String> {
+    let rest = name.strip_prefix("mcp__")?;
+    let (server, tool) = rest.split_once("__")?;
+    (!server.is_empty() && !tool.is_empty()).then(|| format!("{server}/{tool}"))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -326,6 +336,9 @@ pub struct CustomRule {
     /// Case-insensitive regular expressions over shell commands.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<String>,
+    /// Globs over MCP tools as `server/tool`, e.g. `*/post_journal_entry` (policy version 3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
     /// Match only files already committed to Git, such as applied migrations; new files
     /// pass. Outside a Git repository, files that already exist count as committed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -336,19 +349,25 @@ struct CompiledRule {
     rule: CustomRule,
     paths: GlobSet,
     commands: Vec<Regex>,
+    tools: GlobSet,
+}
+
+fn glob_set(patterns: &[String], what: &str) -> Result<GlobSet, String> {
+    let mut set = GlobSetBuilder::new();
+    for pattern in patterns {
+        let glob = GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .map_err(|e| format!("invalid {what} pattern {pattern:?}: {e}"))?;
+        set.add(glob);
+    }
+    set.build().map_err(|e| e.to_string())
 }
 
 impl CustomRule {
     fn compile(self) -> Result<CompiledRule, String> {
-        let mut paths = GlobSetBuilder::new();
-        for pattern in &self.paths {
-            let glob = GlobBuilder::new(pattern)
-                .literal_separator(true)
-                .build()
-                .map_err(|e| format!("invalid path pattern {pattern:?}: {e}"))?;
-            paths.add(glob);
-        }
-        let paths = paths.build().map_err(|e| e.to_string())?;
+        let paths = glob_set(&self.paths, "path")?;
+        let tools = glob_set(&self.tools, "tool")?;
         let commands = self
             .commands
             .iter()
@@ -358,6 +377,7 @@ impl CustomRule {
             rule: self,
             paths,
             commands,
+            tools,
         })
     }
 }
@@ -443,7 +463,7 @@ impl Policy {
             Action::WriteFile(path) => {
                 Some(path_facts(home, project, path, self.needs_commit_status()))
             }
-            Action::Command(_) => None,
+            Action::Command(_) | Action::Tool(_) => None,
         };
         self.judge(action, facts.as_ref())
     }
@@ -487,6 +507,7 @@ impl Policy {
                         .is_some_and(|r| custom.paths.is_match(r))
                         && (!custom.rule.committed_only || facts.committed.unwrap_or(true))
                 }
+                (Action::Tool(tool), _) => custom.tools.is_match(tool),
                 _ => false,
             };
             if matched {
@@ -574,7 +595,8 @@ pub fn pre_tool_use(
         Some("NotebookEdit") => input["notebook_path"].as_str().map(Action::WriteFile),
         _ => None,
     };
-    let Some(action) = action else {
+    let tool = event["tool_name"].as_str().and_then(mcp_tool_identity);
+    let Some(action) = action.or(tool.as_deref().map(Action::Tool)) else {
         return Ok(None);
     };
     let verdict = Policy::load(project)?.evaluate(home, project, &action);
@@ -584,11 +606,12 @@ pub fn pre_tool_use(
     let (subject, target) = match action {
         Action::Command(c) => ("command", c.to_owned()),
         Action::WriteFile(p) => ("file", project_relative(p, &project.root)),
+        Action::Tool(t) => ("tool", t.to_owned()),
     };
     audit(project, event, &verdict, &target)?;
     let rule = verdict.rule.as_deref().unwrap_or_default();
     let reason = match verdict.decision {
-        Decision::Approve => return approvals::gate(project, event, &verdict, &target),
+        Decision::Approve => return approvals::gate(project, event, &verdict, &target, "hook"),
         Decision::Deny => format!(
             "Blocked by Fabric guard ({rule}: {}). Do not try to work around this; ask the user if it is really needed.",
             verdict.reason
@@ -611,7 +634,7 @@ pub fn hook_decision(decision: &str, reason: &str) -> Value {
     })
 }
 
-fn audit(
+pub fn audit(
     project: &Project,
     event: &Value,
     verdict: &Verdict,
@@ -673,10 +696,15 @@ fn matcher_name(matcher: &Matcher) -> &'static str {
 }
 
 fn custom_applies_to(rule: &CustomRule) -> &'static str {
-    match (rule.paths.is_empty(), rule.commands.is_empty()) {
-        (false, false) => "both",
-        (false, true) => "file writes",
-        _ => "commands",
+    match (
+        rule.paths.is_empty(),
+        rule.commands.is_empty(),
+        rule.tools.is_empty(),
+    ) {
+        (false, true, true) => "file writes",
+        (true, false, true) => "commands",
+        (true, true, false) => "tool calls",
+        _ => "several",
     }
 }
 
@@ -842,11 +870,11 @@ fn put_rule(policy: &mut Policy, rule: CustomRule) -> Result<bool, CliError> {
             format!("{} is a built-in rule; use `fabric guard set`", rule.id),
         ));
     }
-    if rule.paths.is_empty() && rule.commands.is_empty() {
+    if rule.paths.is_empty() && rule.commands.is_empty() && rule.tools.is_empty() {
         return Err(CliError::new(
             exit::ERROR,
             "invalid_arguments",
-            "a rule needs at least one --path or --command pattern",
+            "a rule needs at least one --path, --command or --tool pattern",
         ));
     }
     let compiled = rule
@@ -933,6 +961,7 @@ pub fn finance_pack(scope: &[String]) -> Vec<CustomRule> {
             decision: Decision::Approve,
             paths: scope,
             commands: Vec::new(),
+            tools: Vec::new(),
             committed_only: false,
         },
         CustomRule {
@@ -943,6 +972,7 @@ pub fn finance_pack(scope: &[String]) -> Vec<CustomRule> {
             decision: Decision::Deny,
             paths: strings(&["**/migrations/**", "**/migrate/**"]),
             commands: Vec::new(),
+            tools: Vec::new(),
             committed_only: true,
         },
         CustomRule {
@@ -953,6 +983,7 @@ pub fn finance_pack(scope: &[String]) -> Vec<CustomRule> {
             commands: strings(&[
                 r#"\b(update|delete\s+from|insert\s+into|truncate(\s+table)?|alter\s+table|drop\s+table)\s+["`\[]?\w*(journal|ledger|invoice|payment|refund|account|period|revenue|balance)"#,
             ]),
+            tools: Vec::new(),
             committed_only: false,
         },
         CustomRule {
@@ -961,6 +992,7 @@ pub fn finance_pack(scope: &[String]) -> Vec<CustomRule> {
             decision: Decision::Approve,
             paths: strings(&["**/controls/**", "CODEOWNERS", "**/CODEOWNERS"]),
             commands: Vec::new(),
+            tools: Vec::new(),
             committed_only: false,
         },
         CustomRule {
@@ -974,6 +1006,59 @@ pub fn finance_pack(scope: &[String]) -> Vec<CustomRule> {
                 "**/secrets/**",
             ]),
             commands: Vec::new(),
+            tools: Vec::new(),
+            committed_only: false,
+        },
+    ]
+}
+
+/// Rules for agents operating finance systems through MCP tools (an ERP, a ledger, a payments
+/// API): calls that move money or change the books need a recorded approval, destructive ones
+/// are denied, and reads are left alone. Matching is by tool name, so it works for any server
+/// that names its tools plainly.
+pub fn finance_ops_pack() -> Vec<CustomRule> {
+    let strings = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    vec![
+        CustomRule {
+            id: "finance-ops-postings".to_owned(),
+            description: "Tool calls that post to the books or move money need a recorded approval"
+                .to_owned(),
+            decision: Decision::Approve,
+            paths: Vec::new(),
+            commands: Vec::new(),
+            tools: strings(&[
+                "*/post_*",
+                "*/record_*",
+                "*/pay_*",
+                "*/issue_*",
+                "*/refund*",
+                "*/void_*",
+                "*/reverse_*",
+                "*/write_off*",
+                "*/adjust*",
+                "*/settle*",
+                "*/transfer*",
+                "*/close_*",
+                "*/reopen_*",
+                "*/create_*",
+                "*/update_*",
+                "*/approve_*",
+            ]),
+            committed_only: false,
+        },
+        CustomRule {
+            id: "finance-ops-destructive".to_owned(),
+            description: "Tool calls that delete or erase financial records".to_owned(),
+            decision: Decision::Deny,
+            paths: Vec::new(),
+            commands: Vec::new(),
+            tools: strings(&[
+                "*/delete_*",
+                "*/drop_*",
+                "*/purge_*",
+                "*/truncate_*",
+                "*/erase_*",
+            ]),
             committed_only: false,
         },
     ]
@@ -987,11 +1072,19 @@ pub fn pack(
 ) -> Result<u8, CliError> {
     let rules = match name {
         "finance" => finance_pack(scope),
+        "finance-ops" if scope.is_empty() => finance_ops_pack(),
+        "finance-ops" => {
+            return Err(CliError::new(
+                exit::ERROR,
+                "invalid_arguments",
+                "the finance-ops pack is about tool calls; --scope applies to the finance pack",
+            ));
+        }
         _ => {
             return Err(CliError::new(
                 exit::ERROR,
                 "unknown_pack",
-                format!("no rule pack {name:?}; available: finance"),
+                format!("no rule pack {name:?}; available: finance, finance-ops"),
             ));
         }
     };
@@ -1325,6 +1418,65 @@ mod tests {
     }
 
     #[test]
+    fn the_finance_ops_pack_controls_tool_calls_that_change_the_books() {
+        let mut policy = defaults();
+        for rule in finance_ops_pack() {
+            put_rule(&mut policy, rule).unwrap();
+        }
+        let tool = |name: &str| {
+            let v = policy.judge(&Action::Tool(name), None);
+            (v.decision, v.rule)
+        };
+        for name in [
+            "ledgerly/post_journal_entry",
+            "erp/record_payment",
+            "ledgerly/issue_refund",
+            "ledgerly/void_invoice",
+            "ledgerly/reverse_entry",
+            "netsuite/create_vendor_bill",
+            "stripe/refund_charge",
+        ] {
+            assert_eq!(
+                tool(name),
+                (Decision::Approve, Some("finance-ops-postings".to_owned())),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            tool("ledgerly/delete_journal_entry"),
+            (Decision::Deny, Some("finance-ops-destructive".to_owned()))
+        );
+        for name in [
+            "ledgerly/trial_balance",
+            "ledgerly/list_invoices",
+            "erp/get_invoice",
+        ] {
+            assert_eq!(tool(name), (Decision::Allow, None), "{name}");
+        }
+        // Tool rules never match files or commands, nor file rules tools.
+        assert_eq!(
+            policy
+                .judge(&Action::Command("post_journal_entry"), None)
+                .decision,
+            Decision::Allow
+        );
+    }
+
+    #[test]
+    fn claude_code_names_mcp_tools_by_server_and_tool() {
+        assert_eq!(
+            mcp_tool_identity("mcp__ledgerly__post_journal_entry").as_deref(),
+            Some("ledgerly/post_journal_entry")
+        );
+        assert_eq!(
+            mcp_tool_identity("mcp__my_erp__pay__bill").as_deref(),
+            Some("my_erp/pay__bill")
+        );
+        assert_eq!(mcp_tool_identity("Bash"), None);
+        assert_eq!(mcp_tool_identity("mcp__ledgerly"), None);
+    }
+
+    #[test]
     fn project_rules_are_validated() {
         let mut policy = defaults();
         let rule = |id: &str, paths: &[&str], commands: &[&str]| CustomRule {
@@ -1333,6 +1485,7 @@ mod tests {
             decision: Decision::Approve,
             paths: paths.iter().map(|s| (*s).to_owned()).collect(),
             commands: commands.iter().map(|s| (*s).to_owned()).collect(),
+            tools: Vec::new(),
             committed_only: false,
         };
         assert!(put_rule(&mut policy, rule("git-push", &["x"], &[])).is_err());

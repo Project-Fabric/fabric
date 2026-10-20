@@ -28,6 +28,7 @@ const STORE_LOCK_WAIT: Duration = Duration::from_secs(30);
 const PROJECT_FORMAT: &str = "fabric-project";
 const PROJECT_VERSION: u32 = 1;
 
+#[derive(Clone)]
 pub struct Home {
     pub root: PathBuf,
 }

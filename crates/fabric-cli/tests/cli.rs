@@ -1872,3 +1872,281 @@ fn approvals_and_reviews_can_be_signed_by_an_approver_elsewhere() {
         );
     }
 }
+
+#[test]
+fn the_mcp_proxy_holds_and_records_tool_calls_for_any_agent() {
+    let fx = Fixture::new();
+    fx.write("src/app.py", "x = 1\n");
+    fx.ok_json(&["init", "--json"]);
+    // Fabric's own MCP server stands in for an ERP: one tool is held, one blocked.
+    fx.ok_json(&[
+        "guard",
+        "add-rule",
+        "erp-writes",
+        "--decision",
+        "approve",
+        "--tool",
+        "erp/fabric_checkpoint",
+        "--json",
+    ]);
+    fx.ok_json(&[
+        "guard",
+        "add-rule",
+        "erp-deletes",
+        "--decision",
+        "deny",
+        "--tool",
+        "erp/fabric_lessons",
+        "--json",
+    ]);
+    let exe = env!("CARGO_BIN_EXE_fabric");
+    let session = |messages: &[Value]| -> Vec<Value> {
+        let input: String = messages.iter().map(|m| format!("{m}\n")).collect();
+        let run = fx.run_with_stdin(&["mcp-proxy", "--name", "erp", "--", exe, "mcp"], &input);
+        assert_eq!(run.code, 0, "{}", run.stderr);
+        run.stdout
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    };
+    let call = |id: u64, tool: &str, args: Value| {
+        json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call",
+                "params": { "name": tool, "arguments": args } })
+    };
+    let by_id = |responses: &[Value], id: u64| -> Value {
+        responses.iter().find(|r| r["id"] == id).cloned().unwrap()
+    };
+    let checkpoint = call(4, "fabric_checkpoint", json!({ "message": "month end" }));
+    let responses = session(&[
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": { "protocolVersion": "2025-06-18", "capabilities": {},
+                            "clientInfo": { "name": "finance-agent", "version": "1" } } }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
+        call(3, "fabric_timeline", json!({})),
+        checkpoint.clone(),
+        call(5, "fabric_lessons", json!({})),
+    ]);
+
+    // Tools under a rule are marked before the agent calls them.
+    let tools = by_id(&responses, 2)["result"]["tools"].clone();
+    let description = |name: &str| {
+        tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()["description"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert!(description("fabric_checkpoint").contains("needs a recorded approval"));
+    assert!(description("fabric_lessons").contains("blocked"));
+    assert!(!description("fabric_timeline").contains("[Fabric"));
+
+    // Allowed calls go through; held and blocked ones never reach the server.
+    assert_ne!(by_id(&responses, 3)["result"]["isError"], true);
+    let held = by_id(&responses, 4);
+    assert_eq!(held["result"]["isError"], true);
+    assert!(
+        held["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("fabric approve 1")
+    );
+    let blocked = by_id(&responses, 5);
+    assert!(
+        blocked["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Blocked")
+    );
+    assert_eq!(fx.log().len(), 1, "the held checkpoint was not taken");
+
+    // After a person approves, the same call goes through once.
+    fx.ok_json(&[
+        "approve",
+        "1",
+        "--yes",
+        "--as",
+        "controller@example.com",
+        "--json",
+    ]);
+    fx.write("src/app.py", "x = 2\n");
+    let responses = session(std::slice::from_ref(&checkpoint));
+    assert_ne!(by_id(&responses, 4)["result"]["isError"], true);
+    assert_eq!(fx.log()[0]["label"], "month end");
+    let again = session(&[checkpoint]);
+    assert_eq!(
+        by_id(&again, 4)["result"]["isError"],
+        true,
+        "approvals are used once"
+    );
+
+    // Every call is in the evidence: who called what, the decision and the outcome.
+    let calls = fx.ok_json(&["evidence", "calls", "--json"])["calls"].clone();
+    let summary: Vec<(String, String)> = calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .map(|c| {
+            (
+                c["tool"].as_str().unwrap().to_owned(),
+                c["outcome"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let expected = [
+        ("erp/fabric_timeline", "ok"),
+        ("erp/fabric_checkpoint", "held"),
+        ("erp/fabric_lessons", "blocked"),
+        ("erp/fabric_checkpoint", "ok"),
+        ("erp/fabric_checkpoint", "held"),
+    ];
+    assert_eq!(
+        summary,
+        expected.map(|(t, o)| (t.to_owned(), o.to_owned())).to_vec()
+    );
+    assert_eq!(
+        calls[1]["agent"], "mcp-client",
+        "agent named per proxy session"
+    );
+    assert_eq!(calls[4]["agent"], "finance-agent");
+    assert_eq!(calls[1]["arguments"], "{\"message\":\"month end\"}");
+    assert_eq!(
+        fx.ok_json(&["evidence", "verify", "--json"])["chain"]["ok"],
+        true
+    );
+}
+
+#[test]
+fn claude_code_mcp_calls_to_the_books_need_approval() {
+    let fx = Fixture::new();
+    fx.write("README.md", "erp\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance-ops", "--json"]);
+    assert_eq!(
+        fx.run(&["guard", "pack", "finance-ops", "--scope", "x/**"])
+            .code,
+        1,
+        "the finance-ops pack has no file scope"
+    );
+    let post = json!({ "date": "2026-10-31", "memo": "accrual", "lines": [] });
+    let answer = pre_tool_use(&fx, "mcp__ledgerly__post_journal_entry", post.clone());
+    assert_eq!(decision(&answer), "deny");
+    assert!(
+        reason(&answer).contains("fabric approve 1"),
+        "{}",
+        reason(&answer)
+    );
+    assert!(
+        !reason(&answer).contains("--change"),
+        "changes cover file edits, not tool calls"
+    );
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__ledgerly__delete_journal_entry",
+            json!({ "id": 4 })
+        )),
+        "deny"
+    );
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__ledgerly__trial_balance",
+            json!({})
+        )),
+        "silent"
+    );
+    fx.ok_json(&[
+        "approve",
+        "1",
+        "--yes",
+        "--as",
+        "controller@example.com",
+        "--json",
+    ]);
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__ledgerly__post_journal_entry",
+            post
+        )),
+        "silent"
+    );
+    let rules = fx.ok_json(&["guard", "rules", "--json"]);
+    let text = rules.to_string();
+    assert!(
+        text.contains("finance-ops-postings") && text.contains("tool calls"),
+        "{text}"
+    );
+}
+
+#[test]
+fn one_approval_covers_one_call_through_both_the_hook_and_the_proxy() {
+    let fx = Fixture::new();
+    fx.write("README.md", "erp\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&[
+        "guard",
+        "add-rule",
+        "erp-writes",
+        "--decision",
+        "approve",
+        "--tool",
+        "erp/fabric_checkpoint",
+        "--json",
+    ]);
+    let args = json!({ "message": "month end" });
+    let exe = env!("CARGO_BIN_EXE_fabric");
+    let through_proxy = || {
+        let message = json!({ "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                              "params": { "name": "fabric_checkpoint", "arguments": args } });
+        let run = fx.run_with_stdin(
+            &["mcp-proxy", "--name", "erp", "--", exe, "mcp"],
+            &format!("{message}\n"),
+        );
+        let response: Value = serde_json::from_str(run.stdout.lines().next().unwrap()).unwrap();
+        response["result"]["isError"] == true
+    };
+    // Claude Code: the hook holds the call; once approved, the hook lets it through and the
+    // proxy behind it accepts the same approval for the same call.
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__erp__fabric_checkpoint",
+            args.clone()
+        )),
+        "deny"
+    );
+    fx.ok_json(&["approve", "1", "--yes", "--as", "c@example.com", "--json"]);
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__erp__fabric_checkpoint",
+            args.clone()
+        )),
+        "silent"
+    );
+    assert!(
+        !through_proxy(),
+        "the proxy accepts the call the hook just let through"
+    );
+    // A second call is a new action: both layers hold it.
+    assert!(through_proxy(), "the approval is not reused by the proxy");
+    assert_eq!(
+        decision(&pre_tool_use(&fx, "mcp__erp__fabric_checkpoint", args)),
+        "deny"
+    );
+    let requests = fx.ok_json(&["approvals", "--all", "--json"])["requests"].clone();
+    let used = requests
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == 1)
+        .unwrap()
+        .clone();
+    assert_eq!(used["used_via"], json!(["hook", "proxy"]));
+}

@@ -42,7 +42,11 @@ use crate::timefmt;
 const FILE: &str = "approvals.json";
 const LOCK_FILE: &str = "approvals.lock";
 const FORMAT: &str = "fabric-approvals";
-const VERSION: u32 = 1;
+/// Version 2 added `used_via` and `used_unix`. Version 1 files are still read.
+const VERSION: u32 = 2;
+/// A call that passes several of Fabric's checkpoints (the Claude Code hook, then
+/// `fabric mcp-proxy`) uses its approval at each of them within this time.
+const SAME_CALL_SECS: u64 = 120;
 /// An approval not used within this time expires; the action must be approved again.
 const VALID_FOR_SECS: u64 = 4 * 60 * 60;
 /// Environment variables set by coding agents in the shells they run commands in.
@@ -88,6 +92,12 @@ pub struct Request {
     pub decided_at: Option<String>,
     #[serde(default)]
     pub decided_unix: Option<u64>,
+    /// Where the approval was used: `hook` and/or `proxy`. One approval covers one call, which
+    /// may pass both.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub used_via: Vec<String>,
+    #[serde(default)]
+    pub used_unix: Option<u64>,
     #[serde(default)]
     pub note: Option<String>,
 }
@@ -155,7 +165,7 @@ fn load(path: &Path) -> Result<Vec<Request>, CliError> {
                     format!("{}: {e}", display_path(path)),
                 )
             })?;
-            if file.format != FORMAT || file.version != VERSION {
+            if file.format != FORMAT || !(1..=VERSION).contains(&file.version) {
                 return Err(CliError::new(
                     exit::ERROR,
                     "invalid_approvals",
@@ -184,11 +194,18 @@ fn expire(requests: &mut [Request]) {
 
 /// Called by the guard when a rule decides `approve`. Lets the action through if it has an
 /// unused approval; otherwise records (or reuses) a request and holds the action.
+fn is_file_tool(tool: &str) -> bool {
+    matches!(tool, "Write" | "Edit" | "MultiEdit" | "NotebookEdit")
+}
+
+/// `via` names the checkpoint deciding: `hook` (Claude Code's pre-action hook) or `proxy`
+/// (`fabric mcp-proxy`).
 pub fn gate(
     project: &Project,
     event: &Value,
     verdict: &Verdict,
     target: &str,
+    via: &str,
 ) -> Result<Option<Value>, CliError> {
     let tool = event["tool_name"].as_str().unwrap_or_default().to_owned();
     let input = event["tool_input"].clone();
@@ -197,7 +214,7 @@ pub fn gate(
     let rule = verdict.rule.clone().unwrap_or_default();
 
     // File edits inside an authorized change proceed and are recorded; the change's review
-    // covers their content. Shell commands always need their own approval.
+    // covers their content. Shell commands and tool calls always need their own approval.
     // An exact approval waiting for this action is used first.
     let approved = with_approvals(project, |requests| {
         Ok((
@@ -207,7 +224,7 @@ pub fn gate(
             false,
         ))
     })?;
-    if tool != "Bash"
+    if is_file_tool(&tool)
         && !approved
         && let Some(change) = changes::covering(project, session.as_deref(), target)?
     {
@@ -226,6 +243,23 @@ pub fn gate(
             .find(|r| r.digest == digest && r.status == Status::Approved)
         {
             request.status = Status::Used;
+            request.used_via = vec![via.to_owned()];
+            request.used_unix = Some(now_unix());
+            return Ok((Outcome::Proceed(request.id), true));
+        }
+        // The same call reaching another of Fabric's checkpoints right after it was approved
+        // at the first one. Sessions are not compared: the hook knows the agent's session,
+        // the proxy only its own.
+        let now = now_unix();
+        if let Some(request) = requests.iter_mut().rev().find(|r| {
+            r.digest == digest
+                && r.status == Status::Used
+                && !r.used_via.is_empty()
+                && !r.used_via.iter().any(|v| v == via)
+                && r.used_unix
+                    .is_some_and(|at| now.saturating_sub(at) <= SAME_CALL_SECS)
+        }) {
+            request.used_via.push(via.to_owned());
             return Ok((Outcome::Proceed(request.id), true));
         }
         let latest = requests.iter().rev().find(|r| r.digest == digest);
@@ -256,6 +290,8 @@ pub fn gate(
             approver_os_user: None,
             decided_at: None,
             decided_unix: None,
+            used_via: Vec::new(),
+            used_unix: None,
             note: None,
         });
         Ok((Outcome::Held(id, true), true))
@@ -267,6 +303,7 @@ pub fn gate(
                 project,
                 json!({
                     "kind": "approval_used",
+                    "via": via,
                     "request": id,
                     "digest": digest,
                     "session": session,
@@ -307,14 +344,21 @@ pub fn gate(
                     }),
                 )?;
             }
+            // Only file edits can be authorized together as a change.
+            let change_hint = if is_file_tool(&tool) {
+                format!(
+                    " If this is one of several edits for the same task, tell the user they can authorize the whole task at once \
+                     with `fabric approve {id} --change \"<title>\"` and review the result with `fabric review` when you are done."
+                )
+            } else {
+                String::new()
+            };
             Ok(Some(hook_decision(
                 "deny",
                 &format!(
                     "Fabric: this change needs a recorded approval ({rule}: {}). Approval request #{id} is waiting. \
                      Tell the user to review and approve it in their own terminal with `fabric approve {id}`, \
-                     then retry exactly the same action. Do not try to approve it yourself. \
-                     If this is one of several edits for the same task, tell the user they can authorize the whole task at once \
-                     with `fabric approve {id} --change \"<title>\"` and review the result with `fabric review` when you are done.",
+                     then retry exactly the same action. Do not try to approve it yourself.{change_hint}",
                     verdict.reason
                 ),
             )))
@@ -950,6 +994,8 @@ mod tests {
             approver_os_user: None,
             decided_at: None,
             decided_unix: Some(now_unix() - VALID_FOR_SECS - 1),
+            used_via: Vec::new(),
+            used_unix: None,
             note: None,
         }];
         expire(&mut requests);

@@ -216,6 +216,13 @@ fn describe(event: &Value) -> Option<String> {
             s("reviewer"),
             event["checkpoint"]
         ),
+        "tool_call" if event["outcome"] != "forwarded" => format!(
+            "Tool call `{}` by {}: {} ({})",
+            s("tool"),
+            s("agent"),
+            s("outcome"),
+            s("decision"),
+        ),
         "policy_changed" => format!("Guard rules changed ({}) by {}", s("change"), s("by")),
         "rollback" => format!(
             "Fabric **rolled back** unapproved changes from step #{} to {}",

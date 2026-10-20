@@ -16,7 +16,9 @@ fabric integrate claude-code|codex # connect an agent
 fabric mcp                         # MCP server (started by agents, not people)
 fabric guard rules|check|set|log   # consent rules for agent actions
 fabric guard pack finance [--scope GLOB]...      # SOX change-control rules
-fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--committed-only]
+fabric guard pack finance-ops      # rules for agents operating the books through tools
+fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--tool GLOB]... [--committed-only]
+fabric mcp-proxy --name NAME -- <server command>   # Fabric's controls in front of an MCP server
 fabric guard remove-rule ID
 fabric approvals [--all]           # changes waiting for a person's approval
 fabric approve N [N...] [--reject] [--as NAME] [--note TEXT] [--yes]
@@ -36,6 +38,7 @@ fabric evidence report --change N  # an auditor's page for one authorized change
 fabric evidence export --out DIR   # signed evidence pack
 fabric evidence verify-pack DIR [--key FINGERPRINT]
 fabric evidence key                # this installation's signing key fingerprint
+fabric evidence calls [-n N]       # tool calls agents made, with decisions and results
 ```
 
 ## Installing
@@ -249,6 +252,39 @@ evidence log (format in `STORAGE_FORMAT.md`).
 The guard's JSON schemas are now `fabric.guard.rules/v2`, `fabric.guard.check/v2`,
 `fabric.guard.set/v2` and `fabric.guard.log/v2` (v2: the `approve` decision, project rules,
 and `rule` may name a project rule).
+
+## Agents that act through tools: `mcp-proxy` and the `finance-ops` pack
+
+Agents increasingly change systems through tools rather than files: a finance-operations
+agent calls `post_journal_entry` or `record_payment` on an ERP's MCP server. Project rules can
+match tool calls as `server/tool` (`--tool GLOB`), and the `finance-ops` pack holds calls
+that post to the books or move money (`*/post_*`, `*/record_*`, `*/pay_*`, `*/refund*`,
+`*/void_*`, `*/reverse_*`, `*/write_off*`, `*/create_*`, `*/update_*` and similar) for a
+recorded approval, denies calls that delete or erase records (`*/delete_*`, `*/drop_*`,
+`*/purge_*`, …), and leaves reads alone. Matching is by tool name only, not by arguments.
+
+There are two ways the rules reach a tool call:
+
+- **Claude Code**: its pre-action hook sees MCP calls (`mcp__<server>__<tool>`) and applies
+  the rules like any other action.
+- **Any MCP client** (Codex, Cursor, an in-house agent): point the client at
+  `fabric mcp-proxy --name <server> -- <the server's command>` instead of the server. The proxy
+  runs in the project, forwards everything, and for each `tools/call` applies the rules:
+  allowed calls go through; held calls get an error result naming the approval request
+  (`fabric approve N`), and the same call made again after approval goes through once;
+  denied calls are refused. Tools under a rule are marked in `tools/list`. If the project's
+  rules cannot be read, calls are not forwarded.
+
+Every call through the proxy is recorded in the evidence: the agent (from the client's
+`initialize`), the tool, its arguments, the decision and rule, and the outcome with the
+server's result (`ok`, `error`, `held`, `blocked`). `fabric evidence calls` lists them. With
+Claude Code and the proxy together, one approval covers one call at both checkpoints: the
+proxy accepts an approval the hook used for the same action within the previous two minutes,
+once. Give the server the same name in both places so the actions match.
+
+What the proxy cannot do: undo a call. A posting is reversed by the system's own means (a
+reversing entry); Fabric records what was called and what came back, so the reversal can be
+targeted and checked.
 
 ## Sharing history between agents: MCP
 

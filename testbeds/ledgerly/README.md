@@ -7,6 +7,13 @@ library only, SQLite.
 python -m unittest discover -s tests -q
 ```
 
+## Operations API
+
+`python -m ledgerly.mcp_server --db books.db` serves the books to agents over MCP (stdio):
+reports and lists, and the operations a finance team runs (`post_journal_entry`,
+`reverse_entry`, `record_payment`, `issue_refund`, `void_invoice`). Amounts are decimal
+strings; writes are attributed to the calling agent.
+
 ## Layout
 
 | Path | What | SOX scope |

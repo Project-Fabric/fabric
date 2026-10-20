@@ -1633,3 +1633,242 @@ fn a_change_starts_at_the_prompt_that_began_the_task() {
     assert_eq!(fx.read("ledger/tax.py"), "MODE = 'half-even'\n");
     assert_eq!(fx.read("tests/test_tax.py"), "assert MODE == 'half-even'\n");
 }
+
+/// `fabric` as a different person: their own Fabric installation, outside the project.
+fn other_installation(home: &std::path::Path, cwd: &std::path::Path, args: &[&str]) -> Run {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_fabric"));
+    command
+        .args(args)
+        .current_dir(cwd)
+        .env("FABRIC_HOME", home)
+        .stdin(Stdio::null());
+    for marker in [
+        "CLAUDECODE",
+        "CODEX_SANDBOX",
+        "CODEX_SANDBOX_NETWORK_DISABLED",
+    ] {
+        command.env_remove(marker);
+    }
+    let output = command.output().unwrap();
+    Run {
+        code: output.status.code().unwrap(),
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: String::from_utf8(output.stderr).unwrap(),
+    }
+}
+
+#[test]
+fn approvals_and_reviews_can_be_signed_by_an_approver_elsewhere() {
+    let fx = Fixture::new();
+    fx.write("ledger/fees.py", "FEE = 0\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance", "--scope", "ledger/**", "--json"]);
+    let elsewhere = fx.home.with_file_name("approver-desk");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let approver_home = fx.home.with_file_name("approver-home");
+    let approver = |args: &[&str]| {
+        let run = other_installation(&approver_home, &elsewhere, args);
+        assert_eq!(run.code, 0, "{args:?}: {}{}", run.stdout, run.stderr);
+        run.json()
+    };
+    let file = |name: &str| elsewhere.join(name).to_string_lossy().into_owned();
+    let path = fx
+        .project
+        .join("ledger/fees.py")
+        .to_string_lossy()
+        .into_owned();
+    let write = json!({ "file_path": path, "content": "FEE = 5\n" });
+    assert_eq!(decision(&pre_tool_use(&fx, "Write", write.clone())), "deny");
+
+    // The project registers the approver's public key and requires signed approvals.
+    let key = approver(&["approver", "key", "--json"]);
+    let public_key = key["public_key"].as_str().unwrap();
+    fx.ok_json(&[
+        "approver",
+        "add",
+        "Dana Controller",
+        "--key",
+        public_key,
+        "--json",
+    ]);
+    assert_eq!(fx.run(&["approver", "require", "on", "--json"]).code, 0);
+    let unsigned = fx.run(&["approve", "1", "--yes", "--as", "dev@example.com"]);
+    assert_eq!(unsigned.code, 1);
+    assert!(
+        unsigned.stderr.contains("signed by a registered approver"),
+        "{}",
+        unsigned.stderr
+    );
+
+    // The developer exports the request; the approver signs it without the project.
+    fx.ok_json(&[
+        "approvals",
+        "export",
+        "1",
+        "--out",
+        &file("req.json"),
+        "--json",
+    ]);
+    let mut tampered: Value =
+        serde_json::from_str(&fs::read_to_string(file("req.json")).unwrap()).unwrap();
+    tampered["requests"][0]["input"]["content"] = json!("FEE = 500\n");
+    fs::write(file("tampered.json"), tampered.to_string()).unwrap();
+    let refused = other_installation(
+        &approver_home,
+        &elsewhere,
+        &["approver", "sign", &file("tampered.json"), "--yes"],
+    );
+    assert_eq!(
+        refused.code, 1,
+        "an edited request is refused: {}",
+        refused.stderr
+    );
+    approver(&[
+        "approver",
+        "sign",
+        &file("req.json"),
+        "--change",
+        "Fees",
+        "--path",
+        "ledger/**",
+        "--note",
+        "CHG-7",
+        "--yes",
+        "--out",
+        &file("req.signed.json"),
+        "--json",
+    ]);
+
+    // A decision changed after signing is refused; the genuine one is applied.
+    let mut forged: Value =
+        serde_json::from_str(&fs::read_to_string(file("req.signed.json")).unwrap()).unwrap();
+    forged["payload"]["change"]["paths"] = json!(["**"]);
+    fs::write(file("forged.json"), forged.to_string()).unwrap();
+    assert_eq!(
+        fx.run(&["approve", "--signed", &file("forged.json"), "--json"])
+            .code,
+        5
+    );
+    assert_eq!(
+        fx.run(&["approve", "1", "--signed", &file("req.signed.json")])
+            .code,
+        1,
+        "the signed file decides which requests"
+    );
+    let applied = fx.ok_json(&["approve", "--signed", &file("req.signed.json"), "--json"]);
+    assert_eq!(applied["requests"][0]["approver"], "Dana Controller");
+    assert_eq!(applied["requests"][0]["note"], "CHG-7");
+    assert_eq!(applied["change"]["paths"], json!(["ledger/**"]));
+    assert_eq!(applied["change"]["authorized_by"], "Dana Controller");
+
+    assert_eq!(decision(&pre_tool_use(&fx, "Write", write)), "silent");
+    fx.write("ledger/fees.py", "FEE = 5\n");
+    hook_event(
+        &fx,
+        json!({
+            "hook_event_name": "PostToolUse", "session_id": "s-1",
+            "cwd": fx.project.to_string_lossy(),
+            "tool_name": "Write", "tool_input": { "file_path": path },
+        }),
+    );
+
+    // The review goes the same way. A review signed with this installation's own key is
+    // refused while signed approvals are required, as is one about content that changed.
+    assert_eq!(
+        fx.run(&["review", "1", "--yes", "--as", "dev@example.com"])
+            .code,
+        1
+    );
+    fx.ok_json(&["review", "1", "--export", &file("review.json"), "--json"]);
+    let own = fx.ok_json(&["approver", "key", "--json"]);
+    fx.ok_json(&[
+        "approver",
+        "add",
+        "Developer",
+        "--key",
+        own["public_key"].as_str().unwrap(),
+        "--json",
+    ]);
+    fx.ok_json(&[
+        "approver",
+        "sign",
+        &file("review.json"),
+        "--yes",
+        "--out",
+        &file("own.json"),
+        "--json",
+    ]);
+    let same = fx.run(&["review", "1", "--signed", &file("own.json")]);
+    assert_eq!(same.code, 1);
+    assert!(
+        same.stderr.contains("another installation"),
+        "{}",
+        same.stderr
+    );
+    approver(&[
+        "approver",
+        "sign",
+        &file("review.json"),
+        "--note",
+        "looks right",
+        "--yes",
+        "--out",
+        &file("review.signed.json"),
+        "--json",
+    ]);
+    fx.write("ledger/fees.py", "FEE = 6\n");
+    assert_eq!(
+        fx.run(&["review", "1", "--signed", &file("review.signed.json")])
+            .code,
+        6
+    );
+    fx.write("ledger/fees.py", "FEE = 5\n");
+    let reviewed = fx.ok_json(&[
+        "review",
+        "1",
+        "--signed",
+        &file("review.signed.json"),
+        "--json",
+    ]);
+    assert_eq!(reviewed["change"]["status"], "accepted");
+    assert_eq!(reviewed["change"]["reviewed_by"], "Dana Controller");
+    assert_eq!(reviewed["change"]["review_note"], "looks right");
+
+    // Every signed decision is re-checked from the evidence alone, here and in a pack.
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["signed_decisions"]["checked"], 3);
+    assert_eq!(verify["signed_decisions"]["problems"], json!([]));
+    let pack = fx.home.with_file_name("pack");
+    let exported = fx.ok_json(&[
+        "evidence",
+        "export",
+        "--out",
+        &pack.to_string_lossy(),
+        "--json",
+    ]);
+    let checked = fx.ok_json(&[
+        "evidence",
+        "verify-pack",
+        &pack.to_string_lossy(),
+        "--key",
+        exported["fingerprint"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(checked["ok"], true);
+    assert_eq!(checked["signed_decisions"], 3);
+
+    // The change's report says the decisions were signed, and by which key.
+    let page = fx.ok_json(&["evidence", "report", "--change", "1", "--json"])["markdown"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let fingerprint = key["fingerprint"].as_str().unwrap();
+    for row in ["| Authorized |", "| Reviewed |"] {
+        let line = page.lines().find(|l| l.starts_with(row)).unwrap();
+        assert!(line.contains("Dana Controller"), "{line}");
+        assert!(
+            line.contains(&format!("signed with approver key {fingerprint}")),
+            "{line}"
+        );
+    }
+}

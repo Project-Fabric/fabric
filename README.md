@@ -59,6 +59,8 @@ fabric evidence export --out audit-q3/   # signed pack; check with `fabric evide
 ```
 
 Changes made around the hold (a script editing a controlled file) are rolled back at once.
+For segregation of duties, approvers can sign approvals and reviews with their own key on
+their own machine (`fabric approver sign`), and a project can require it.
 Committed migrations cannot be edited, direct SQL writes to financial tables need approval,
 and production configuration is off limits. See [docs/PIVOT_FINANCE.md](docs/PIVOT_FINANCE.md)
 and the testbed in [testbeds/ledgerly](testbeds/ledgerly).

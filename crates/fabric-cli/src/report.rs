@@ -125,6 +125,22 @@ pub fn exceptions_for(
     Ok(out)
 }
 
+/// How a decision was made: signed by a registered approver's key, or recorded locally.
+fn signed_note(event: &Value, key_field: &str) -> String {
+    if event["signed"].is_null() {
+        return String::new();
+    }
+    format!(
+        " (signed with approver key {}{})",
+        event[key_field].as_str().unwrap_or("?"),
+        if event["signed"]["same_installation"] == true {
+            ", from the developer's own installation"
+        } else {
+            ""
+        }
+    )
+}
+
 fn describe(event: &Value) -> Option<String> {
     let s = |key: &str| event[key].as_str().unwrap_or_default().to_owned();
     Some(match event["kind"].as_str()? {
@@ -143,9 +159,10 @@ fn describe(event: &Value) -> Option<String> {
             s("target")
         ),
         "approval_granted" => format!(
-            "Request #{} **approved** by {}{}{}",
+            "Request #{} **approved** by {}{}{}{}",
             event["request"],
             s("approver"),
+            signed_note(event, "approver_key"),
             if event["same_os_account_as_agent"] == true {
                 " (same OS account as the agent)"
             } else {
@@ -157,8 +174,9 @@ fn describe(event: &Value) -> Option<String> {
                 .unwrap_or_default()
         ),
         "approval_rejected" => format!(
-            "Request #{} **rejected** by {}",
+            "Request #{} **rejected** by {}{}",
             event["request"],
+            signed_note(event, "approver_key"),
             s("approver")
         ),
         "approval_used" => format!(
@@ -419,8 +437,9 @@ pub fn change_report(
         .collect();
     let _ = writeln!(
         out,
-        "| Authorized | {} by {approver}{}, with request {} (evidence record #{}) |",
+        "| Authorized | {} by {approver}{}{}, with request {} (evidence record #{}) |",
         opened.body.at,
+        signed_note(o, "approver_key"),
         if o["same_os_account_as_agent"] == true {
             " (same OS account as the agent)"
         } else {
@@ -437,8 +456,9 @@ pub fn change_report(
         let reviewer = text(&e["reviewer"]);
         let _ = writeln!(
             out,
-            "| Reviewed | {} by {reviewer}{} at checkpoint #{end_seq} (evidence record #{}) |",
+            "| Reviewed | {} by {reviewer}{}{} at checkpoint #{end_seq} (evidence record #{}) |",
             r.body.at,
+            signed_note(e, "reviewer_key"),
             if reviewer == approver {
                 " (the same person who authorized it)"
             } else {

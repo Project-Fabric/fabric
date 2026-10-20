@@ -30,20 +30,21 @@ use crate::evidence::{self, ChainReport};
 use crate::guard::Policy;
 use crate::home::{Home, display_path, write_durably};
 use crate::report;
+use crate::signoff;
 use crate::timefmt;
 
 const PACK_FORMAT: &str = "fabric-evidence-pack";
 const PACK_VERSION: u32 = 1;
 const KEY_FILE: &str = "evidence-ed25519.key";
 
-fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
     })
 }
 
-fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
+pub fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
     let text = text.trim();
     if text.len() != N * 2 {
         return None;
@@ -59,13 +60,29 @@ pub fn fingerprint(key: &VerifyingKey) -> String {
     evidence::hash_hex(key.as_bytes())[..16].to_owned()
 }
 
-/// This installation's signing key, created on first use.
+/// This installation's evidence signing key, created on first use.
 fn signing_key(home: &Home) -> Result<SigningKey, CliError> {
+    installation_key(home, KEY_FILE, true)?.ok_or_else(|| {
+        CliError::new(
+            exit::ERROR,
+            "no_key",
+            "the signing key could not be created",
+        )
+    })
+}
+
+/// One of this installation's keys in `<home>/keys/`. Without `create`, a missing key is
+/// `None`.
+pub fn installation_key(
+    home: &Home,
+    file: &str,
+    create: bool,
+) -> Result<Option<SigningKey>, CliError> {
     let dir = home.root.join("keys");
-    let path = dir.join(KEY_FILE);
+    let path = dir.join(file);
     match fs::read_to_string(&path) {
         Ok(text) => unhex::<32>(&text)
-            .map(|seed| SigningKey::from_bytes(&seed))
+            .map(|seed| Some(SigningKey::from_bytes(&seed)))
             .ok_or_else(|| {
                 CliError::new(
                     exit::INTEGRITY,
@@ -73,6 +90,7 @@ fn signing_key(home: &Home) -> Result<SigningKey, CliError> {
                     format!("{} is not a valid signing key", display_path(&path)),
                 )
             }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !create => Ok(None),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let mut seed = [0u8; 32];
             getrandom::fill(&mut seed).map_err(|e| {
@@ -90,7 +108,7 @@ fn signing_key(home: &Home) -> Result<SigningKey, CliError> {
                 fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
                     .map_err(|e| CliError::io(&path, e))?;
             }
-            Ok(SigningKey::from_bytes(&seed))
+            Ok(Some(SigningKey::from_bytes(&seed)))
         }
         Err(e) => Err(CliError::io(&path, e)),
     }
@@ -118,9 +136,15 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
             &store, &project, &policy, &log, &records, checkpoint,
         )?);
     }
+    let (signed_checked, signed_problems) = signoff::check_evidence(&records);
     ctx.emit(
         "fabric.evidence.verify/v1",
-        json!({ "chain": chain_json(&report), "deep": deep, "exceptions": exceptions }),
+        json!({
+            "chain": chain_json(&report),
+            "deep": deep,
+            "exceptions": exceptions,
+            "signed_decisions": { "checked": signed_checked, "problems": signed_problems },
+        }),
         || {
             let mut out = String::new();
             if report.records == 0 {
@@ -145,6 +169,20 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
             if report.incomplete_tail {
                 out.push_str("Note: the last record was interrupted while being written.\n");
             }
+            if signed_problems.is_empty() {
+                if signed_checked > 0 {
+                    let _ = writeln!(out, "{signed_checked} signed approver decisions verified.");
+                }
+            } else {
+                let _ = writeln!(
+                    out,
+                    "SIGNED DECISIONS FAILED VERIFICATION ({} problems):",
+                    signed_problems.len()
+                );
+                for p in &signed_problems {
+                    let _ = writeln!(out, "  {p}");
+                }
+            }
             if exceptions.is_empty() {
                 out.push_str("No exceptions: every controlled change had an approval.\n");
             } else {
@@ -166,7 +204,7 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
             out
         },
     );
-    Ok(if report.ok() {
+    Ok(if report.ok() && signed_problems.is_empty() {
         exit::OK
     } else {
         exit::INTEGRITY
@@ -402,13 +440,15 @@ pub fn verify_pack_cmd(ctx: &Ctx, dir: &Path, expected_key: Option<&str>) -> Res
 
     let chain_text =
         String::from_utf8(read("evidence.jsonl").unwrap_or_default()).unwrap_or_default();
-    let (chain, _) = evidence::verify_chain(&chain_text);
+    let (chain, records) = evidence::verify_chain(&chain_text);
     problems.extend(
         chain
             .problems
             .iter()
             .map(|p| format!("evidence chain: {p}")),
     );
+    let (signed_checked, signed_problems) = signoff::check_evidence(&records);
+    problems.extend(signed_problems);
     if chain.head.as_deref() != summary["chain"]["head"].as_str() {
         problems.push("the chain head does not match the summary".to_owned());
     }
@@ -423,6 +463,7 @@ pub fn verify_pack_cmd(ctx: &Ctx, dir: &Path, expected_key: Option<&str>) -> Res
             "head": chain.head,
             "fingerprint": key_fingerprint,
             "exceptions": summary["exceptions"],
+            "signed_decisions": signed_checked,
         }),
         || {
             let mut out = String::new();

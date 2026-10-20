@@ -35,7 +35,8 @@ use crate::changes;
 use crate::error::{CliError, exit};
 use crate::evidence;
 use crate::guard::{Verdict, hook_decision};
-use crate::home::{Project, display_path, project_relative, write_durably};
+use crate::home::{Home, Project, display_path, project_relative, write_durably};
+use crate::signoff;
 use crate::timefmt;
 
 const FILE: &str = "approvals.json";
@@ -382,6 +383,76 @@ pub fn list_cmd(project: &Project, all: bool, json_output: bool) -> Result<u8, C
     Ok(exit::OK)
 }
 
+/// Writes held requests to a file an approver can review and sign elsewhere
+/// (`fabric approver sign`).
+pub fn export_cmd(
+    project: &Project,
+    ids: &[u64],
+    out: Option<&Path>,
+    json_output: bool,
+) -> Result<u8, CliError> {
+    let requests = with_approvals(project, |requests| Ok((requests.clone(), false)))?;
+    let mut exported = Vec::new();
+    for id in ids {
+        let request = find_request(&requests, *id)?;
+        if !decidable(request.status, false) {
+            return Err(CliError::new(
+                exit::ERROR,
+                "request_closed",
+                format!(
+                    "approval request #{id} is already {}",
+                    status_name(request.status)
+                ),
+            ));
+        }
+        exported.push(json!({
+            "id": request.id,
+            "digest": request.digest,
+            "rule": request.rule,
+            "reason": request.reason,
+            "agent": request.agent,
+            "session": request.session,
+            "tool": request.tool,
+            "target": request.target,
+            "input": request.input,
+            "requested_at": request.requested_at,
+            "change_text": describe_change(project, request),
+        }));
+    }
+    let file = json!({
+        "format": signoff::REQUEST_FORMAT,
+        "version": 1,
+        "project": { "id": project.id, "root": display_path(&project.root) },
+        "exported_at": timefmt::now_rfc3339(),
+        "requests": exported,
+    });
+    let bytes = serde_json::to_vec_pretty(&file).expect("requests always serialize");
+    match out {
+        Some(path) => {
+            write_durably(path, &bytes)?;
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "schema": "fabric.approvals.export/v1",
+                        "out": display_path(path),
+                        "requests": ids,
+                    }))
+                    .expect("output always serializes")
+                );
+            } else {
+                println!(
+                    "Wrote {}. The approver reviews and signs it with `fabric approver sign {}` on their own machine; apply the result with `fabric approve --signed <file>`.",
+                    display_path(path),
+                    display_path(path)
+                );
+            }
+        }
+        None => println!("{}", String::from_utf8_lossy(&bytes)),
+    }
+    Ok(exit::OK)
+}
+
 /// The change an approver is asked to approve, as they would review it.
 pub fn describe_change(project: &Project, request: &Request) -> String {
     let input = &request.input;
@@ -477,6 +548,9 @@ pub struct Decision<'a> {
     /// files) for the requests' session.
     pub change: Option<&'a str>,
     pub paths: &'a [String],
+    /// A decision signed by a registered approver (`fabric approver sign`); it supplies the
+    /// requests, the decision, the change and the note.
+    pub signed: Option<&'a Path>,
 }
 
 fn status_name(status: Status) -> String {
@@ -495,7 +569,12 @@ fn decidable(status: Status, reject: bool) -> bool {
     }
 }
 
-pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Result<u8, CliError> {
+pub fn approve_cmd(
+    home: &Home,
+    project: &Project,
+    d: &Decision<'_>,
+    json_output: bool,
+) -> Result<u8, CliError> {
     if let Some(marker) = in_agent_environment() {
         return Err(CliError::new(
             exit::ERROR,
@@ -505,6 +584,57 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
             ),
         ));
     }
+    let Some(file) = d.signed else {
+        signoff::refuse_unsigned(project, "approvals")?;
+        return decide(project, d, None, json_output);
+    };
+    if !d.ids.is_empty()
+        || d.reject
+        || d.change.is_some()
+        || !d.paths.is_empty()
+        || d.note.is_some()
+        || d.approver.is_some()
+    {
+        return Err(CliError::new(
+            exit::ERROR,
+            "invalid_signed",
+            "with --signed, the requests, decision, change and note come from the signed file",
+        ));
+    }
+    let verified = signoff::verify_file(home, project, file, "approval")?;
+    let p = &verified.payload;
+    let ids: Vec<u64> = p["requests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["id"].as_u64())
+        .collect();
+    let paths: Vec<String> = p["change"]["paths"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p.as_str().map(str::to_owned))
+        .collect();
+    let signed = Decision {
+        ids: &ids,
+        reject: p["decision"] == "reject",
+        approver: Some(&verified.approver),
+        note: p["note"].as_str(),
+        yes: true,
+        change: p["change"]["title"].as_str(),
+        paths: &paths,
+        signed: None,
+    };
+    decide(project, &signed, Some(&verified), json_output)
+}
+
+/// Records a decision on held requests; `verified` when it comes from a signed file.
+fn decide(
+    project: &Project,
+    d: &Decision<'_>,
+    verified: Option<&signoff::Verified>,
+    json_output: bool,
+) -> Result<u8, CliError> {
     let mut ids = d.ids.to_vec();
     ids.dedup();
     let chosen = with_approvals(project, |requests| {
@@ -524,6 +654,30 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
                 status_name(closed.status)
             ),
         ));
+    }
+    // A signed decision covers exactly the actions it was signed for.
+    if let Some(v) = verified {
+        let signed_digest = |id: u64| {
+            v.payload["requests"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|r| r["id"].as_u64() == Some(id))
+                .and_then(|r| r["digest"].as_str())
+        };
+        if let Some(r) = chosen
+            .iter()
+            .find(|r| signed_digest(r.id) != Some(r.digest.as_str()))
+        {
+            return Err(CliError::new(
+                exit::INTEGRITY,
+                "digest_mismatch",
+                format!(
+                    "request #{} is not the action that was signed for; nothing recorded",
+                    r.id
+                ),
+            ));
+        }
     }
     let approver = d
         .approver
@@ -637,7 +791,12 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
         }
     }
 
-    let os_user = evidence::os_user();
+    // A signed decision was made elsewhere: the local OS account is not the approver's.
+    let os_user = if verified.is_some() {
+        None
+    } else {
+        evidence::os_user()
+    };
     let status = if d.reject {
         Status::Rejected
     } else {
@@ -682,6 +841,8 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
                 "approver_os_user": os_user,
                 "same_os_account_as_agent": os_user.is_some() && os_user == request.requested_os_user,
                 "note": d.note,
+                "approver_key": verified.map(|v| v.fingerprint.clone()),
+                "signed": verified.map(|v| v.evidence.clone()),
             }),
         )?;
     }
@@ -699,6 +860,8 @@ pub fn approve_cmd(project: &Project, d: &Decision<'_>, json_output: bool) -> Re
                 same_os_account_as_agent: os_user.is_some()
                     && updated.iter().any(|r| r.requested_os_user == os_user),
                 note: d.note,
+                signed: verified.map(|v| v.evidence.clone()),
+                approver_key: verified.map(|v| v.fingerprint.clone()),
             },
         )?),
         None => None,

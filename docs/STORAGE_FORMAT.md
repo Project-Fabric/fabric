@@ -176,8 +176,12 @@ approved with, the starting checkpoint (the session's latest prompt before autho
 approver and OS accounts), `change_edit` (change
 number, tool, action digest, target), `change_reviewed` (change number, outcome `accepted` or
 `rejected`, reviewer and OS account, the checkpoint and snapshot reviewed, and the content id
-of every file under the change's paths that changed, `null` if removed), and
-`policy_changed`. Commands and paths in events are cut to 2,000 characters;
+of every file under the change's paths that changed, `null` if removed), `approver_added` and
+`approver_removed` (name, public key, fingerprint, by), and `policy_changed`. A decision
+applied from a signed file adds to its `approval_granted`, `approval_rejected`,
+`change_opened` or `change_reviewed` event `approver_key` or `reviewer_key` (fingerprint) and
+`signed` (`public_key`, `signature`, `payload`, `same_installation`), so it can be verified
+again from the chain alone. Commands and paths in events are cut to 2,000 characters;
 full content is in the referenced snapshots. Projects recorded before evidence existed start
 their chain at the first checkpoint taken afterwards.
 
@@ -194,6 +198,29 @@ durably under `approvals.lock`. Each request has a number, the action's digest (
 agent sent it, the requesting session and OS account, and its status: `pending`, `approved`,
 `rejected`, `used` (an approval is used by exactly one action) or `expired` (approved but
 unused for 4 hours).
+
+## Approvers (`approvers.json`, format `fabric-approvers`, version 1)
+
+Per project, next to the approvals: `{"format","version","required","approvers":[…]}`. Each
+approver has `name`, `public_key` (Ed25519, 64 hex characters), `fingerprint` (first 16 hex
+characters of the key's BLAKE3 hash), `added_by` (OS account) and `added_at`. `required`: unsigned
+approvals and reviews, and decisions signed with this installation's own approver key
+(`<home>/keys/approver-ed25519.key`), are refused.
+
+## Sign-off files (version 1)
+
+- `fabric-approval-request` (from `fabric approvals export`): `project` (`id`, `root`),
+  `exported_at`, and `requests`, each with `id`, `digest`, `rule`, `reason`, `agent`,
+  `session`, `tool`, `target`, `input` (exactly as the agent sent it), `requested_at` and
+  `change_text` (the diff as the requester's Fabric rendered it).
+- `fabric-review-request` (from `fabric review N --export`): `project`, `exported_at`,
+  `change` (`id`, `title`, `paths`, `session`, `authorized_by`, `base_checkpoint`), `steps`,
+  `snapshot`, `files` (path to content id, `null` if removed) and `diff`.
+- `fabric-signed-decision` (from `fabric approver sign`): `payload`, `public_key` and
+  `signature` (hex Ed25519 over the payload serialized as compact JSON with sorted keys). The
+  payload is `{"kind":"approval","project","requests":[{"id","digest"}],"decision":"approve"|
+  "reject","change":{"title","paths"}|null,"note","signed_at"}` or `{"kind":"review",
+  "project","change","snapshot","files","decision":"accept"|"reject","note","signed_at"}`.
 
 ## Changes (`changes.json`, format `fabric-changes`, version 1)
 

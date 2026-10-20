@@ -23,6 +23,12 @@ fabric approve N [N...] [--reject] [--as NAME] [--note TEXT] [--yes]
 fabric approve N [N...] --change TITLE [--path GLOB]...   # also authorize the whole task
 fabric changes [--all]             # authorized changes waiting for review
 fabric review N [--reject] [--as NAME] [--note TEXT] [--yes]
+fabric approvals export N [N...] [--out FILE]      # for an approver elsewhere
+fabric review N --export FILE                      # likewise, a change's result
+fabric approver key|list|add NAME --key KEY|remove NAME|require on|off
+fabric approver sign FILE [--reject] [--change TITLE] [--path GLOB]... [--note T] [--yes]
+fabric approve --signed FILE       # apply a signed approval
+fabric review N --signed FILE      # apply a signed review
 fabric revert --change N [--yes]   # undo a whole change, keeping other work
 fabric evidence verify [--deep]    # is the record intact? any unapproved controlled changes?
 fabric evidence report N           # a reviewer's page for one checkpoint
@@ -159,7 +165,55 @@ guard, and the command refuses to run where a known agent marks its shell (`CLAU
 `CODEX_SANDBOX`). These stop an agent approving its own change by mistake, not one set on
 evading them, and the developer who prompted the agent can approve its work. The evidence
 records the approver, their OS account, and whether it is the same account the agent ran
-under. Approval by a second person on another machine is not provided yet.
+under. For approval by another person, see below.
+
+### Sign-off by another person: signed approvals
+
+A local `fabric approve` shows only that someone at the developer's machine approved. For
+segregation of duties, approvers sign decisions with their own key, on their own machine,
+without a server:
+
+```sh
+# The approver, once, on their machine: print their public key.
+fabric approver key
+# The project owner registers it, and can require signed approvals.
+fabric approver add "Dana (controller)" --key 3f2a…
+fabric approver require on
+
+# Developer: export what needs a decision; send the file to the approver.
+fabric approvals export 1 --out req-1.json
+# Approver: review and sign (works without the project); send the result back.
+fabric approver sign req-1.json --change "CHG-1042: late fees" --path "src/billing/**"
+# Developer: apply it. The signature, the key and the exact actions are checked.
+fabric approve --signed req-1.signed.json
+
+# The same for the change's result.
+fabric review 1 --export review-1.json
+fabric approver sign review-1.json
+fabric review 1 --signed review-1.signed.json
+```
+
+The approver's Fabric recomputes each action's digest from the exact input before showing it
+and refuses a request edited after export, so what is signed is what was shown. Applying a
+decision checks the Ed25519 signature, that the key is registered for this project, that the
+decision was made for this project, and that the requests (by digest) or the change's files
+(by content id) are exactly the ones signed for; anything else is refused and nothing is
+recorded. The decision supplies the requests, the outcome, the change and the note.
+
+With `fabric approver require on`, unsigned `fabric approve` and `fabric review` are refused,
+and so are decisions signed with this installation's own approver key: the approver must hold
+a key from another Fabric installation. Registering and removing approvers and changing the
+requirement are recorded in the evidence, need a person's terminal, and are denied to agents.
+
+Each signed decision is kept in the evidence with its payload, signature and key.
+`fabric evidence verify` and `fabric evidence verify-pack` re-check them offline: the
+signature, that the key was a registered approver when it was used, and that the decision is
+about the recorded event. Reports name the approver and key fingerprint.
+
+What a signature shows, plainly: the holder of a registered key made this decision about
+exactly this content. It does not show who holds the key; that depends on how keys are handed
+out, and who registered each key is in the evidence. Someone who can write to Fabric's data
+directory on the developer's machine can register a key of their own.
 
 Limits, stated plainly: the guard recognizes common destructive commands by pattern; it is not
 a sandbox, and a determined agent could phrase a destructive action it does not recognize.
@@ -289,7 +343,11 @@ versioned format: `fabric.init/v1`, `fabric.checkpoint/v1`, `fabric.log/v1`,
 `fabric.show/v1`, `fabric.history/v1`, `fabric.resume/v1`, `fabric.integrate/v1`,
 `fabric.approvals/v1`, `fabric.approve/v2` (with `change` when `--change` opened one),
 `fabric.changes/v1`, `fabric.review/v1` (the change and the reviewed files' content ids),
-`fabric.evidence.change-report/v1`, and
+`fabric.evidence.change-report/v1`, `fabric.approvals.export/v1`, `fabric.review.export/v1`,
+`fabric.approver.key/v1`, `fabric.approver.add/v1`, `fabric.approver.remove/v1`,
+`fabric.approver.list/v1`, `fabric.approver.require/v1`, `fabric.approver.sign/v1`
+(`fabric.evidence.verify/v1` adds `signed_decisions`, `fabric.evidence.verify_pack/v1` adds
+its count), and
 on failure `fabric.error/v1`:
 
 ```json

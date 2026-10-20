@@ -34,7 +34,8 @@ use crate::approvals::{git_identity, in_agent_environment};
 use crate::checkpoint::{CheckpointKind, Meta, read_log, record};
 use crate::error::{CliError, exit};
 use crate::evidence::{self, Record};
-use crate::home::{Project, display_path, write_durably};
+use crate::home::{Home, Project, display_path, write_durably};
+use crate::signoff;
 use crate::timefmt;
 
 const FILE: &str = "changes.json";
@@ -175,6 +176,9 @@ pub struct Authorization<'a> {
     pub os_user: Option<String>,
     pub same_os_account_as_agent: bool,
     pub note: Option<&'a str>,
+    /// The approver's signed decision, kept in the evidence, and their key's fingerprint.
+    pub signed: Option<serde_json::Value>,
+    pub approver_key: Option<String>,
 }
 
 /// Checks the paths of a change before anything is recorded.
@@ -239,6 +243,8 @@ pub fn open(project: &Project, a: Authorization<'_>) -> Result<Change, CliError>
             "approver_os_user": change.authorized_os_user,
             "same_os_account_as_agent": a.same_os_account_as_agent,
             "note": change.note,
+            "approver_key": a.signed.as_ref().map(|_| a.approver_key.clone()),
+            "signed": a.signed,
         }),
     )?;
     Ok(change)
@@ -398,6 +404,10 @@ pub struct Review<'a> {
     pub reviewer: Option<&'a str>,
     pub note: Option<&'a str>,
     pub yes: bool,
+    /// Write the review to a file for an approver elsewhere instead of deciding here.
+    pub export: Option<&'a Path>,
+    /// Apply a review signed by a registered approver (`fabric approver sign`).
+    pub signed: Option<&'a Path>,
 }
 
 /// Files under the change's paths that differ between `before` and `after`, with the content
@@ -473,6 +483,7 @@ pub fn review_diff(
 }
 
 pub fn review_cmd(
+    home: &Home,
     store: &Store,
     project: &Project,
     r: &Review<'_>,
@@ -508,18 +519,54 @@ pub fn review_cmd(
             ),
         ));
     }
-    let reviewer = r
-        .reviewer
-        .map(str::to_owned)
-        .or_else(|| git_identity(&project.root))
-        .or_else(evidence::os_user)
-        .ok_or_else(|| {
-            CliError::new(
-                exit::ERROR,
-                "no_identity",
-                "cannot tell who is reviewing; pass --as NAME",
-            )
-        })?;
+    if (r.signed.is_some() || r.export.is_some())
+        && (r.reject || r.note.is_some() || r.reviewer.is_some())
+    {
+        return Err(CliError::new(
+            exit::ERROR,
+            "invalid_signed",
+            "with --export or --signed, the decision and note come from the approver's signed file",
+        ));
+    }
+    let verified = match r.signed {
+        Some(file) => {
+            let v = signoff::verify_file(home, project, file, "review")?;
+            if v.payload["change"].as_u64() != Some(change.id) {
+                return Err(CliError::new(
+                    exit::ERROR,
+                    "invalid_signed",
+                    format!("this signed review is not for change #{}", change.id),
+                ));
+            }
+            Some(v)
+        }
+        None if r.export.is_none() => {
+            signoff::refuse_unsigned(project, "reviews")?;
+            None
+        }
+        None => None,
+    };
+    let reject = verified
+        .as_ref()
+        .map_or(r.reject, |v| v.payload["decision"] == "reject");
+    let note = verified
+        .as_ref()
+        .map_or(r.note, |v| v.payload["note"].as_str());
+    let reviewer = match &verified {
+        Some(v) => v.approver.clone(),
+        None => r
+            .reviewer
+            .map(str::to_owned)
+            .or_else(|| git_identity(&project.root))
+            .or_else(evidence::os_user)
+            .ok_or_else(|| {
+                CliError::new(
+                    exit::ERROR,
+                    "no_identity",
+                    "cannot tell who is reviewing; pass --as NAME",
+                )
+            })?,
+    };
 
     let log = read_log(project)?;
     let base = log
@@ -547,8 +594,68 @@ pub fn review_cmd(
         .map(|c| format!("#{} {}", c.seq, c.label))
         .collect();
 
-    let verb = if r.reject { "Reject" } else { "Accept" };
-    if !json_output || !r.yes {
+    let file_ids: BTreeMap<String, Option<String>> = files
+        .iter()
+        .map(|(p, id)| (p.as_str().to_owned(), id.clone()))
+        .collect();
+    if let Some(out) = r.export {
+        let request = json!({
+            "format": signoff::REVIEW_REQUEST_FORMAT,
+            "version": 1,
+            "project": { "id": project.id, "root": display_path(&project.root) },
+            "exported_at": timefmt::now_rfc3339(),
+            "change": {
+                "id": change.id,
+                "title": change.title,
+                "paths": change.paths,
+                "session": change.session,
+                "authorized_by": change.authorized_by,
+                "base_checkpoint": change.base_checkpoint,
+            },
+            "steps": steps,
+            "snapshot": shown.id.to_string(),
+            "files": file_ids,
+            "diff": review_diff(store, &before, &shown.manifest, &files)?,
+        });
+        write_durably(
+            out,
+            &serde_json::to_vec_pretty(&request).expect("requests always serialize"),
+        )?;
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "schema": "fabric.review.export/v1",
+                    "out": display_path(out),
+                    "change": change.id,
+                    "files": file_ids,
+                }))
+                .expect("output always serializes")
+            );
+        } else {
+            println!(
+                "Wrote {}. The approver reviews and signs it with `fabric approver sign {}`; apply the result with `fabric review {} --signed <file>`. Changing the project's files under the change before then invalidates it.",
+                display_path(out),
+                display_path(out),
+                change.id
+            );
+        }
+        return Ok(exit::OK);
+    }
+    // A signed review is about exactly the content that was exported.
+    if let Some(v) = &verified
+        && v.payload["files"] != json!(file_ids)
+    {
+        return Err(CliError::new(
+            exit::STATE_CHANGED,
+            "state_changed",
+            "the change's files differ from what the approver reviewed; nothing recorded, export the review again",
+        ));
+    }
+
+    let verb = if reject { "Reject" } else { "Accept" };
+    let yes = r.yes || verified.is_some();
+    if !json_output || !yes {
         eprintln!(
             "Change #{}: {}\nAuthorized by {} at {} for {}\nSession {}, since checkpoint #{}\n",
             change.id,
@@ -570,7 +677,7 @@ pub fn review_cmd(
             eprintln!("{}", review_diff(store, &before, &shown.manifest, &files)?);
         }
     }
-    if !r.yes {
+    if !yes {
         if !io::stdin().is_terminal() {
             return Err(CliError::new(
                 exit::NEEDS_CONFIRMATION,
@@ -608,7 +715,7 @@ pub fn review_cmd(
         CheckpointKind::Manual,
         format!(
             "{} change #{}: {}",
-            if r.reject { "rejected" } else { "accepted" },
+            if reject { "rejected" } else { "accepted" },
             change.id,
             change.title
         ),
@@ -626,8 +733,13 @@ pub fn review_cmd(
             )
         })?;
 
-    let os_user = evidence::os_user();
-    let status = if r.reject {
+    // A signed review was made elsewhere: the local OS account is not the reviewer's.
+    let os_user = if verified.is_some() {
+        None
+    } else {
+        evidence::os_user()
+    };
+    let status = if reject {
         Status::Rejected
     } else {
         Status::Accepted
@@ -652,14 +764,10 @@ pub fn review_cmd(
         c.reviewed_by = Some(reviewer.clone());
         c.reviewed_os_user = os_user.clone();
         c.reviewed_at = Some(reviewed_at.clone());
-        c.review_note = r.note.map(str::to_owned);
+        c.review_note = note.map(str::to_owned);
         c.reviewed_checkpoint = Some(reviewed_checkpoint);
         Ok((c.clone(), true))
     })?;
-    let file_ids: BTreeMap<String, Option<String>> = files
-        .iter()
-        .map(|(p, id)| (p.as_str().to_owned(), id.clone()))
-        .collect();
     evidence::append(
         project,
         json!({
@@ -672,7 +780,9 @@ pub fn review_cmd(
             "checkpoint": reviewed_checkpoint,
             "snapshot": now.id.to_string(),
             "files": file_ids,
-            "note": r.note,
+            "note": note,
+            "reviewer_key": verified.as_ref().map(|v| v.fingerprint.clone()),
+            "signed": verified.as_ref().map(|v| v.evidence.clone()),
         }),
     )?;
 
@@ -686,10 +796,10 @@ pub fn review_cmd(
             }))
             .expect("output always serializes")
         );
-    } else if r.reject {
+    } else if reject {
         println!(
-            "Rejected change #{} as {reviewer}. The work is still in the project: undo it with `fabric revert` on the agent steps above (newest first), or `fabric restore {} --yes` to return to the state before the change.",
-            updated.id, updated.base_checkpoint
+            "Rejected change #{} as {reviewer}. The work is still in the project: undo it with `fabric revert --change {}`.",
+            updated.id, updated.id
         );
     } else {
         println!(

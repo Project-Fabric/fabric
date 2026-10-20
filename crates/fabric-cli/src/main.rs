@@ -21,6 +21,7 @@ mod pack;
 mod query;
 mod report;
 mod results;
+mod signoff;
 mod timefmt;
 
 use std::path::PathBuf;
@@ -153,14 +154,25 @@ enum Command {
         /// Show every request, not only those waiting.
         #[arg(long)]
         all: bool,
+        #[command(subcommand)]
+        command: Option<ApprovalsCommand>,
+    },
+
+    /// Approvers who sign decisions with their own key, possibly on another machine.
+    Approver {
+        #[command(subcommand)]
+        command: ApproverCommand,
     },
 
     /// Review an agent's held change and approve (or reject) it. Run this in your own
     /// terminal; agents cannot approve their own changes.
     Approve {
         /// Request numbers, as in `fabric approvals`; several are reviewed together.
-        #[arg(required = true)]
+        #[arg(required_unless_present = "signed")]
         ids: Vec<u64>,
+        /// Apply a decision signed by a registered approver (`fabric approver sign`).
+        #[arg(long, value_name = "FILE")]
+        signed: Option<PathBuf>,
         /// Reject the change instead.
         #[arg(long)]
         reject: bool,
@@ -206,6 +218,12 @@ enum Command {
         /// Record the decision without asking for confirmation.
         #[arg(long)]
         yes: bool,
+        /// Write the review to a file for an approver to sign elsewhere, deciding nothing here.
+        #[arg(long, value_name = "FILE", conflicts_with = "signed")]
+        export: Option<PathBuf>,
+        /// Apply a review signed by a registered approver (`fabric approver sign`).
+        #[arg(long, value_name = "FILE")]
+        signed: Option<PathBuf>,
     },
 
     /// Evidence for reviewers and auditors: verify the record, report on a change, export a
@@ -296,6 +314,65 @@ enum GuardCommand {
     Log {
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApprovalsCommand {
+    /// Write held requests to a file an approver signs elsewhere (`fabric approver sign`).
+    Export {
+        /// Request numbers, as in `fabric approvals`.
+        #[arg(required = true)]
+        ids: Vec<u64>,
+        /// Where to write the request (default: print it).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApproverCommand {
+    /// This installation's approver key: give the public key to projects you approve for.
+    Key,
+    /// Register an approver for this project by their public key.
+    Add {
+        name: String,
+        /// Their public key, as `fabric approver key` prints it.
+        #[arg(long)]
+        key: String,
+    },
+    /// Remove a registered approver.
+    Remove { name: String },
+    /// Registered approvers, and whether signed approvals are required.
+    List,
+    /// Require (on) or stop requiring (off) signed approvals and reviews from another
+    /// installation.
+    Require {
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
+    /// Review an exported request or review and sign your decision. Works without the project.
+    Sign {
+        /// The file from `fabric approvals export` or `fabric review --export`.
+        file: PathBuf,
+        /// Reject instead.
+        #[arg(long)]
+        reject: bool,
+        /// Also authorize the whole task as a change with this title.
+        #[arg(long, value_name = "TITLE")]
+        change: Option<String>,
+        /// Paths the change covers, as globs (repeatable; default: the requested files).
+        #[arg(long = "path", value_name = "GLOB", requires = "change")]
+        paths: Vec<String>,
+        /// A note recorded with the decision.
+        #[arg(long)]
+        note: Option<String>,
+        /// Sign without asking for confirmation.
+        #[arg(long)]
+        yes: bool,
+        /// Where to write the signed decision (default: next to the request).
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
 }
 
@@ -425,11 +502,50 @@ fn main() -> ExitCode {
             }),
             GuardCommand::RemoveRule { id } => guard::remove_rule(&project, &id, json),
         }),
-        Command::Approvals { all } => ctx
-            .project()
-            .and_then(|project| approvals::list_cmd(&project, all, json)),
+        Command::Approvals { all, command } => ctx.project().and_then(|project| match command {
+            None => approvals::list_cmd(&project, all, json),
+            Some(ApprovalsCommand::Export { ids, out }) => {
+                approvals::export_cmd(&project, &ids, out.as_deref(), json)
+            }
+        }),
+        Command::Approver { command } => match command {
+            ApproverCommand::Key => signoff::key_cmd(&ctx.home, json),
+            ApproverCommand::Sign {
+                file,
+                reject,
+                change,
+                paths,
+                note,
+                yes,
+                out,
+            } => signoff::sign_cmd(
+                &ctx.home,
+                &file,
+                &signoff::SignOptions {
+                    reject,
+                    change: change.as_deref(),
+                    paths: &paths,
+                    note: note.as_deref(),
+                    yes,
+                    out: out.as_deref(),
+                },
+                json,
+            ),
+            command => ctx.project().and_then(|project| match command {
+                ApproverCommand::Add { name, key } => signoff::add_cmd(&project, &name, &key, json),
+                ApproverCommand::Remove { name } => signoff::remove_cmd(&project, &name, json),
+                ApproverCommand::List => signoff::list_cmd(&project, json),
+                ApproverCommand::Require { state } => {
+                    signoff::require_cmd(&project, state == "on", json)
+                }
+                ApproverCommand::Key | ApproverCommand::Sign { .. } => {
+                    unreachable!("handled above")
+                }
+            }),
+        },
         Command::Approve {
             ids,
+            signed,
             reject,
             approver,
             note,
@@ -438,6 +554,7 @@ fn main() -> ExitCode {
             paths,
         } => ctx.project().and_then(|project| {
             approvals::approve_cmd(
+                &ctx.home,
                 &project,
                 &approvals::Decision {
                     ids: &ids,
@@ -447,6 +564,7 @@ fn main() -> ExitCode {
                     yes,
                     change: change.as_deref(),
                     paths: &paths,
+                    signed: signed.as_deref(),
                 },
                 json,
             )
@@ -460,9 +578,12 @@ fn main() -> ExitCode {
             reviewer,
             note,
             yes,
+            export,
+            signed,
         } => ctx.project().and_then(|project| {
             let store = ctx.home.open_store()?;
             changes::review_cmd(
+                &ctx.home,
                 &store,
                 &project,
                 &changes::Review {
@@ -471,6 +592,8 @@ fn main() -> ExitCode {
                     reviewer: reviewer.as_deref(),
                     note: note.as_deref(),
                     yes,
+                    export: export.as_deref(),
+                    signed: signed.as_deref(),
                 },
                 json,
             )

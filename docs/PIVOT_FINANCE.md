@@ -93,6 +93,10 @@ Next, in order:
 10. **Agents that act through tools.** *Done* (#60): rules over MCP tool calls, the
    `finance-ops` pack and `fabric mcp-proxy` for any agent; a material refund an agent made
    unapproved 3/3 alone was held and rejected 3/3 through Fabric (`EXPERIMENT_FINANCE_OPS.md`).
+11. **Mandates.** *Done* (#61): bounded authority granted ahead of time (tools, agent,
+   limits per call and per day, expiry), optionally signed by an approver; calls within it
+   need no approval each, and every use is replayed against its terms from the evidence. The
+   first piece of AgentAuth rebuilt as a product on this engine.
 
 Everything stays local-first; no cloud dependency in the core (`AGENTS.md`).
 

@@ -2150,3 +2150,216 @@ fn one_approval_covers_one_call_through_both_the_hook_and_the_proxy() {
         .clone();
     assert_eq!(used["used_via"], json!(["hook", "proxy"]));
 }
+
+#[test]
+fn mandates_let_agents_act_within_limits_and_hold_the_rest() {
+    let fx = Fixture::new();
+    fx.write("README.md", "erp\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance-ops", "--json"]);
+    assert_eq!(
+        fx.run(&[
+            "mandate",
+            "grant",
+            "No limits",
+            "--tool",
+            "*/issue_refund",
+            "--expires",
+            "2099-01-01"
+        ])
+        .code,
+        1,
+        "a mandate needs a limit"
+    );
+    assert_eq!(
+        fx.run(&[
+            "mandate",
+            "grant",
+            "Bad date",
+            "--tool",
+            "*/issue_refund",
+            "--max-per-call",
+            "5",
+            "--expires",
+            "2026-02-30"
+        ])
+        .code,
+        1
+    );
+    let granted = fx.ok_json(&[
+        "mandate",
+        "grant",
+        "Small refunds",
+        "--tool",
+        "*/issue_refund",
+        "--max-per-call",
+        "500",
+        "--max-per-day",
+        "800",
+        "--expires",
+        "2099-01-01",
+        "--json",
+    ]);
+    assert_eq!(granted["mandate"]["id"], 1);
+    let refund = |amount: &str| {
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__ledgerly__issue_refund",
+            json!({ "payment_id": 1, "amount": amount, "date": "2026-03-20", "reason": "x" }),
+        ))
+        .to_owned()
+    };
+    assert_eq!(refund("300.00"), "silent", "within the mandate");
+    assert_eq!(refund("400.00"), "silent", "700 of 800 today");
+    assert_eq!(
+        refund("200.00"),
+        "deny",
+        "would make 900 today: held for a person"
+    );
+    assert_eq!(refund("600.00"), "deny", "over the per-call limit");
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__ledgerly__post_journal_entry",
+            json!({ "lines": [{ "account": "6000", "debit": "1.00" }] })
+        )),
+        "deny",
+        "a tool the mandate does not cover"
+    );
+
+    // A mandate for one agent and one call a day, through the proxy.
+    fx.ok_json(&[
+        "mandate",
+        "grant",
+        "One checkpoint a day",
+        "--tool",
+        "erp/fabric_checkpoint",
+        "--agent",
+        "finance-agent",
+        "--max-calls-per-day",
+        "1",
+        "--expires",
+        "2099-01-01",
+        "--json",
+    ]);
+    fx.ok_json(&[
+        "guard",
+        "add-rule",
+        "erp-writes",
+        "--decision",
+        "approve",
+        "--tool",
+        "erp/fabric_checkpoint",
+        "--json",
+    ]);
+    let exe = env!("CARGO_BIN_EXE_fabric");
+    let via_proxy = |client: &str, message: &str| -> bool {
+        let input = format!(
+            "{}\n{}\n",
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": { "protocolVersion": "2025-06-18", "capabilities": {},
+                                "clientInfo": { "name": client, "version": "1" } } }),
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                    "params": { "name": "fabric_checkpoint", "arguments": { "message": message } } })
+        );
+        let run = fx.run_with_stdin(&["mcp-proxy", "--name", "erp", "--", exe, "mcp"], &input);
+        let response = run
+            .stdout
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap())
+            .find(|r| r["id"] == 2)
+            .unwrap();
+        response["result"]["isError"] != true
+    };
+    assert!(
+        !via_proxy("other-agent", "a"),
+        "another agent is not covered"
+    );
+    assert!(via_proxy("finance-agent", "b"), "the named agent is");
+    assert!(!via_proxy("finance-agent", "c"), "one call a day");
+
+    // Revoking stops it at once.
+    fx.ok_json(&["mandate", "revoke", "1", "--json"]);
+    assert_eq!(refund("10.00"), "deny");
+    let list = fx.ok_json(&["mandate", "list", "--json"]);
+    assert!(list["mandates"][0]["revoked_at"].is_string());
+    assert_eq!(list["mandates"][0]["uses"].as_array().unwrap().len(), 2);
+
+    // Every use is replayed against the mandate's terms from the evidence alone.
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["mandate_uses"]["checked"], 3);
+    assert_eq!(verify["mandate_uses"]["problems"], json!([]));
+    let calls = fx.ok_json(&["evidence", "calls", "--json"])["calls"].clone();
+    assert!(
+        calls
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["outcome"] == "ok")
+    );
+}
+
+#[test]
+fn a_mandate_can_require_an_approvers_signature() {
+    let fx = Fixture::new();
+    fx.write("README.md", "erp\n");
+    fx.ok_json(&["init", "--json"]);
+    fx.ok_json(&["guard", "pack", "finance-ops", "--json"]);
+    let elsewhere = fx.home.with_file_name("approver-desk");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let approver_home = fx.home.with_file_name("approver-home");
+    let approver = |args: &[&str]| {
+        let run = other_installation(&approver_home, &elsewhere, args);
+        assert_eq!(run.code, 0, "{args:?}: {}{}", run.stdout, run.stderr);
+        run.json()
+    };
+    let key = approver(&["approver", "key", "--json"]);
+    fx.ok_json(&[
+        "approver",
+        "add",
+        "CFO",
+        "--key",
+        key["public_key"].as_str().unwrap(),
+        "--json",
+    ]);
+    fx.ok_json(&["approver", "require", "on", "--json"]);
+    let terms = [
+        "mandate",
+        "grant",
+        "Refunds",
+        "--tool",
+        "*/issue_refund",
+        "--max-per-call",
+        "250",
+        "--expires",
+        "2099-01-01",
+    ];
+    assert_eq!(fx.run(&terms).code, 1, "an unsigned mandate is refused");
+    let proposal = elsewhere
+        .join("mandate.json")
+        .to_string_lossy()
+        .into_owned();
+    let mut with_out = terms.to_vec();
+    with_out.extend(["--out", &proposal, "--json"]);
+    fx.ok_json(&with_out);
+    let signed = elsewhere
+        .join("mandate.signed.json")
+        .to_string_lossy()
+        .into_owned();
+    approver(&[
+        "approver", "sign", &proposal, "--yes", "--out", &signed, "--json",
+    ]);
+    let granted = fx.ok_json(&["mandate", "grant", "--signed", &signed, "--json"]);
+    assert_eq!(granted["mandate"]["granted_by"], "CFO");
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "mcp__ledgerly__issue_refund",
+            json!({ "payment_id": 1, "amount": "99.00", "reason": "x" })
+        )),
+        "silent"
+    );
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["signed_decisions"]["checked"], 1);
+    assert_eq!(verify["signed_decisions"]["problems"], json!([]));
+}

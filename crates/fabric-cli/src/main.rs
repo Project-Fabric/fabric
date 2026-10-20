@@ -16,6 +16,7 @@ mod evidence;
 mod guard;
 mod home;
 mod lessons;
+mod mandates;
 mod mcp;
 mod mcp_proxy;
 mod pack;
@@ -168,6 +169,13 @@ enum Command {
         all: bool,
         #[command(subcommand)]
         command: Option<ApprovalsCommand>,
+    },
+
+    /// Mandates: bounded authority granted to agents ahead of time (limits per call and per
+    /// day, an expiry); calls within one need no approval each.
+    Mandate {
+        #[command(subcommand)]
+        command: MandateCommand,
     },
 
     /// Approvers who sign decisions with their own key, possibly on another machine.
@@ -343,6 +351,47 @@ enum ApprovalsCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+}
+
+// Parsed once per run; the size difference between variants does not matter.
+#[allow(clippy::large_enum_variant)]
+#[derive(Subcommand)]
+enum MandateCommand {
+    /// Grant a mandate (or, with --out, write it for an approver to sign; with --signed, apply
+    /// a signed one).
+    Grant {
+        /// What the mandate is for, e.g. "Small customer refunds".
+        #[arg(required_unless_present = "signed")]
+        title: Option<String>,
+        /// Tool calls it covers, as `server/tool` globs (repeatable), e.g. "*/issue_refund".
+        #[arg(long = "tool")]
+        tools: Vec<String>,
+        /// Only this agent (an MCP client's name, or claude-code).
+        #[arg(long)]
+        agent: Option<String>,
+        /// Largest amount per call, e.g. 500 or 500.00.
+        #[arg(long)]
+        max_per_call: Option<String>,
+        /// Largest total per day (UTC).
+        #[arg(long)]
+        max_per_day: Option<String>,
+        /// Most calls per day (UTC).
+        #[arg(long)]
+        max_calls_per_day: Option<u64>,
+        /// The day it ends, YYYY-MM-DD (it stops at the start of that day, UTC).
+        #[arg(long)]
+        expires: Option<String>,
+        /// Write the mandate to this file for an approver to sign instead of granting it.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Apply a mandate signed by a registered approver.
+        #[arg(long, value_name = "FILE", conflicts_with_all = ["title", "out"])]
+        signed: Option<PathBuf>,
+    },
+    /// Revoke a mandate: calls it covered are held for a person again.
+    Revoke { id: u64 },
+    /// Mandates, their limits and today's use.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -533,6 +582,39 @@ fn main() -> ExitCode {
             Some(ApprovalsCommand::Export { ids, out }) => {
                 approvals::export_cmd(&project, &ids, out.as_deref(), json)
             }
+        }),
+        Command::Mandate { command } => ctx.project().and_then(|project| match command {
+            MandateCommand::Grant {
+                title,
+                tools,
+                agent,
+                max_per_call,
+                max_per_day,
+                max_calls_per_day,
+                expires,
+                out,
+                signed,
+            } => {
+                let terms = title.map(|title| mandates::Terms {
+                    title,
+                    tools,
+                    agent,
+                    max_per_call,
+                    max_per_day,
+                    max_calls_per_day,
+                    expires: expires.unwrap_or_default(),
+                });
+                mandates::grant_cmd(
+                    &ctx.home,
+                    &project,
+                    terms,
+                    out.as_deref(),
+                    signed.as_deref(),
+                    json,
+                )
+            }
+            MandateCommand::Revoke { id } => mandates::revoke_cmd(&project, id, json),
+            MandateCommand::List => mandates::list_cmd(&project, json),
         }),
         Command::Approver { command } => match command {
             ApproverCommand::Key => signoff::key_cmd(&ctx.home, json),

@@ -141,6 +141,7 @@ fn judge_call(home: &Home, shared: &Shared, message: &Value) -> Option<Value> {
         "tool_name": tool_name,
         "tool_input": arguments,
         "session_id": shared.session,
+        "agent": shared.agent(),
     });
     if verdict.decision != Decision::Allow
         && let Err(e) = guard::audit(&shared.project, &event, &verdict, &tool)

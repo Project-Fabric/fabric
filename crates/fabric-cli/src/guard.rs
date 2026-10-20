@@ -132,7 +132,7 @@ const RULES: &[Rule] = &[
         description: "Agents changing Fabric's history, rules or data",
         default: Decision::Deny,
         matcher: Matcher::Command(&[
-            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve|review|approver)\b",
+            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve|review|approver|mandate)\b",
             r"\bfabric(\.exe)?\s+guard\s+(set|pack|add-rule|remove-rule)\b",
             r"\bfabric(\.exe)?\s+integrate\b",
         ]),
@@ -1326,6 +1326,10 @@ mod tests {
             ("fabric approve 3 --yes", "fabric-tamper"),
             ("fabric review 1 --yes", "fabric-tamper"),
             ("fabric approver sign req.json --yes", "fabric-tamper"),
+            (
+                "fabric mandate grant x --tool '*' --max-per-call 1 --expires 2099-01-01",
+                "fabric-tamper",
+            ),
             ("fabric guard pack finance", "fabric-tamper"),
             (
                 "fabric guard remove-rule finance-ledger-sql",

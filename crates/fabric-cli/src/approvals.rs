@@ -36,6 +36,7 @@ use crate::error::{CliError, exit};
 use crate::evidence;
 use crate::guard::{Verdict, hook_decision};
 use crate::home::{Home, Project, display_path, project_relative, write_durably};
+use crate::mandates;
 use crate::signoff;
 use crate::timefmt;
 
@@ -224,6 +225,20 @@ pub fn gate(
             false,
         ))
     })?;
+    // A tool call inside an active mandate proceeds and is recorded against it.
+    if tool.starts_with("mcp__")
+        && !approved
+        && mandates::cover(
+            project,
+            target,
+            event["agent"].as_str().unwrap_or(AGENT),
+            &digest,
+            &input,
+            via,
+        )?
+    {
+        return Ok(None);
+    }
     if is_file_tool(&tool)
         && !approved
         && let Some(change) = changes::covering(project, session.as_deref(), target)?

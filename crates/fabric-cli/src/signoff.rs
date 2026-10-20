@@ -37,6 +37,7 @@ use crate::approvals::{digest, in_agent_environment};
 use crate::error::{CliError, exit};
 use crate::evidence::{self, Record};
 use crate::home::{Home, Project, display_path, write_durably};
+use crate::mandates;
 use crate::pack::{fingerprint, hex, installation_key, unhex};
 use crate::timefmt;
 
@@ -444,6 +445,34 @@ pub fn sign_cmd(
                 what,
             )
         }
+        Some(mandates::PROPOSAL_FORMAT) => {
+            if o.change.is_some() || !o.paths.is_empty() {
+                return Err(invalid(
+                    "--change and --path apply to approval requests, not mandates",
+                ));
+            }
+            let terms: mandates::Terms = serde_json::from_value(request["terms"].clone())
+                .map_err(|e| invalid(format!("the mandate's terms: {e}")))?;
+            terms.validate()?;
+            let shown = format!(
+                "Mandate \"{}\" for project {}\n{}\n",
+                terms.title,
+                request["project"]["root"].as_str().unwrap_or_default(),
+                serde_json::to_string_pretty(&terms).unwrap_or_default()
+            );
+            (
+                json!({
+                    "kind": "mandate",
+                    "project": project,
+                    "terms": terms,
+                    "decision": if o.reject { "decline" } else { "grant" },
+                    "note": o.note,
+                    "signed_at": timefmt::now_rfc3339(),
+                }),
+                shown,
+                format!("mandate \"{}\"", terms.title),
+            )
+        }
         Some(REVIEW_REQUEST_FORMAT) => {
             if o.change.is_some() || !o.paths.is_empty() {
                 return Err(invalid(
@@ -497,6 +526,8 @@ pub fn sign_cmd(
     let verb = match payload["decision"].as_str() {
         Some("reject") => "Reject",
         Some("accept") => "Accept",
+        Some("grant") => "Grant",
+        Some("decline") => "Decline",
         _ => "Approve",
     };
     if !json_output || !o.yes {
@@ -703,6 +734,9 @@ pub fn check_evidence(records: &[Record]) -> (usize, Vec<String>) {
                 payload["change"] == e["change"]
                     && payload["files"] == e["files"]
                     && (payload["decision"] == "accept") == (e["outcome"] == "accepted")
+            }
+            Some("mandate_granted") => {
+                payload["terms"] == e["terms"] && payload["decision"] == "grant"
             }
             _ => false,
         };

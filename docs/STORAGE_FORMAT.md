@@ -181,7 +181,10 @@ of every file under the change's paths that changed, `null` if removed), `approv
 server, tool as `server/tool`, agent, session, action digest, decision, rule, and either
 `arguments` with outcome `forwarded`, `held` or `blocked`, or the later record of a forwarded
 call's outcome `ok` or `error`; `result` is the server's text, cut to 2,000 characters), and
-`policy_changed`. `approval_used` records `via` (`hook` or `proxy`). A decision
+`mandate_granted` (number, terms, granted by, OS account or key, `signed` when signed),
+`mandate_used` (number, tool, agent, digest, amount, UTC day, the day's total and count,
+via), `mandate_revoked`, and `policy_changed`. `approval_used` records `via` (`hook` or
+`proxy`). A decision
 applied from a signed file adds to its `approval_granted`, `approval_rejected`,
 `change_opened` or `change_reviewed` event `approver_key` or `reviewer_key` (fingerprint) and
 `signed` (`public_key`, `signature`, `payload`, `same_installation`), so it can be verified
@@ -212,6 +215,15 @@ characters of the key's BLAKE3 hash), `added_by` (OS account) and `added_at`. `r
 approvals and reviews, and decisions signed with this installation's own approver key
 (`<home>/keys/approver-ed25519.key`), are refused.
 
+## Mandates (`mandates.json`, format `fabric-mandates`, version 1)
+
+Per project: `{"format","version","mandates":[…]}`, rewritten durably under `mandates.lock`.
+Each mandate has an `id`, its `terms` (`title`, `tools` globs over `server/tool`, optional
+`agent`, `max_per_call` and `max_per_day` as decimal strings, `max_calls_per_day`, and
+`expires` as `YYYY-MM-DD`), `granted_by`, `granted_at`, `granter_key` (fingerprint, when
+signed), `revoked_at`, and `uses`: `at_unix`, `day` (UTC), `digest`, `tool`, `amount` (an
+integer scaled by 10^6, or `null`) and `via` (`hook`, `proxy`).
+
 ## Sign-off files (version 1)
 
 - `fabric-approval-request` (from `fabric approvals export`): `project` (`id`, `root`),
@@ -221,11 +233,14 @@ approvals and reviews, and decisions signed with this installation's own approve
 - `fabric-review-request` (from `fabric review N --export`): `project`, `exported_at`,
   `change` (`id`, `title`, `paths`, `session`, `authorized_by`, `base_checkpoint`), `steps`,
   `snapshot`, `files` (path to content id, `null` if removed) and `diff`.
+- `fabric-mandate-proposal` (from `fabric mandate grant ... --out`): `project`,
+  `exported_at` and `terms`.
 - `fabric-signed-decision` (from `fabric approver sign`): `payload`, `public_key` and
   `signature` (hex Ed25519 over the payload serialized as compact JSON with sorted keys). The
   payload is `{"kind":"approval","project","requests":[{"id","digest"}],"decision":"approve"|
   "reject","change":{"title","paths"}|null,"note","signed_at"}` or `{"kind":"review",
-  "project","change","snapshot","files","decision":"accept"|"reject","note","signed_at"}`.
+  "project","change","snapshot","files","decision":"accept"|"reject","note","signed_at"}` or
+  `{"kind":"mandate","project","terms","decision":"grant"|"decline","note","signed_at"}`.
 
 ## Changes (`changes.json`, format `fabric-changes`, version 1)
 

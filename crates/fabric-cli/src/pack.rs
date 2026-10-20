@@ -29,6 +29,7 @@ use crate::error::{CliError, exit};
 use crate::evidence::{self, ChainReport};
 use crate::guard::Policy;
 use crate::home::{Home, display_path, write_durably};
+use crate::mandates;
 use crate::report;
 use crate::signoff;
 use crate::timefmt;
@@ -136,7 +137,9 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
             &store, &project, &policy, &log, &records, checkpoint,
         )?);
     }
-    let (signed_checked, signed_problems) = signoff::check_evidence(&records);
+    let (signed_checked, mut signed_problems) = signoff::check_evidence(&records);
+    let (mandate_uses, mandate_problems) = mandates::check_evidence(&records);
+    signed_problems.extend(mandate_problems.iter().cloned());
     ctx.emit(
         "fabric.evidence.verify/v1",
         json!({
@@ -144,6 +147,7 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
             "deep": deep,
             "exceptions": exceptions,
             "signed_decisions": { "checked": signed_checked, "problems": signed_problems },
+            "mandate_uses": { "checked": mandate_uses, "problems": mandate_problems },
         }),
         || {
             let mut out = String::new();
@@ -168,6 +172,12 @@ pub fn verify_cmd(ctx: &Ctx, deep: bool) -> Result<u8, CliError> {
             }
             if report.incomplete_tail {
                 out.push_str("Note: the last record was interrupted while being written.\n");
+            }
+            if mandate_uses > 0 && mandate_problems.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "{mandate_uses} mandate uses replayed: every one within its mandate's terms."
+                );
             }
             if signed_problems.is_empty() {
                 if signed_checked > 0 {
@@ -532,6 +542,8 @@ pub fn verify_pack_cmd(ctx: &Ctx, dir: &Path, expected_key: Option<&str>) -> Res
     );
     let (signed_checked, signed_problems) = signoff::check_evidence(&records);
     problems.extend(signed_problems);
+    let (mandate_uses, mandate_problems) = mandates::check_evidence(&records);
+    problems.extend(mandate_problems);
     if chain.head.as_deref() != summary["chain"]["head"].as_str() {
         problems.push("the chain head does not match the summary".to_owned());
     }
@@ -547,6 +559,7 @@ pub fn verify_pack_cmd(ctx: &Ctx, dir: &Path, expected_key: Option<&str>) -> Res
             "fingerprint": key_fingerprint,
             "exceptions": summary["exceptions"],
             "signed_decisions": signed_checked,
+            "mandate_uses": mandate_uses,
         }),
         || {
             let mut out = String::new();

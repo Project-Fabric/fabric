@@ -223,6 +223,23 @@ fn describe(event: &Value) -> Option<String> {
             s("outcome"),
             s("decision"),
         ),
+        "mandate_granted" => format!(
+            "Mandate #{} \"{}\" **granted** by {}{}",
+            event["mandate"],
+            event["terms"]["title"].as_str().unwrap_or_default(),
+            s("granted_by"),
+            signed_note(event, "granter_key"),
+        ),
+        "mandate_used" => format!(
+            "`{}` by {} made under mandate #{} ({}; today {} in {} calls)",
+            s("tool"),
+            s("agent"),
+            event["mandate"],
+            event["amount"].as_str().unwrap_or("no amount"),
+            s("day_total"),
+            event["day_calls"],
+        ),
+        "mandate_revoked" => format!("Mandate #{} **revoked** by {}", event["mandate"], s("by")),
         "policy_changed" => format!("Guard rules changed ({}) by {}", s("change"), s("by")),
         "rollback" => format!(
             "Fabric **rolled back** unapproved changes from step #{} to {}",

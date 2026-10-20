@@ -19,6 +19,9 @@ fabric guard pack finance [--scope GLOB]...      # SOX change-control rules
 fabric guard pack finance-ops      # rules for agents operating the books through tools
 fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--tool GLOB]... [--committed-only]
 fabric mcp-proxy --name NAME -- <server command>   # Fabric's controls in front of an MCP server
+fabric mandate grant TITLE --tool GLOB... [--agent A] [--max-per-call N] [--max-per-day N]
+                     [--max-calls-per-day N] --expires YYYY-MM-DD [--out FILE]
+fabric mandate grant --signed FILE | revoke N | list
 fabric guard remove-rule ID
 fabric approvals [--all]           # changes waiting for a person's approval
 fabric approve N [N...] [--reject] [--as NAME] [--note TEXT] [--yes]
@@ -282,6 +285,42 @@ Claude Code and the proxy together, one approval covers one call at both checkpo
 proxy accepts an approval the hook used for the same action within the previous two minutes,
 once. Give the server the same name in both places so the actions match.
 
+### Mandates: bounded authority, granted ahead of time
+
+Holding every money movement for a person is safe but slow. A mandate says what an agent may
+do on its own, within limits:
+
+```sh
+fabric mandate grant "Small refunds" --tool "*/issue_refund" \
+    --max-per-call 500 --max-per-day 2000 --max-calls-per-day 20 \
+    --agent close-bot --expires 2026-11-30
+```
+
+A tool call held by an `approve` rule goes through without waiting when an active mandate
+covers it: the tool matches, the agent matches (if one is named), the call's amount is within
+the per-call limit, and the day's total and number of calls stay within theirs. Anything else
+is held for a person as before, and `deny` rules are never covered. An exact approval waiting
+for the call is used before any mandate.
+
+- **Amount of a call:** the largest `amount` argument, or the sum of `debit` arguments (a
+  journal entry's size), whichever is larger, found anywhere in its arguments; decimal strings
+  or numbers. A mandate with an amount limit does not cover a call without a readable amount.
+  Days are UTC. A mandate ends at the start of its `--expires` day.
+- **Granting** needs a person's terminal (agents are denied `fabric mandate`). When the project
+  requires signed approvals, a mandate must be signed by a registered approver from another
+  installation: `fabric mandate grant ... --out mandate.json`, the approver runs `fabric
+  approver sign mandate.json`, then `fabric mandate grant --signed mandate.signed.json`.
+- **Revoking** (`fabric mandate revoke N`) takes effect on the next call.
+- **Evidence:** grants (with the terms and any signature), every use (tool, agent, amount, the
+  day's running total and count) and revocations are recorded. `fabric evidence verify` and
+  `verify-pack` replay every use against the mandate's recorded terms and report any use
+  outside them: before the grant, after revocation or expiry, another tool or agent, or over a
+  limit.
+- A call passing both the Claude Code hook and the proxy counts once.
+
+Mandates cover tool calls only, not file edits or shell commands. Limits are per mandate, not
+per agent across mandates: two mandates covering the same tool each allow their own limits.
+
 What the proxy cannot do: undo a call. A posting is reversed by the system's own means (a
 reversing entry); Fabric records what was called and what came back, so the reversal can be
 targeted and checked.
@@ -381,7 +420,9 @@ versioned format: `fabric.init/v1`, `fabric.checkpoint/v1`, `fabric.log/v1`,
 `fabric.changes/v1`, `fabric.review/v1` (the change and the reviewed files' content ids),
 `fabric.evidence.change-report/v1`, `fabric.approvals.export/v1`, `fabric.review.export/v1`,
 `fabric.approver.key/v1`, `fabric.approver.add/v1`, `fabric.approver.remove/v1`,
-`fabric.approver.list/v1`, `fabric.approver.require/v1`, `fabric.approver.sign/v1`
+`fabric.approver.list/v1`, `fabric.approver.require/v1`, `fabric.approver.sign/v1`,
+`fabric.mandate.grant/v1`, `fabric.mandate.proposal/v1`, `fabric.mandate.revoke/v1`,
+`fabric.mandate.list/v1`, `fabric.evidence.calls/v1`
 (`fabric.evidence.verify/v1` adds `signed_decisions`, `fabric.evidence.verify_pack/v1` adds
 its count), and
 on failure `fabric.error/v1`:

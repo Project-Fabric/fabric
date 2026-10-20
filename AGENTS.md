@@ -24,7 +24,12 @@ Project Fabric is a safety tool: a bug here can destroy the work it exists to pr
 
 ## Not in scope yet
 
-Desktop app, multi-model orchestration, cloud sync, a hosted team server.
+Desktop app, multi-model orchestration.
+
+AgentAuth (`docs/AGENTAUTH_PRODUCT.md`) adds an optional, self-hostable control plane (approval
+inbox, mandate builder, evidence sync) on top of this engine. The engine and gateway must keep
+working without it: no cloud dependency in the core, and nothing it needs at runtime may live
+only in the cloud.
 
 In scope since the finance pivot (`docs/PIVOT_FINANCE.md`): local approvals, tamper-evident
 evidence export and finance rule packs. Evidence is audit material: never claim it proves

@@ -170,7 +170,8 @@ Events (`event.kind`): `genesis` (project id, root, Fabric version), `checkpoint
 number, snapshot id, parent snapshot id, type, label, agent, session, tool, change counts),
 `guard` (decision, rule, tool, target), `approval_requested`, `approval_granted`,
 `approval_rejected`, `approval_used` (request number, action digest, approver and OS
-accounts), and `policy_changed`. Commands and paths in events are cut to 2,000 characters;
+accounts), `rollback` (the step, the paths put back, paths that could not be, and the rules
+involved), and `policy_changed`. Commands and paths in events are cut to 2,000 characters;
 full content is in the referenced snapshots. Projects recorded before evidence existed start
 their chain at the first checkpoint taken afterwards.
 

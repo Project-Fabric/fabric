@@ -265,8 +265,11 @@ fn run_test(project: &Project, command: &str) -> Result<(bool, Option<i32>), Cli
 fn shell(command: &str) -> Command {
     use std::os::windows::process::CommandExt;
     let mut shell = Command::new("cmd");
-    // Passed verbatim so quoting inside the command reaches cmd unchanged.
-    shell.arg("/C").raw_arg(command);
+    // Passed verbatim so quoting inside the command reaches cmd unchanged. Without /S, cmd
+    // removes the first and last quote characters of a command that starts with a quote and
+    // contains others (`"C:\Python\python.exe" -m unittest -s "C:\dir"`), breaking it;
+    // with /S it removes exactly the pair added here.
+    shell.args(["/S", "/C"]).raw_arg(format!("\"{command}\""));
     shell
 }
 
@@ -275,4 +278,19 @@ fn shell(command: &str) -> Command {
     let mut shell = Command::new("sh");
     shell.arg("-c").arg(command);
     shell
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::shell;
+
+    #[test]
+    fn commands_starting_with_a_quoted_path_keep_their_quotes() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("with space.cmd");
+        std::fs::write(&script, "@exit /b %~1").unwrap();
+        let command = format!("\"{}\" \"7\"", script.display());
+        let status = shell(&command).status().unwrap();
+        assert_eq!(status.code(), Some(7), "{command}");
+    }
 }

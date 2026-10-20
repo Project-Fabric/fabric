@@ -60,7 +60,8 @@ def remove_tree(path):
 def fabric_json(args, cwd, env):
     code, out = run([FABRIC] + args + ["--json"], cwd, env)
     try:
-        return code, json.loads(out[out.index("{"):])
+        # Progress lines on stderr can follow the JSON; decode just the JSON value.
+        return code, json.JSONDecoder().raw_decode(out[out.index("{"):])[0]
     except ValueError:
         return code, {"raw": out[-500:]}
 

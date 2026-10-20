@@ -9,6 +9,7 @@ mod checkpoint;
 mod claude;
 mod codex;
 mod commands;
+mod enforce;
 mod error;
 mod evidence;
 mod guard;

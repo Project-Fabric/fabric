@@ -66,9 +66,19 @@ pub fn exceptions_for(
         .map(|r| &r.body.event)
         .filter(|e| e["kind"] == "approval_used")
         .collect();
+    // Files Fabric already rolled back after this step are resolved, not exceptions.
+    let rolled_back: Vec<&str> = records
+        .iter()
+        .map(|r| &r.body.event)
+        .filter(|e| e["kind"] == "rollback" && e["step"].as_u64() == Some(checkpoint.seq))
+        .flat_map(|e| e["paths"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
     let covered = |path: &str| {
-        used.iter()
-            .any(|e| e["tool"] == "Bash" || e["target"].as_str() == Some(path))
+        rolled_back.contains(&path)
+            || used
+                .iter()
+                .any(|e| e["tool"] == "Bash" || e["target"].as_str() == Some(path))
     };
     let changed = d
         .added
@@ -138,6 +148,18 @@ fn describe(event: &Value) -> Option<String> {
             s("target")
         ),
         "policy_changed" => format!("Guard rules changed ({}) by {}", s("change"), s("by")),
+        "rollback" => format!(
+            "Fabric **rolled back** unapproved changes from step #{} to {}",
+            event["step"],
+            event["paths"]
+                .as_array()
+                .map(|p| p
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "))
+                .unwrap_or_default()
+        ),
         _ => return None,
     })
 }

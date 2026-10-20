@@ -7,7 +7,8 @@
 //!   with the prompt, so "undo everything since I asked X" is always possible.
 //! - `PreToolUse` on file-changing tools: the guard (see `guard.rs`) asks for the person's
 //!   approval before destructive actions, or blocks them.
-//! - `PostToolUse` on file-changing tools: checkpoint after each step that changed the project.
+//! - `PostToolUse` on file-changing tools: checkpoint after each step that changed the project,
+//!   and roll back controlled files it changed without an approval (see `enforce.rs`).
 //!
 //! It also registers `fabric mcp` with Claude Code, so Claude can query what other agents did.
 //!
@@ -27,7 +28,7 @@ use crate::checkpoint::{CheckpointKind, Meta, record};
 use crate::error::{CliError, exit};
 use crate::home::{Home, display_path, project_relative, write_durably};
 use crate::timefmt;
-use crate::{guard, lessons};
+use crate::{enforce, guard, lessons};
 
 const AGENT: &str = "claude-code";
 const HOOK_ARGS: &str = "hook claude-code";
@@ -36,7 +37,7 @@ const CHANGING_TOOLS: &str = "Write|Edit|MultiEdit|NotebookEdit|Bash";
 const LABEL_CHARS: usize = 100;
 
 /// Entry point for the hook. Never fails from Claude Code's point of view: the only output is
-/// a guard decision on `PreToolUse`. If the hook itself fails, it stays silent (Claude Code's
+/// a guard decision on `PreToolUse`, or a rollback notice on `PostToolUse`. If the hook itself fails, it stays silent (Claude Code's
 /// own permission rules still apply) and the failure is logged.
 pub fn hook(home: &Home) {
     let mut input = String::new();
@@ -118,11 +119,15 @@ fn handle_event(home: &Home, input: &str) -> Result<Option<Value>, CliError> {
     let is_prompt = meta.kind == CheckpointKind::Prompt;
     let store = home.open_store()?;
     let snapshot = project.capture(&store)?;
-    record(&store, &project, &snapshot, meta, if_changed)?;
+    let recorded = record(&store, &project, &snapshot, meta, if_changed)?;
     if is_prompt && lessons::lessons_enabled() {
         return lessons::prompt_context(&project);
     }
-    Ok(None)
+    // A step that changed controlled files without an approval is rolled back at once.
+    match recorded {
+        Some(step) => enforce::rollback_unapproved(&store, &project, &step),
+        None => Ok(None),
+    }
 }
 
 /// The first line, whitespace collapsed, cut to a readable length.

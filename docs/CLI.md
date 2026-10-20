@@ -107,6 +107,16 @@ The finance pack adds `finance-in-scope-code` (approve; the given scope),
 revenue or balance tables), `finance-controls` (approve; `controls/`, `CODEOWNERS`) and
 `finance-production-config` (deny). Change any of them with `fabric guard set`.
 
+**Changes made around the hold are rolled back.** A shell command can change a file without
+naming it (`python fix.py`, `sed -i`), so the guard cannot hold it in advance. After every agent
+step, Fabric checks the files it changed against `approve` and `deny` project rules and the
+approvals used in that step; any controlled file changed without one is put back as it was
+before the step (a file the step created is removed), the rollback is recorded as a
+checkpoint and in the evidence, and the agent is told to make the change with Edit or Write
+so it can be approved. Nothing is lost: the step's checkpoint holds what the agent wrote, and
+`fabric revert` of the rollback brings it back. A person's own edit to a controlled file made
+during the same agent step is rolled back too, and recoverable the same way.
+
 Segregation of duties, and its limits: an agent running `fabric approve` is denied by the
 guard, and the command refuses to run where a known agent marks its shell (`CLAUDECODE`,
 `CODEX_SANDBOX`). These stop an agent approving its own change by mistake, not one set on
@@ -130,7 +140,8 @@ evidence log (format in `STORAGE_FORMAT.md`).
 - `fabric evidence verify` checks every hash and link, that recorded snapshots are present
   (`--deep` re-hashes their content), and that the checkpoint log matches the evidence. It
   also lists **exceptions**: files under an `approve` or `deny` project rule that an agent step
-  changed without an approval in that step, for example through a shell command. Exit code 5
+  changed without an approval in that step and that were not rolled back (for example a
+  directory or symlink, or changes recorded before rollback existed). Exit code 5
   if the chain is broken.
 - `fabric evidence report N` shows one change as a reviewer reads it: agent, prompt, guard
   decisions, approvals, exceptions, the diff, and how to reverse it.

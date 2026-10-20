@@ -1038,23 +1038,61 @@ fn finance_changes_need_a_recorded_approval_and_leave_verifiable_evidence() {
     assert_eq!(rejected["requests"][0]["status"], "rejected");
     assert!(reason(&edit("return 2")).contains("rejected"));
 
-    // A controlled file changed by a shell command, with no approval, is an exception.
+    // Controlled files changed by a shell command, with no approval, are rolled back at once:
+    // a new file is removed and an existing one gets its previous content back. The agent is
+    // told why, and the rolled-back content stays recoverable in the step's checkpoint.
     fx.write("ledger/fees.py", "FEE = 3\n");
-    hook_event(
-        &fx,
-        json!({
-            "hook_event_name": "PostToolUse", "session_id": "s-1", "cwd": root,
-            "tool_name": "Bash", "tool_input": { "command": "python gen.py" },
-        }),
+    fx.write("ledger/journal.py", "def post(): return 99\n");
+    fx.write("tools/report.py", "print('changed by the same command')\n");
+    let bash = json!({
+        "hook_event_name": "PostToolUse", "session_id": "s-1", "cwd": root,
+        "tool_name": "Bash", "tool_input": { "command": "python gen.py" },
+    });
+    let run = fx.run_with_stdin(&["hook", "claude-code"], &bash.to_string());
+    assert_eq!(run.code, 0, "hooks must never fail: {}", run.stderr);
+    let answer = run.json();
+    assert_eq!(answer["decision"], "block");
+    let why = answer["reason"].as_str().unwrap();
+    assert!(
+        why.contains("ledger/fees.py") && why.contains("ledger/journal.py"),
+        "{why}"
     );
+    assert!(!fx.project.join("ledger/fees.py").exists());
+    assert_eq!(fx.read("ledger/journal.py"), "def post(): return 1\n");
+    assert_eq!(
+        fx.read("tools/report.py"),
+        "print('changed by the same command')\n",
+        "uncontrolled files are left alone"
+    );
+    let log = fx.log();
+    assert_eq!(log[0]["kind"], "revert");
+    assert_eq!(log[0]["agent"], "fabric");
+    assert_eq!(log[1]["label"], "Bash python gen.py");
+
     let verify = fx.ok_json(&["evidence", "verify", "--json"]);
     assert_eq!(verify["chain"]["ok"], true);
-    let exceptions = verify["exceptions"].as_array().unwrap();
-    assert_eq!(exceptions.len(), 1, "{verify}");
-    assert_eq!(exceptions[0]["path"], "ledger/fees.py");
+    assert_eq!(
+        verify["exceptions"],
+        json!([]),
+        "rolled-back changes are resolved"
+    );
+    let rollback_seq = log[0]["seq"].as_u64().unwrap();
+    let rollback = fx.ok_json(&["evidence", "report", &rollback_seq.to_string(), "--json"]);
+    assert!(
+        rollback["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("rolled back** unapproved changes")
+    );
 
     // The approved step's report shows the approval and no exception.
-    let step = fx.log()[1]["seq"].as_u64().unwrap();
+    let step = fx
+        .log()
+        .iter()
+        .find(|c| c["label"] == "Edit ledger/journal.py")
+        .unwrap()["seq"]
+        .as_u64()
+        .unwrap();
     let report = fx.ok_json(&["evidence", "report", &step.to_string(), "--json"]);
     let markdown = report["markdown"].as_str().unwrap();
     assert!(

@@ -21,6 +21,9 @@ fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--t
 fabric mcp-proxy --name NAME [--secret-env VAR=NAME]... -- <server command>
 fabric agent add NAME [--tool GLOB]... | revoke NAME | list | require on|off
 fabric secret set NAME < file | remove NAME | list
+fabric connect agentauth --url URL --api-key-secret NAME
+fabric payments add SERVER/TOOL --amount FIELD [--minor-units] [--currency FIELD]
+                    [--default-currency CUR] [--merchant FIELD] | list
 fabric mandate grant TITLE --tool GLOB... [--agent A] [--max-per-call N] [--max-per-day N]
                      [--max-calls-per-day N] --expires YYYY-MM-DD [--out FILE]
 fabric mandate grant --signed FILE | revoke N | list
@@ -310,6 +313,36 @@ own name is recorded as unauthenticated. A mandate naming an agent covers only c
 authenticated as it, and only registered agents can be named. With `fabric agent require on`,
 calls without a valid token are refused.
 
+### Payments authorized by AgentAuth
+
+The gateway and the AgentAuth API are one product: AgentAuth holds the consents people grant
+(spending limits, merchants, expiry), and the gateway sits in front of the tools that move
+money. Before a declared payment tool runs, the gateway asks AgentAuth's `/v1/authorize`
+with the consent's delegation token.
+
+```sh
+fabric secret set agentauth-api < api-key.txt
+fabric secret set consent-acme < delegation-token.txt
+fabric connect agentauth --url https://api.agentauth.in --api-key-secret agentauth-api
+fabric payments add stripe/create_refund --amount amount --minor-units --currency currency
+fabric mcp-proxy --name stripe --consent consent-acme \
+    --secret-env STRIPE_SECRET_KEY=stripe-test -- <stripe MCP server>
+```
+
+- **ALLOW**: the call goes through; the authorization code and consent are recorded.
+- **DENY** (for example `budget_exhausted`): refused with AgentAuth's reason; the payment
+  server never sees it.
+- **STEP_UP**: held for a person's recorded approval (`fabric approve N`).
+- **No answer** (unreachable, an error, a malformed reply), no consent configured, or an
+  amount that cannot be read: refused. The gateway fails closed.
+
+Local `deny` rules are applied first and still win. `--minor-units` converts integer
+smallest-unit amounts (as Stripe sends them) to exact decimals by the currency's ISO 4217
+exponent (0 for JPY, 3 for KWD, 2 otherwise). The gateway holds the delegation token, so the
+agent cannot spend the consent anywhere else. The URL must be https, except for localhost.
+Every decision is recorded as a `payment_authorization` event. Only calls through the proxy
+are authorized this way; the Claude Code hook does not call AgentAuth.
+
 ### Mandates: bounded authority, granted ahead of time
 
 Holding every money movement for a person is safe but slow. A mandate says what an agent may
@@ -449,7 +482,8 @@ versioned format: `fabric.init/v1`, `fabric.checkpoint/v1`, `fabric.log/v1`,
 `fabric.mandate.grant/v1`, `fabric.mandate.proposal/v1`, `fabric.mandate.revoke/v1`,
 `fabric.mandate.list/v1`, `fabric.evidence.calls/v1`, `fabric.agent.add/v1` (includes the
 token, once), `fabric.agent.revoke/v1`, `fabric.agent.list/v1`, `fabric.agent.require/v1`,
-`fabric.secret.set/v1`, `fabric.secret.remove/v1`, `fabric.secret.list/v1` (names only)
+`fabric.secret.set/v1`, `fabric.secret.remove/v1`, `fabric.secret.list/v1` (names only),
+`fabric.connect/v1`, `fabric.payments.add/v1`, `fabric.payments.list/v1`
 (`fabric.evidence.verify/v1` adds `signed_decisions`, `fabric.evidence.verify_pack/v1` adds
 its count), and
 on failure `fabric.error/v1`:

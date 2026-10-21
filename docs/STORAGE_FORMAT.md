@@ -182,7 +182,10 @@ server, tool as `server/tool`, agent and whether it was authenticated (`agent_au
 session, action digest, decision, rule, and either
 `arguments` with outcome `forwarded`, `held` or `blocked`, or the later record of a forwarded
 call's outcome `ok` or `error`; `result` is the server's text, cut to 2,000 characters), and
-`agent_registered` (name, scopes, token hash, by), `agent_revoked`,
+`agent_registered` (name, scopes, token hash, by), `agent_revoked`, `payment_authorization`
+(tool, agent and whether authenticated, digest, and `payment`: amount, currency, merchant,
+AgentAuth's `decision` — `ALLOW`, `DENY`, `STEP_UP` or `UNAVAILABLE` — authorization code,
+consent and reason; a forwarded `tool_call` carries the same `payment`),
 `mandate_granted` (number, terms, granted by, OS account or key, `signed` when signed),
 `mandate_used` (number, tool, agent, digest, amount, UTC day, the day's total and count,
 via), `mandate_revoked`, and `policy_changed`. `approval_used` records `via` (`hook` or
@@ -223,6 +226,12 @@ Per project: `{"format","version","required","agents":[…]}`. Each agent has `n
 `token_hash` (BLAKE3 of the token; tokens are `fat_` and 64 hex characters, never stored),
 `tools` (globs over `server/tool`; empty means any), `created_by`, `created_at` and
 `revoked_at`.
+
+## AgentAuth connection (`agentauth.json`, format `fabric-agentauth`, version 1)
+
+Per project: `url`, `api_key_secret` (the name of a stored credential, never the key), and
+`payments`: each with `tool` (`server/tool`), `amount` (argument path, dotted for nested
+fields), `minor_units`, `currency`, `default_currency` and `merchant` (argument paths).
 
 ## Credentials (`<home>/secrets/<name>`)
 

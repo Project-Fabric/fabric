@@ -28,6 +28,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+use crate::agentauth;
 use crate::approvals;
 use crate::error::{CliError, exit};
 use crate::evidence;
@@ -53,6 +54,8 @@ struct Shared {
     authenticated: Option<identity::Authenticated>,
     /// Calls without a valid agent token are refused (`fabric agent require on`).
     identity_required: bool,
+    /// The AgentAuth API that authorizes payment tools, if the project is connected.
+    agentauth: Option<agentauth::Connection>,
     pending: Mutex<HashMap<String, Pending>>,
     out: Mutex<io::Stdout>,
 }
@@ -180,6 +183,81 @@ fn judge_call(home: &Home, shared: &Shared, message: &Value) -> Option<Value> {
     {
         eprintln!("fabric mcp-proxy: could not record a guard decision: {e}");
     }
+    // Payment tools: AgentAuth decides, against the consent the user granted. Local deny
+    // rules still win, and no answer means no payment.
+    let mut payment_record = Value::Null;
+    if verdict.decision != Decision::Deny
+        && let Some(connection) = &shared.agentauth
+        && let Some(payment_tool) = connection.payment_tool(&tool)
+    {
+        let refuse = |reason: String, decision: &str, rule: &str| guard::Verdict {
+            decision: Decision::Deny,
+            rule: Some(rule.to_owned()),
+            reason: format!("{decision}: {reason}"),
+        };
+        match payment_tool.payment(&arguments) {
+            Err(e) => verdict = refuse(e, "payment not readable", "agentauth"),
+            Ok(payment) => {
+                let decision = connection.authorize(&payment, &tool);
+                let (decided, code, reason) = match &decision {
+                    Ok(agentauth::Decision::Allow { code, .. }) => {
+                        ("ALLOW", Some(code.clone()), None)
+                    }
+                    Ok(agentauth::Decision::Deny { reason, message }) => {
+                        ("DENY", None, Some(format!("{reason}: {message}")))
+                    }
+                    Ok(agentauth::Decision::StepUp { message }) => {
+                        ("STEP_UP", None, Some(message.clone()))
+                    }
+                    Err(e) => ("UNAVAILABLE", None, Some(e.clone())),
+                };
+                payment_record = json!({
+                    "amount": payment.amount,
+                    "currency": payment.currency,
+                    "merchant": payment.merchant,
+                    "decision": decided,
+                    "authorization_code": code,
+                    "consent": match &decision {
+                        Ok(agentauth::Decision::Allow { consent, .. }) => consent.clone(),
+                        _ => None,
+                    },
+                    "reason": reason,
+                });
+                if let Err(e) = evidence::append(
+                    &shared.project,
+                    json!({
+                        "kind": "payment_authorization",
+                        "tool": tool,
+                        "agent": shared.agent(),
+                        "agent_authenticated": shared.authenticated.is_some(),
+                        "digest": digest,
+                        "payment": payment_record,
+                    }),
+                ) {
+                    eprintln!("fabric mcp-proxy: could not record a payment decision: {e}");
+                }
+                verdict = match decision {
+                    Ok(agentauth::Decision::Allow { .. }) => guard::Verdict {
+                        decision: Decision::Allow,
+                        rule: Some("agentauth".to_owned()),
+                        reason: "authorized by AgentAuth under the user's consent".to_owned(),
+                    },
+                    Ok(agentauth::Decision::Deny { reason, message }) => refuse(
+                        format!("{reason}: {message}"),
+                        "AgentAuth denied this payment",
+                        "agentauth",
+                    ),
+                    // AgentAuth asks for a person: held for a recorded approval.
+                    Ok(agentauth::Decision::StepUp { message }) => guard::Verdict {
+                        decision: Decision::Approve,
+                        rule: Some("agentauth-step-up".to_owned()),
+                        reason: format!("AgentAuth asks for a person's approval: {message}"),
+                    },
+                    Err(e) => refuse(e, "no authorization (failing closed)", "agentauth"),
+                };
+            }
+        }
+    }
     let held = |reason: String, outcome: &str| {
         shared.record(&json!({
             "tool": tool,
@@ -233,6 +311,7 @@ fn judge_call(home: &Home, shared: &Shared, message: &Value) -> Option<Value> {
         "arguments": arguments_text,
         "decision": verdict.decision,
         "rule": verdict.rule,
+        "payment": payment_record,
         "outcome": "forwarded",
     }));
     shared.pending.lock().expect("pending lock").insert(
@@ -310,6 +389,7 @@ pub fn run(
     server: &str,
     command: &[String],
     secret_env: &[String],
+    consent: Option<&str>,
 ) -> Result<u8, CliError> {
     let Some((program, args)) = command.split_first() else {
         return Err(CliError::new(
@@ -330,6 +410,7 @@ pub fn run(
     let authenticated = identity::authenticate(&project, token.as_deref())?;
     let identity_required = identity::registry(&project)?.required;
     let credentials = identity::secret_env(home, secret_env)?;
+    let agentauth = agentauth::Connection::open(home, &project, consent)?;
     // Servers echo credentials by accident (`Invalid API key: sk_...`); every value the
     // gateway injected is scrubbed from what the server sends back, before the agent or the
     // evidence sees it.
@@ -363,6 +444,7 @@ pub fn run(
         client: Mutex::new(None),
         authenticated,
         identity_required,
+        agentauth,
         pending: Mutex::new(HashMap::new()),
         out: Mutex::new(io::stdout()),
     });

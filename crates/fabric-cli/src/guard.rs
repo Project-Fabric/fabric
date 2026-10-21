@@ -132,7 +132,7 @@ const RULES: &[Rule] = &[
         description: "Agents changing Fabric's history, rules or data",
         default: Decision::Deny,
         matcher: Matcher::Command(&[
-            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve|review|approver|mandate|secret|agent)\b",
+            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve|review|approver|mandate|secret|agent|connect|payments)\b",
             r"\bfabric(\.exe)?\s+guard\s+(set|pack|add-rule|remove-rule)\b",
             r"\bfabric(\.exe)?\s+integrate\b",
         ]),

@@ -29,6 +29,7 @@ similar = "2"
 tempfile = "3"
 thiserror = "2"
 toml_edit = "0.22"
+ureq = { version = "3", features = ["json"] }
 zstd = "0.13"
 
 [profile.release]

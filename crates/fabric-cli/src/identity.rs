@@ -453,6 +453,20 @@ pub fn secret_list_cmd(home: &Home, json_output: bool) -> Result<u8, CliError> {
     Ok(exit::OK)
 }
 
+/// A stored credential's value, for the gateway's own use (never printed).
+pub fn secret_value(home: &Home, name: &str) -> Result<String, CliError> {
+    let path = secret_path(home, name)?;
+    fs::read_to_string(&path)
+        .map(|v| v.trim_end_matches(['\r', '\n']).to_owned())
+        .map_err(|_| {
+            CliError::new(
+                exit::ERROR,
+                "missing_secret",
+                format!("no stored credential {name}; store it with `fabric secret set {name}`"),
+            )
+        })
+}
+
 /// Resolves `VAR=name` pairs into environment variables for an upstream server. A missing
 /// credential is an error: the server is not started without it.
 pub fn secret_env(home: &Home, pairs: &[String]) -> Result<Vec<(String, String)>, CliError> {

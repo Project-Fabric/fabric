@@ -3,6 +3,7 @@
 //! Every command accepts `--json` for versioned machine-readable output and uses the exit
 //! codes in [`error::exit`]. See `docs/CLI.md`.
 
+mod agentauth;
 mod approvals;
 mod bisect;
 mod changes;
@@ -153,6 +154,28 @@ enum Command {
         /// (repeatable; see `fabric secret`). The agent never sees it.
         #[arg(long = "secret-env", value_name = "VAR=NAME")]
         secret_env: Vec<String>,
+        /// The stored consent (an AgentAuth delegation token, see `fabric secret`) that
+        /// payment tools are authorized against.
+        #[arg(long, value_name = "NAME")]
+        consent: Option<String>,
+    },
+
+    /// Connect this project to an AgentAuth API, which authorizes payment tools.
+    Connect {
+        #[arg(value_parser = ["agentauth"])]
+        service: String,
+        /// The API's base URL (https; http only for localhost).
+        #[arg(long)]
+        url: String,
+        /// The stored credential holding the API key (see `fabric secret set`).
+        #[arg(long)]
+        api_key_secret: String,
+    },
+
+    /// Tool calls that move money, authorized by AgentAuth before they run.
+    Payments {
+        #[command(subcommand)]
+        command: PaymentsCommand,
     },
 
     /// Agents' identities: tokens issued by a person, scoped to tools.
@@ -372,6 +395,32 @@ enum ApprovalsCommand {
 }
 
 #[derive(Subcommand)]
+enum PaymentsCommand {
+    /// Declare a payment tool and where its amount, currency and counterparty are.
+    Add {
+        /// The tool, exactly, as server/tool (e.g. stripe/create_refund).
+        tool: String,
+        /// The argument holding the amount (dotted for nested fields).
+        #[arg(long)]
+        amount: String,
+        /// Amounts are in the currency's smallest unit (cents), as Stripe sends them.
+        #[arg(long)]
+        minor_units: bool,
+        /// The argument holding the currency.
+        #[arg(long)]
+        currency: Option<String>,
+        /// The currency when the call has none, e.g. USD.
+        #[arg(long)]
+        default_currency: Option<String>,
+        /// The argument naming the counterparty (merchant, customer, payee).
+        #[arg(long)]
+        merchant: Option<String>,
+    },
+    /// Declared payment tools.
+    List,
+}
+
+#[derive(Subcommand)]
 enum AgentCommand {
     /// Register an agent and print its token (once).
     Add {
@@ -580,9 +629,46 @@ fn main() -> ExitCode {
             name,
             command,
             secret_env,
-        } => ctx
-            .project()
-            .and_then(|project| mcp_proxy::run(&ctx.home, project, &name, &command, &secret_env)),
+            consent,
+        } => ctx.project().and_then(|project| {
+            mcp_proxy::run(
+                &ctx.home,
+                project,
+                &name,
+                &command,
+                &secret_env,
+                consent.as_deref(),
+            )
+        }),
+        Command::Connect {
+            service: _,
+            url,
+            api_key_secret,
+        } => ctx.project().and_then(|project| {
+            agentauth::connect_cmd(&ctx.home, &project, &url, &api_key_secret, json)
+        }),
+        Command::Payments { command } => ctx.project().and_then(|project| match command {
+            PaymentsCommand::Add {
+                tool,
+                amount,
+                minor_units,
+                currency,
+                default_currency,
+                merchant,
+            } => agentauth::payments_add_cmd(
+                &project,
+                agentauth::PaymentTool {
+                    tool,
+                    amount,
+                    minor_units,
+                    currency,
+                    default_currency: default_currency.map(|c| c.to_ascii_uppercase()),
+                    merchant,
+                },
+                json,
+            ),
+            PaymentsCommand::List => agentauth::payments_list_cmd(&project, json),
+        }),
         Command::AgentIdentity { command } => ctx.project().and_then(|project| match command {
             AgentCommand::Add { name, tools } => identity::add_cmd(&project, &name, &tools, json),
             AgentCommand::Revoke { name } => identity::revoke_cmd(&project, &name, json),

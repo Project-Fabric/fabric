@@ -2586,3 +2586,237 @@ fn the_gateway_holds_credentials_and_authenticates_agents() {
     assert!(leaked.is_empty(), "credential found in {leaked:?}");
     assert!(written.len() > 3, "the walk found Fabric's files");
 }
+
+/// A stand-in AgentAuth API: authorizes payments against a 50.00 budget, asks for a person
+/// at 99.99, and records what it was sent.
+struct FakeAgentAuth {
+    url: String,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl FakeAgentAuth {
+    fn start() -> Self {
+        use std::io::{BufRead, BufReader, Read};
+        use std::sync::atomic::Ordering;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (seen, stopping) = (requests.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut spent = 0.0f64;
+            while !stopping.load(Ordering::SeqCst) {
+                let Ok((stream, _)) = listener.accept() else {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                };
+                stream.set_nonblocking(false).unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let (mut length, mut key) = (0usize, String::new());
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    let line = line.trim_end();
+                    if line.is_empty() {
+                        break;
+                    }
+                    let lower = line.to_ascii_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap();
+                    }
+                    if lower.starts_with("x-api-key:") {
+                        key = line[10..].trim().to_owned();
+                    }
+                }
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let body: Value = serde_json::from_slice(&body).unwrap();
+                let amount: f64 = body["transaction"]["amount"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                seen.lock().unwrap().push((key, body));
+                let reply = if (amount - 99.99).abs() < 1e-9 {
+                    json!({ "decision": "STEP_UP", "message": "large refund" })
+                } else if spent + amount <= 50.0 {
+                    spent += amount;
+                    json!({ "decision": "ALLOW", "authorization_code": "authz_test", "consent_id": "cons_test" })
+                } else {
+                    json!({ "decision": "DENY", "reason": "budget_exhausted", "message": "50.00 consent" })
+                }
+                .to_string();
+                let mut stream = stream;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        Self {
+            url,
+            requests,
+            stop,
+        }
+    }
+}
+
+impl Drop for FakeAgentAuth {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn payment_tools_are_authorized_by_agentauth_before_they_run() {
+    let fx = Fixture::new();
+    fx.write("README.md", "shop\n");
+    fx.ok_json(&["init", "--json"]);
+    let server = fx.home.with_file_name("env_server.py");
+    fs::write(&server, ENV_SERVER).unwrap();
+    let server = server.to_string_lossy().into_owned();
+    let api = FakeAgentAuth::start();
+
+    for (name, value) in [
+        ("agentauth-api", "aa_live_testkey"),
+        ("consent-acme", "tok_consent_acme"),
+    ] {
+        let run = fx.run_with_stdin(&["secret", "set", name, "--json"], &format!("{value}\n"));
+        assert_eq!(run.code, 0, "{}", run.stderr);
+    }
+    assert_eq!(
+        fx.run(&[
+            "connect",
+            "agentauth",
+            "--url",
+            "http://example.com",
+            "--api-key-secret",
+            "agentauth-api"
+        ])
+        .code,
+        1,
+        "plain http only for localhost"
+    );
+    fx.ok_json(&[
+        "connect",
+        "agentauth",
+        "--url",
+        &api.url,
+        "--api-key-secret",
+        "agentauth-api",
+        "--json",
+    ]);
+    fx.ok_json(&[
+        "payments",
+        "add",
+        "stripe/create_refund",
+        "--amount",
+        "amount",
+        "--minor-units",
+        "--currency",
+        "currency",
+        "--default-currency",
+        "usd",
+        "--json",
+    ]);
+
+    let call = |tool: &str, args: Value, consent: Option<&str>| -> Value {
+        let mut argv = vec!["mcp-proxy", "--name", "stripe"];
+        if let Some(c) = consent {
+            argv.extend(["--consent", c]);
+        }
+        let py = python();
+        argv.extend(["--", py, server.as_str()]);
+        let message = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                              "params": { "name": tool, "arguments": args } });
+        let run = fx.run_with_stdin(&argv, &format!("{message}\n"));
+        assert_eq!(run.code, 0, "{}", run.stderr);
+        serde_json::from_str(run.stdout.lines().next().unwrap()).unwrap()
+    };
+    let text = |r: &Value| {
+        r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+
+    // 20.00 within the 50.00 consent: authorized, forwarded, and sent exactly.
+    let ok = call(
+        "create_refund",
+        json!({ "amount": 2000, "currency": "usd" }),
+        Some("consent-acme"),
+    );
+    assert_ne!(ok["result"]["isError"], true, "{ok}");
+    {
+        let sent = api.requests.lock().unwrap();
+        let (key, body) = &sent[0];
+        assert_eq!(key, "aa_live_testkey");
+        assert_eq!(body["delegation_token"], "tok_consent_acme");
+        assert_eq!(body["transaction"]["amount"], "20.00");
+        assert_eq!(body["transaction"]["currency"], "USD");
+    }
+
+    // 35.00 more would exceed it: denied, never reaches the payment server.
+    let denied = call(
+        "create_refund",
+        json!({ "amount": 3500, "currency": "usd" }),
+        Some("consent-acme"),
+    );
+    assert_eq!(denied["result"]["isError"], true);
+    assert!(
+        text(&denied).contains("budget_exhausted"),
+        "{}",
+        text(&denied)
+    );
+
+    // AgentAuth asks for a person: held for a recorded approval.
+    let held = call(
+        "create_refund",
+        json!({ "amount": 9999 }),
+        Some("consent-acme"),
+    );
+    assert_eq!(held["result"]["isError"], true);
+    assert!(text(&held).contains("fabric approve"), "{}", text(&held));
+
+    // Other tools do not involve AgentAuth.
+    let before = api.requests.lock().unwrap().len();
+    let read = call("list_customers", json!({}), Some("consent-acme"));
+    assert_ne!(read["result"]["isError"], true);
+    assert_eq!(api.requests.lock().unwrap().len(), before);
+
+    // Without a consent, or with AgentAuth unreachable, no payment goes through.
+    let no_consent = call(
+        "create_refund",
+        json!({ "amount": 100, "currency": "usd" }),
+        None,
+    );
+    assert!(
+        text(&no_consent).contains("no consent"),
+        "{}",
+        text(&no_consent)
+    );
+    drop(api);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let down = call(
+        "create_refund",
+        json!({ "amount": 100, "currency": "usd" }),
+        Some("consent-acme"),
+    );
+    assert_eq!(down["result"]["isError"], true);
+    assert!(text(&down).contains("failing closed"), "{}", text(&down));
+
+    // Every decision is in the evidence, with the call that was paid.
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["chain"]["ok"], true);
+    let calls = fx.ok_json(&["evidence", "calls", "--json"])["calls"].clone();
+    let paid = calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["outcome"] == "ok" && c["tool"] == "stripe/create_refund")
+        .expect("the authorized refund is recorded");
+    assert!(paid["arguments"].as_str().unwrap().contains("2000"));
+}

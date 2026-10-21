@@ -1,3 +1,5 @@
+> **Cosigna** (formerly AgentAuth): authority, approvals and evidence for the AI agents that change a company's code and move its money. This repository is its engine; the command is `cosigna` (or `fabric`, the same program).
+
 # Project Fabric
 
 **A flight recorder for AI coding agents.** Fabric records what every coding agent actually

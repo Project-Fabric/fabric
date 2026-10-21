@@ -1,0 +1,89 @@
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { ConsoleProvider } from '../src/components/console';
+import { ApprovalDetail, ApprovalInbox } from '../src/components/approvals';
+import { ActivityScreen } from '../src/components/activity';
+import { AuthorityScreen } from '../src/components/authority';
+import { AgentsScreen } from '../src/components/agents';
+import { EvidenceScreen } from '../src/components/evidence';
+import { OverviewScreen } from '../src/components/overview';
+import { sample } from './fixtures';
+
+function mount(component: React.ReactNode) {
+  const data = sample(), submitted: unknown[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      const action = JSON.parse(options.body as string); submitted.push(action);
+      if (action.action === 'approve') { const request = data.approvals.find(a => a.id === action.id)!;
+        request.status = action.decision === 'approve' ? 'approved' : 'rejected'; request.note = action.note; request.approver = data.user; }
+      return { ok: true, json: async () => ({ simulated: true, args: ['approve', '1', '--yes'], message: 'Simulation only.' }) };
+    }
+    return { ok: true, json: async () => structuredClone(data) };
+  }));
+  render(<ConsoleProvider>{component}</ConsoleProvider>);
+  return { data, submitted };
+}
+describe('fixture approval inbox', () => {
+  it('shows pending first with amount, counterparty, agent and holding rule; tabs show other decisions', async () => {
+    mount(<ApprovalInbox />);
+    expect(await screen.findByRole('heading', { name: 'Approval inbox' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /review refund of \$450.00/i })).toHaveAttribute('href', '/approvals/1');
+    expect(screen.getByText('pi_3Northwind2045')).toBeVisible(); expect(screen.getByText('finance-ops-postings')).toBeVisible();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Rejected' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Rejected' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Rejected' })).toHaveAttribute('aria-selected', 'true'));
+    expect(screen.getByRole('link', { name: /review refund of \$640.00/i })).toBeVisible();
+  });
+  it.each(['approve', 'reject'] as const)('requires a separate confirmation, records the note, and updates after %s', async decision => {
+    const { submitted } = mount(<><ApprovalDetail id="1" /><ApprovalInbox /></>);
+    await screen.findByRole('heading', { name: 'Refund request' });
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText(/decision note/i), 'Verified ticket and amount');
+    await user.click(screen.getByRole('button', { name: decision === 'approve' ? /review approval/i : /reject request/i }));
+    expect(submitted).toHaveLength(0);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getAllByText(/as priya@northwind.test/)[0]).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: decision === 'approve' ? 'Confirm approval' : 'Confirm rejection' }));
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted[0]).toMatchObject({ action: 'approve', id: 1, decision, note: 'Verified ticket and amount' });
+    expect(await screen.findByText('Nothing waiting on you')).toBeVisible();
+    expect(screen.getByText('Simulation complete')).toBeVisible();
+  });
+  it('canceling a confirmation records nothing', async () => {
+    const { submitted } = mount(<ApprovalDetail id="1" />); await screen.findByRole('heading', { name: 'Refund request' });
+    const user = userEvent.setup(); await user.click(screen.getByRole('button', { name: /review approval/i }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(submitted).toHaveLength(0); expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+describe('remaining screens with captured engine fixtures', () => {
+  it('activity isolates the three blocked payments', async () => {
+    mount(<ActivityScreen />); await screen.findByRole('heading', { name: 'Agent activity' });
+    await userEvent.selectOptions(screen.getByLabelText('Outcome'), 'blocked');
+    expect(screen.getByText(/3 calls/)).toBeVisible(); expect(screen.getByText(/budget_exhausted/, { selector: 'p' })).toBeVisible();
+  });
+  it('authority shows consent usage and scales mandate micro-units without inventing currency', async () => {
+    mount(<AuthorityScreen />); await screen.findByRole('heading', { name: 'Spending authority' });
+    expect(screen.getByText('Small goodwill refunds')).toBeVisible(); expect(screen.getByText('65 units · 2 calls')).toBeVisible();
+    expect(screen.getByText(/5 loaded of 9369/)).toBeVisible();
+  });
+  it('agents show active and revoked identities and require confirmation for registration', async () => {
+    const { submitted } = mount(<AgentsScreen />); await screen.findByRole('heading', { name: 'Agent registry' });
+    expect(screen.getByText('Agent tokens are required')).toBeVisible(); expect(screen.getAllByText('refunds-bot')).toHaveLength(2);
+    await userEvent.click(screen.getByRole('button', { name: 'Register agent' }));
+    await userEvent.type(screen.getByLabelText('Agent name'), 'new-bot'); await userEvent.type(screen.getByLabelText('Tool scopes, one per line'), 'stripe/*');
+    await userEvent.click(screen.getByRole('button', { name: 'Review registration' }));
+    expect(screen.getByRole('dialog')).toBeVisible(); expect(submitted).toHaveLength(0);
+  });
+  it('evidence exposes the verifier limits and does not invent signatures', async () => {
+    mount(<EvidenceScreen />); expect(await screen.findByText('Evidence intact: 236 records')).toBeVisible();
+    expect(screen.getByText('No · standard verification')).toBeVisible();
+    expect(screen.getByText('Signed decisions checked').nextElementSibling).toHaveTextContent('0');
+  });
+  it('overview links to decisions and labels bounded authorization totals', async () => {
+    mount(<OverviewScreen />); await screen.findByRole('heading', { name: 'Workspace overview' });
+    expect(screen.getByRole('link', { name: /waiting for approval/i })).toHaveAttribute('href', '/approvals');
+    expect(screen.getByText(/Totals summarize authorizations/)).toBeVisible();
+  });
+});

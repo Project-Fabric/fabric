@@ -1,7 +1,13 @@
-# AgentAuth Console: build brief (v1)
+# Cosigna Console: build brief (v1)
 
 **For:** the coding agent building the console (Codex). **Owner of the engine and data contract:**
-the Fabric/AgentAuth engine in this repository (`crates/fabric-cli`). **Date:** 21 October 2026.
+the Cosigna engine in this repository (`crates/fabric-cli`; its command is still `fabric`).
+
+**Naming.** The product is **Cosigna** (formerly AgentAuth): use "Cosigna" in every user-facing
+string, page title and component name. Some code and commands still say `fabric` or
+`agentauth` (for example `fabric connect agentauth`, `AGENTAUTH_URL`); keep calling them by
+their current names, since they are being renamed separately, but never show those names in
+the UI. **Date:** 21 October 2026.
 
 Read this whole file, then `../docs/CLI.md` (sections: payments authorized by AgentAuth,
 mandates, the gateway, signed approvals, evidence) and `../docs/EXPERIMENT_NORTHWIND.md` before
@@ -10,7 +16,7 @@ rather than guess when something is unclear.
 
 ## 1. What the console is
 
-AgentAuth controls the AI agents that move a company's money. The engine already enforces
+Cosigna controls the AI agents that move a company's money. The engine already enforces
 everything from the command line: agents act within consents and mandates, exceptions wait for
 a person, every decision is recorded in a tamper-evident evidence chain. **The console is the
 screen for the people who decide and the people who check.** It does not enforce anything
@@ -44,14 +50,14 @@ Build in this order; each must work end to end before the next.
 
 ### 2.2 Activity (`/activity`) — what agents did with money
 - Timeline of tool calls: time, agent, tool, decision (`allow` / `approve` / `deny`), outcome
-  (`ok`, `error`, `held`, `blocked`), and for payments the AgentAuth decision
+  (`ok`, `error`, `held`, `blocked`), and for payments the Cosigna decision
   (`payment.decision`: `ALLOW`, `DENY`, `STEP_UP`, `UNAVAILABLE`), amount, authorization code
   or reason (`payment.reason`, e.g. `budget_exhausted: The consent has 30.0 USD left of 50.0`).
 - Filters: agent, outcome, payments only. Blocked payments must stand out.
 - Data: `fabric evidence calls -n 200 --json` (fixture `evidence_calls.json`).
 
 ### 2.3 Authority (`/authority`) — consents and mandates
-- **Consents** (from the AgentAuth API, fixture `agentauth_consents.json`): intent, limit,
+- **Consents** (from the Cosigna API, still served by the AgentAuth service, fixture `agentauth_consents.json`): intent, limit,
   currency, single/multi-use, expiry, active or not. Spent so far: sum of `ALLOW` payments in
   activity for that consent (`payment.consent`).
 - **Mandates** (fixture `inbox_mandates.json`): title, tools, agent, per-call / per-day / calls
@@ -88,7 +94,7 @@ Build in this order; each must work end to end before the next.
   into a command), always with `--json`, with `cwd` set to the configured project directory.
   Parse and validate JSON with zod against the fixture shapes; unknown `schema` versions are
   shown as an error, not guessed.
-- **The AgentAuth API is called server-side only**; its URL and key come from server env
+- **The Cosigna (AgentAuth) API is called server-side only**; its URL and key come from server env
   (`AGENTAUTH_URL`, `AGENTAUTH_API_KEY`). Nothing secret reaches the browser bundle.
 - **Local and single-user in v1.** Bind to `127.0.0.1` only. On start, print a one-time URL with
   a random token (like Jupyter); it sets an httpOnly, SameSite=Strict session cookie. Every

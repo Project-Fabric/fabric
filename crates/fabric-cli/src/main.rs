@@ -42,7 +42,7 @@ use crate::home::Home;
 #[command(
     name = "fabric",
     version,
-    about = "Change control for AI coding agents: record, approve, undo and evidence every change"
+    about = "Cosigna: authority, approvals and evidence for AI agents that change code and move money"
 )]
 struct Cli {
     /// Print versioned JSON instead of human-readable output.

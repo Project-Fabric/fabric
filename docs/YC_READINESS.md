@@ -1,4 +1,6 @@
-# AgentAuth: YC readiness
+# Cosigna: YC readiness
+
+> **Name:** the product is **Cosigna** (renamed from AgentAuth on 21 October 2026). "AgentAuth" below refers to the existing API service, the `agentauth-io` GitHub organization and the earlier application, which keep that name until they are moved.
 
 **As of 21 October 2026 (updated after the Northwind run).** Tracked on the shared board
 (github.com/orgs/agentauth-io/projects/1, private), which holds work from both repositories:

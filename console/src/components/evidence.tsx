@@ -1,0 +1,22 @@
+'use client';
+import { useState } from 'react';
+import { Download, FileCheck2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ConfirmDialog, DetailField, JsonBlock, Notice, PageTitle, RefreshButton, SectionError, useConsole } from './console';
+import type { ActionResult } from '@/lib/contracts';
+
+export function EvidenceScreen() {
+  const { data, act } = useConsole(), [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [result, setResult] = useState<ActionResult | null>(null);
+  if (!data) return null;
+  const v = data.verification;
+  const problems = v ? [...v.chain.problems, ...v.signed_decisions.problems, ...v.mandate_uses.problems] : [];
+  const intact = !!v && v.chain.ok && !v.chain.incomplete_tail && problems.length === 0 && v.exceptions.length === 0;
+  const submit = async () => { setBusy(true); setError(''); try { setResult(await act({ action: 'evidence-export' })); setOpen(false); } catch (err) { setError(err instanceof Error ? err.message : 'Export failed.'); } finally { setBusy(false); } };
+  return <><PageTitle eyebrow="EVIDENCE YOU CAN CHECK" title="Evidence & verification" description="Show exactly what the engine verified. Export a signed pack for an independent review."><RefreshButton /></PageTitle><SectionError name="verification" />
+    {v && <><section className={`verification-verdict panel ${intact ? 'verified' : 'attention'}`}>{intact ? <ShieldCheck size={35} /> : <ShieldAlert size={35} />}<span className="eyebrow">ENGINE VERIFICATION</span><h2>{intact ? `Evidence intact: ${v.chain.records} records` : 'Verification needs attention'}</h2><p>{intact ? 'The recorded chain passed the engine’s verification checks.' : 'Review the exact findings below before relying on this evidence.'}</p><dl className="detail-grid"><DetailField label="Signed decisions checked">{v.signed_decisions.checked}</DetailField><DetailField label="Mandate uses replayed">{v.mandate_uses.checked}</DetailField><DetailField label="Content re-hashed">{v.deep ? 'Yes · deep verification' : 'No · standard verification'}</DetailField><DetailField label="Incomplete chain tail">{v.chain.incomplete_tail ? 'Yes' : 'No'}</DetailField></dl><div className="chain-head"><span>CHAIN HEAD</span><code>{v.chain.head || 'No head recorded'}</code></div></section>
+    {(problems.length > 0 || v.exceptions.length > 0) && <section className="panel section-spaced"><h2>Verifier findings</h2>{problems.map((problem, index) => <p key={index} className="action-error">{problem}</p>)}{v.exceptions.length > 0 && <><h3>Control exceptions ({v.exceptions.length})</h3><JsonBlock value={v.exceptions} /></>}</section>}
+    <section className="panel export-panel section-spaced"><div><FileCheck2 size={25} /><h2>Take the evidence with you</h2><p>Export the engine’s signed pack, then share its verification command and expected key fingerprint with the auditor.</p>{!data.exportEnabled && <p className="action-error">Configure CONSOLE_EXPORT_DIR in your terminal to enable exports.</p>}</div><button className="button primary" disabled={!data.exportEnabled} onClick={() => { setError(''); setOpen(true); }}><Download size={15} />Export signed evidence pack</button></section></>}
+    <Notice result={result} />{result?.out && <section className="panel section-spaced"><h2>{result.simulated ? 'Export preview' : 'Evidence pack exported'}</h2><dl><DetailField label="Directory" mono>{result.out}</DetailField>{result.fingerprint && <DetailField label="Signing key fingerprint" mono>{result.fingerprint}</DetailField>}</dl>{result.verifyCommand && <code className="command">{result.verifyCommand}</code>}</section>}
+    <p className="section-description section-spaced">An intact record does not establish that every external action was captured or that a payment settled. A check count of zero means no such decisions or uses were verified.</p>
+    <ConfirmDialog open={open} onOpenChange={setOpen} title="Export the signed evidence?" description={`${data.fixtures ? 'Preview only. No files will be created.' : 'The engine will write a new signed pack to the configured export directory.'}`} confirm={data.fixtures ? 'Preview export' : 'Confirm export'} busy={busy} error={error} onConfirm={() => void submit()}><p>The export uses a new server-selected directory. It includes the records and verifier findings reported by Fabric.</p></ConfirmDialog>
+  </>;
+}

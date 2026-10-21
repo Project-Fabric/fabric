@@ -1,9 +1,11 @@
-# AgentAuth: the product, layer by layer
+# Cosigna: the product, layer by layer
+
+> **Name:** the product is **Cosigna** (renamed from AgentAuth on 21 October 2026). "AgentAuth" below refers to the existing API service, the `agentauth-io` GitHub organization and the earlier application, which keep that name until they are moved.
 
 **Status:** plan, 20 October 2026. Supersedes the build order in `PIVOT_FINANCE.md` from
-item 12 on. Fabric's engine is AgentAuth's core.
+item 12 on. Fabric's engine is Cosigna's core.
 
-## What AgentAuth is
+## What Cosigna is
 
 Spending authority and audit for the AI agents that move a company's money. A company's
 agents (refunds, payouts, bills, collections, month-end close, and the code behind them) act

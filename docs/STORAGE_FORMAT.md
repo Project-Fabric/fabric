@@ -227,11 +227,13 @@ Per project: `{"format","version","required","agents":[…]}`. Each agent has `n
 `tools` (globs over `server/tool`; empty means any), `created_by`, `created_at` and
 `revoked_at`.
 
-## AgentAuth connection (`agentauth.json`, format `fabric-agentauth`, version 1)
+## AgentAuth connection (`agentauth.json`, format `fabric-agentauth`, version 2)
 
 Per project: `url`, `api_key_secret` (the name of a stored credential, never the key), and
 `payments`: each with `tool` (`server/tool`), `amount` (argument path, dotted for nested
-fields), `minor_units`, `currency`, `default_currency` and `merchant` (argument paths).
+fields), `minor_units`, `currency`, `default_currency` and `merchant` (argument paths), and, since
+version 2, `when`: conditions `{field, equals}` on argument values that must all hold.
+Version 1 files are read.
 
 ## Credentials (`<home>/secrets/<name>`)
 

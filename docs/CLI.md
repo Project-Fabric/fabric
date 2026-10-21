@@ -23,7 +23,7 @@ fabric agent add NAME [--tool GLOB]... | revoke NAME | list | require on|off
 fabric secret set NAME < file | remove NAME | list
 fabric connect agentauth --url URL --api-key-secret NAME
 fabric payments add SERVER/TOOL --amount FIELD [--minor-units] [--currency FIELD]
-                    [--default-currency CUR] [--merchant FIELD] | list
+                    [--default-currency CUR] [--merchant FIELD] [--when FIELD=VALUE]... | list
 fabric mandate grant TITLE --tool GLOB... [--agent A] [--max-per-call N] [--max-per-day N]
                      [--max-calls-per-day N] --expires YYYY-MM-DD [--out FILE]
 fabric mandate grant --signed FILE | revoke N | list
@@ -335,6 +335,20 @@ fabric mcp-proxy --name stripe --consent consent-acme \
 - **STEP_UP**: held for a person's recorded approval (`fabric approve N`).
 - **No answer** (unreachable, an error, a malformed reply), no consent configured, or an
   amount that cannot be read: refused. The gateway fails closed.
+
+**Generic tools.** Some servers expose one tool for every operation: Stripe's MCP server has
+`stripe_api_write`, whose `stripe_api_operation_id` argument says what it does (`PostRefunds`,
+`PostPayouts`, `DeleteCustomersCustomer`, ...). A declaration can require argument values with
+`--when` (all must hold), so only the money-moving operations are payments:
+
+```sh
+fabric payments add stripe/stripe_api_write --when stripe_api_operation_id=PostRefunds     --amount parameters.amount --minor-units --currency parameters.currency --default-currency usd
+fabric guard add-rule stripe-writes --decision approve --tool "stripe/stripe_api_write"
+```
+
+The rule makes every other write wait for a person, so an operation nobody classified never
+goes through unexamined; declared payments are decided by AgentAuth instead. A Stripe refund
+without an `amount` (a full refund) cannot be authorized from its arguments and is refused.
 
 Local `deny` rules are applied first and still win. `--minor-units` converts integer
 smallest-unit amounts (as Stripe sends them) to exact decimals by the currency's ISO 4217

@@ -415,6 +415,10 @@ enum PaymentsCommand {
         /// The argument naming the counterparty (merchant, customer, payee).
         #[arg(long)]
         merchant: Option<String>,
+        /// Only calls whose argument FIELD (dotted) equals VALUE, for generic tools such as
+        /// Stripe's stripe_api_write (repeatable; all must hold).
+        #[arg(long = "when", value_name = "FIELD=VALUE")]
+        when: Vec<String>,
     },
     /// Declared payment tools.
     List,
@@ -655,18 +659,26 @@ fn main() -> ExitCode {
                 currency,
                 default_currency,
                 merchant,
-            } => agentauth::payments_add_cmd(
-                &project,
-                agentauth::PaymentTool {
-                    tool,
-                    amount,
-                    minor_units,
-                    currency,
-                    default_currency: default_currency.map(|c| c.to_ascii_uppercase()),
-                    merchant,
-                },
-                json,
-            ),
+                when,
+            } => when
+                .iter()
+                .map(|w| agentauth::Condition::parse(w))
+                .collect::<Result<Vec<_>, _>>()
+                .and_then(|when| {
+                    agentauth::payments_add_cmd(
+                        &project,
+                        agentauth::PaymentTool {
+                            tool,
+                            amount,
+                            minor_units,
+                            currency,
+                            default_currency: default_currency.map(|c| c.to_ascii_uppercase()),
+                            merchant,
+                            when,
+                        },
+                        json,
+                    )
+                }),
             PaymentsCommand::List => agentauth::payments_list_cmd(&project, json),
         }),
         Command::AgentIdentity { command } => ctx.project().and_then(|project| match command {

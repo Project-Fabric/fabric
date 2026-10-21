@@ -188,7 +188,7 @@ fn judge_call(home: &Home, shared: &Shared, message: &Value) -> Option<Value> {
     let mut payment_record = Value::Null;
     if verdict.decision != Decision::Deny
         && let Some(connection) = &shared.agentauth
-        && let Some(payment_tool) = connection.payment_tool(&tool)
+        && let Some(payment_tool) = connection.payment_tool(&tool, &arguments)
     {
         let refuse = |reason: String, decision: &str, rule: &str| guard::Verdict {
             decision: Decision::Deny,

@@ -40,7 +40,8 @@ use crate::identity;
 
 const FILE: &str = "agentauth.json";
 const FORMAT: &str = "fabric-agentauth";
-const VERSION: u32 = 1;
+/// Version 2 added `when` to payment tools. Version 1 files are still read.
+const VERSION: u32 = 2;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Where a payment tool keeps its amount, currency and counterparty.
@@ -60,6 +61,56 @@ pub struct PaymentTool {
     pub default_currency: Option<String>,
     #[serde(default)]
     pub merchant: Option<String>,
+    /// Conditions on the call's arguments, all of which must hold: for generic tools that do
+    /// many things, such as Stripe's `stripe_api_write`, where the operation is an argument
+    /// (`stripe_api_operation_id` = `PostRefunds`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub when: Vec<Condition>,
+}
+
+/// An argument (dotted path) and the text value it must have.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Condition {
+    pub field: String,
+    pub equals: String,
+}
+
+impl Condition {
+    /// Parses `field=value`.
+    pub fn parse(text: &str) -> Result<Self, CliError> {
+        let (field, equals) = text
+            .split_once('=')
+            .filter(|(f, _)| !f.is_empty())
+            .ok_or_else(|| {
+                CliError::new(
+                    exit::ERROR,
+                    "invalid_arguments",
+                    format!("--when takes FIELD=VALUE, not {text:?}"),
+                )
+            })?;
+        Ok(Self {
+            field: field.to_owned(),
+            equals: equals.to_owned(),
+        })
+    }
+
+    fn holds(&self, arguments: &Value) -> bool {
+        match field(arguments, &self.field) {
+            Some(Value::String(s)) => *s == self.equals,
+            // `amount=100` or `livemode=false`: compared as JSON values, not as text.
+            Some(other @ (Value::Number(_) | Value::Bool(_))) => {
+                serde_json::from_str::<Value>(&self.equals).is_ok_and(|v| v == *other)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl PaymentTool {
+    /// Whether this declaration covers a call to `tool` with `arguments`.
+    pub fn covers(&self, tool: &str, arguments: &Value) -> bool {
+        self.tool == tool && self.when.iter().all(|c| c.holds(arguments))
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -92,7 +143,7 @@ pub fn load(project: &Project) -> Result<Config, CliError> {
                     format!("{}: {e}", display_path(&path)),
                 )
             })?;
-            if file.format != FORMAT || file.version != VERSION {
+            if file.format != FORMAT || !(1..=VERSION).contains(&file.version) {
                 return Err(CliError::new(
                     exit::ERROR,
                     "invalid_agentauth",
@@ -244,9 +295,9 @@ impl Connection {
         }))
     }
 
-    /// The payment tool `tool` is, if it is one.
-    pub fn payment_tool(&self, tool: &str) -> Option<&PaymentTool> {
-        self.payments.iter().find(|p| p.tool == tool)
+    /// The payment declaration covering this call, if it is a payment.
+    pub fn payment_tool(&self, tool: &str, arguments: &Value) -> Option<&PaymentTool> {
+        self.payments.iter().find(|p| p.covers(tool, arguments))
     }
 
     /// Asks AgentAuth whether the consent allows this payment. `Err` when there is no
@@ -391,7 +442,10 @@ pub fn payments_add_cmd(
         ));
     }
     let mut config = load(project)?;
-    config.payments.retain(|p| p.tool != tool.tool);
+    // A declaration replaces one for the same tool and conditions.
+    config
+        .payments
+        .retain(|p| !(p.tool == tool.tool && p.when == tool.when));
     config.payments.push(tool.clone());
     save(project, &config)?;
     evidence::append(
@@ -418,9 +472,19 @@ pub fn payments_list_cmd(project: &Project, json_output: bool) -> Result<u8, Cli
             .payments
             .iter()
             .map(|p| {
+                let when: Vec<String> = p
+                    .when
+                    .iter()
+                    .map(|c| format!("{}={}", c.field, c.equals))
+                    .collect();
                 format!(
-                    "{}  amount={}{}  currency={}",
+                    "{}{}  amount={}{}  currency={}",
                     p.tool,
+                    if when.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" when {}", when.join(", "))
+                    },
                     p.amount,
                     if p.minor_units { " (minor units)" } else { "" },
                     p.currency
@@ -452,7 +516,41 @@ mod tests {
             currency: Some("currency".to_owned()),
             default_currency: Some("USD".to_owned()),
             merchant: Some("customer.id".to_owned()),
+            when: Vec::new(),
         }
+    }
+
+    #[test]
+    fn generic_tools_are_payments_only_for_the_declared_operation() {
+        let refunds = PaymentTool {
+            tool: "stripe/stripe_api_write".to_owned(),
+            amount: "parameters.amount".to_owned(),
+            minor_units: true,
+            currency: Some("parameters.currency".to_owned()),
+            default_currency: Some("USD".to_owned()),
+            merchant: None,
+            when: vec![Condition::parse("stripe_api_operation_id=PostRefunds").unwrap()],
+        };
+        let refund = json!({ "stripe_api_operation_id": "PostRefunds",
+                             "parameters": { "payment_intent": "pi_1", "amount": 2499 } });
+        let update = json!({ "stripe_api_operation_id": "PostCustomersCustomer",
+                             "parameters": { "id": "cus_1", "name": "x" } });
+        assert!(refunds.covers("stripe/stripe_api_write", &refund));
+        assert!(!refunds.covers("stripe/stripe_api_write", &update));
+        assert!(!refunds.covers("stripe/stripe_api_read", &refund));
+        assert_eq!(refunds.payment(&refund).unwrap().amount, "24.99");
+        // A full refund without an amount cannot be authorized: refused, never guessed.
+        let full = json!({ "stripe_api_operation_id": "PostRefunds", "parameters": { "payment_intent": "pi_1" } });
+        assert!(refunds.payment(&full).is_err());
+        let numeric = Condition::parse("parameters.amount=2499").unwrap();
+        assert!(numeric.holds(&refund));
+        assert!(
+            !Condition::parse("parameters.amount=24")
+                .unwrap()
+                .holds(&refund)
+        );
+        assert!(Condition::parse("=x").is_err());
+        assert!(Condition::parse("novalue").is_err());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # AgentAuth: YC readiness
 
-**As of 21 October 2026.** Tracked on the shared board
+**As of 21 October 2026 (updated after the Northwind run).** Tracked on the shared board
 (github.com/orgs/agentauth-io/projects/1, private), which holds work from both repositories:
 the engine (`Project-Fabric/fabric`, private) and the site and legacy app
 (`agentauth-io/agentauth`). Update this page when a row changes.
@@ -13,7 +13,7 @@ the engine (`Project-Fabric/fabric`, private) and the site and legacy app
 | **Proof it does something real** | Good, internal only | Measured with Claude Code on a finance testbed (`EXPERIMENT_FINANCE.md`, `EXPERIMENT_FINANCE_OPS.md`): a 5,628 refund paid without approval 3/3 alone, held and rejected 3/3 with AgentAuth; four refunds needed one decision instead of four under a mandate; a feature needed 2 controller actions instead of 6 to 8. Our testbed, our scenarios, a scripted controller. |
 | **Users** | **Missing** | No design partners, no installs outside this team. This is the gap that decides the application. (#36, #51, #58) |
 | **A sharp customer and why now** | Drafted | Finance teams running agents for refunds, payables, close; positioned against card-network agent payments (`AGENTAUTH_PRODUCT.md`). Market facts unchecked (#52). |
-| **A demo** | Not yet | Needs the Stripe connector (M2, #63) for a 90-second demo on a real system. |
+| **A demo** | **Proof done; recording next** | Northwind (`EXPERIMENT_NORTHWIND.md`): real agents refunding real Stripe test-mode payments. Without AgentAuth 710.98 USD refunded (528.00 wrongly, 2 orders); with it exactly the correct 182.98, 0 wrong, same cost. One run per world. |
 | **The story of what changed** | Not yet written | Since the last application: new customer, working product, measured results. (agentauth#7) |
 | **Team and company** | Open | Roles, incorporation (#44). |
 

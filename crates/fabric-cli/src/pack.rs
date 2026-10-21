@@ -242,6 +242,8 @@ pub fn tool_calls(records: &[evidence::Record]) -> Vec<Value> {
             "rule": e["rule"],
             "outcome": if e["outcome"] == "forwarded" { json!("no_response") } else { e["outcome"].clone() },
             "result": e["result"],
+            // AgentAuth's decision for a payment tool (amount, currency, decision, code, reason).
+            "payment": e["payment"],
         });
         let answered = e["outcome"] != "forwarded"
             && e["arguments"].is_null()

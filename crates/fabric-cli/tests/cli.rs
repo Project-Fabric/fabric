@@ -2819,4 +2819,19 @@ fn payment_tools_are_authorized_by_agentauth_before_they_run() {
         .find(|c| c["outcome"] == "ok" && c["tool"] == "stripe/create_refund")
         .expect("the authorized refund is recorded");
     assert!(paid["arguments"].as_str().unwrap().contains("2000"));
+    assert_eq!(paid["payment"]["decision"], "ALLOW");
+    assert_eq!(paid["payment"]["authorization_code"], "authz_test");
+    assert_eq!(paid["payment"]["amount"], "20.00");
+    let refused = calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["outcome"] == "blocked" && c["payment"]["decision"] == "DENY")
+        .expect("the denied refund is recorded with AgentAuth's decision");
+    assert!(
+        refused["payment"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("budget_exhausted")
+    );
 }

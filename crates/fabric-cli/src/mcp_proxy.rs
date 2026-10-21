@@ -265,6 +265,7 @@ fn judge_call(home: &Home, shared: &Shared, message: &Value) -> Option<Value> {
             "arguments": arguments_text,
             "decision": verdict.decision,
             "rule": verdict.rule,
+            "payment": payment_record,
             "outcome": outcome,
             "result": evidence::clip(&reason),
         }));

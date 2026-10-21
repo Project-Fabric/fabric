@@ -40,7 +40,7 @@ use crate::home::Home;
 
 #[derive(Parser)]
 #[command(
-    name = "fabric",
+    name = "cosigna",
     version,
     about = "Cosigna: authority, approvals and evidence for AI agents that change code and move money"
 )]

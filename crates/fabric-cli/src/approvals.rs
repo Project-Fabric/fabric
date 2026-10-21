@@ -232,6 +232,7 @@ pub fn gate(
             project,
             target,
             event["agent"].as_str().unwrap_or(AGENT),
+            event["agent_authenticated"] == true,
             &digest,
             &input,
             via,

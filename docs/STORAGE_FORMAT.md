@@ -178,9 +178,11 @@ number, tool, action digest, target), `change_reviewed` (change number, outcome 
 `rejected`, reviewer and OS account, the checkpoint and snapshot reviewed, and the content id
 of every file under the change's paths that changed, `null` if removed), `approver_added` and
 `approver_removed` (name, public key, fingerprint, by), `tool_call` (from `fabric mcp-proxy`:
-server, tool as `server/tool`, agent, session, action digest, decision, rule, and either
+server, tool as `server/tool`, agent and whether it was authenticated (`agent_authenticated`),
+session, action digest, decision, rule, and either
 `arguments` with outcome `forwarded`, `held` or `blocked`, or the later record of a forwarded
 call's outcome `ok` or `error`; `result` is the server's text, cut to 2,000 characters), and
+`agent_registered` (name, scopes, token hash, by), `agent_revoked`,
 `mandate_granted` (number, terms, granted by, OS account or key, `signed` when signed),
 `mandate_used` (number, tool, agent, digest, amount, UTC day, the day's total and count,
 via), `mandate_revoked`, and `policy_changed`. `approval_used` records `via` (`hook` or
@@ -214,6 +216,19 @@ approver has `name`, `public_key` (Ed25519, 64 hex characters), `fingerprint` (f
 characters of the key's BLAKE3 hash), `added_by` (OS account) and `added_at`. `required`: unsigned
 approvals and reviews, and decisions signed with this installation's own approver key
 (`<home>/keys/approver-ed25519.key`), are refused.
+
+## Agents (`agents.json`, format `fabric-agents`, version 1)
+
+Per project: `{"format","version","required","agents":[…]}`. Each agent has `name`,
+`token_hash` (BLAKE3 of the token; tokens are `fat_` and 64 hex characters, never stored),
+`tools` (globs over `server/tool`; empty means any), `created_by`, `created_at` and
+`revoked_at`.
+
+## Credentials (`<home>/secrets/<name>`)
+
+One file per credential, its value only, written with owner-only permissions on Unix (on
+Windows, the user's profile ACLs). Names are lowercase letters, digits, `-` and `_`. Not
+versioned, never recorded in evidence.
 
 ## Mandates (`mandates.json`, format `fabric-mandates`, version 1)
 

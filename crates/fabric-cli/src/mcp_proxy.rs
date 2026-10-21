@@ -33,6 +33,7 @@ use crate::error::{CliError, exit};
 use crate::evidence;
 use crate::guard::{self, Action, Decision, Policy};
 use crate::home::{Home, Project};
+use crate::identity;
 
 /// A call forwarded to the server, waiting for its response.
 struct Pending {
@@ -46,8 +47,12 @@ struct Shared {
     project: Project,
     server: String,
     session: String,
-    /// The agent, from the client's `initialize`.
+    /// The agent, from the client's `initialize`: what it says it is.
     client: Mutex<Option<String>>,
+    /// The agent as authenticated by its token (`FABRIC_AGENT_TOKEN`), if it gave one.
+    authenticated: Option<identity::Authenticated>,
+    /// Calls without a valid agent token are refused (`fabric agent require on`).
+    identity_required: bool,
     pending: Mutex<HashMap<String, Pending>>,
     out: Mutex<io::Stdout>,
 }
@@ -63,7 +68,12 @@ impl Shared {
         let _ = out.flush();
     }
 
+    /// Who the evidence says made a call: the authenticated agent, else the name the client
+    /// gave (recorded as unauthenticated).
     fn agent(&self) -> String {
+        if let Some(a) = &self.authenticated {
+            return a.name.clone();
+        }
         self.client
             .lock()
             .expect("client lock")
@@ -78,6 +88,7 @@ impl Shared {
         event["kind"] = "tool_call".into();
         event["server"] = self.server.clone().into();
         event["agent"] = self.agent().into();
+        event["agent_authenticated"] = self.authenticated.is_some().into();
         event["session"] = self.session.clone().into();
         if let Err(e) = evidence::append(&self.project, event) {
             eprintln!("fabric mcp-proxy: could not record a tool call: {e}");
@@ -136,12 +147,33 @@ fn judge_call(home: &Home, shared: &Shared, message: &Value) -> Option<Value> {
             ));
         }
     };
-    let verdict = policy.evaluate(home, &shared.project, &Action::Tool(&tool));
+    let mut verdict = policy.evaluate(home, &shared.project, &Action::Tool(&tool));
+    // Identity comes before rules: an unauthenticated agent where tokens are required, or an
+    // agent calling outside its scopes, is refused whatever the rules say.
+    if shared.identity_required && shared.authenticated.is_none() {
+        verdict = guard::Verdict {
+            decision: Decision::Deny,
+            rule: Some("agent-identity".to_owned()),
+            reason: format!(
+                "this gateway requires an agent token ({})",
+                identity::TOKEN_ENV
+            ),
+        };
+    } else if let Some(agent) = &shared.authenticated
+        && !agent.may_call(&tool)
+    {
+        verdict = guard::Verdict {
+            decision: Decision::Deny,
+            rule: Some("agent-scope".to_owned()),
+            reason: format!("{tool} is outside agent {}'s scopes", agent.name),
+        };
+    }
     let event = json!({
         "tool_name": tool_name,
         "tool_input": arguments,
         "session_id": shared.session,
         "agent": shared.agent(),
+        "agent_authenticated": shared.authenticated.is_some(),
     });
     if verdict.decision != Decision::Allow
         && let Err(e) = guard::audit(&shared.project, &event, &verdict, &tool)
@@ -241,11 +273,43 @@ fn annotate_tools(home: &Home, shared: &Shared, message: &mut Value) {
     }
 }
 
+/// Each injected credential, as it appears raw and JSON-escaped, with its placeholder.
+/// Values shorter than 8 characters are not redacted: too likely to match ordinary text.
+fn redactions(pairs: &[String], credentials: &[(String, String)]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for ((_, value), pair) in credentials.iter().zip(pairs) {
+        let name = pair.split_once('=').map_or("", |(_, n)| n);
+        let value = value.trim();
+        if value.len() < 8 {
+            continue;
+        }
+        let placeholder = format!("[redacted credential {name}]");
+        let escaped = serde_json::to_string(value).expect("strings serialize");
+        out.push((
+            escaped[1..escaped.len() - 1].to_owned(),
+            placeholder.clone(),
+        ));
+        out.push((value.to_owned(), placeholder));
+    }
+    out
+}
+
+fn redact(line: &str, redactions: &[(String, String)]) -> String {
+    let mut line = line.to_owned();
+    for (value, placeholder) in redactions {
+        if line.contains(value.as_str()) {
+            line = line.replace(value.as_str(), placeholder);
+        }
+    }
+    line
+}
+
 pub fn run(
     home: &Home,
     project: Project,
     server: &str,
     command: &[String],
+    secret_env: &[String],
 ) -> Result<u8, CliError> {
     let Some((program, args)) = command.split_first() else {
         return Err(CliError::new(
@@ -261,20 +325,32 @@ pub fn run(
             "--name is the server's name as rules see it (`<name>/<tool>`); it cannot contain /",
         ));
     }
-    let mut child = Command::new(program)
+    // Fail closed before starting anything: a bad token or a missing credential stops here.
+    let token = std::env::var(identity::TOKEN_ENV).ok();
+    let authenticated = identity::authenticate(&project, token.as_deref())?;
+    let identity_required = identity::registry(&project)?.required;
+    let credentials = identity::secret_env(home, secret_env)?;
+    // Servers echo credentials by accident (`Invalid API key: sk_...`); every value the
+    // gateway injected is scrubbed from what the server sends back, before the agent or the
+    // evidence sees it.
+    let redactions = redactions(secret_env, &credentials);
+    let mut child = Command::new(program);
+    child
         .args(args)
         .current_dir(&project.root)
+        // The agent's token is for the gateway, not the upstream server.
+        .env_remove(identity::TOKEN_ENV)
+        .envs(credentials)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| {
-            CliError::new(
-                exit::ERROR,
-                "server_failed",
-                format!("cannot start the MCP server {program:?}: {e}"),
-            )
-        })?;
+        .stderr(Stdio::inherit());
+    let mut child = child.spawn().map_err(|e| {
+        CliError::new(
+            exit::ERROR,
+            "server_failed",
+            format!("cannot start the MCP server {program:?}: {e}"),
+        )
+    })?;
     let started = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis());
@@ -285,6 +361,8 @@ pub fn run(
         server: server.to_owned(),
         session,
         client: Mutex::new(None),
+        authenticated,
+        identity_required,
         pending: Mutex::new(HashMap::new()),
         out: Mutex::new(io::stdout()),
     });
@@ -300,6 +378,7 @@ pub fn run(
             thread::spawn(move || {
                 for line in BufReader::new(server_out).lines() {
                     let Ok(line) = line else { break };
+                    let line = redact(&line, &redactions);
                     let Ok(mut message) = serde_json::from_str::<Value>(&line) else {
                         shared.send_line(&line);
                         continue;

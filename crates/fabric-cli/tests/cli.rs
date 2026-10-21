@@ -2227,7 +2227,30 @@ fn mandates_let_agents_act_within_limits_and_hold_the_rest() {
         "a tool the mandate does not cover"
     );
 
-    // A mandate for one agent and one call a day, through the proxy.
+    // A mandate for one agent and one call a day, through the proxy. The agent must be
+    // registered, and only calls authenticated with its token are covered.
+    assert_eq!(
+        fx.run(&[
+            "mandate",
+            "grant",
+            "x",
+            "--tool",
+            "erp/fabric_checkpoint",
+            "--agent",
+            "finance-agent",
+            "--max-calls-per-day",
+            "1",
+            "--expires",
+            "2099-01-01",
+        ])
+        .code,
+        1,
+        "an unregistered agent cannot be named"
+    );
+    let token = fx.ok_json(&["agent", "add", "finance-agent", "--json"])["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     fx.ok_json(&[
         "mandate",
         "grant",
@@ -2253,7 +2276,7 @@ fn mandates_let_agents_act_within_limits_and_hold_the_rest() {
         "--json",
     ]);
     let exe = env!("CARGO_BIN_EXE_fabric");
-    let via_proxy = |client: &str, message: &str| -> bool {
+    let via_proxy = |client: &str, token: Option<&str>, message: &str| -> bool {
         let input = format!(
             "{}\n{}\n",
             json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -2262,9 +2285,25 @@ fn mandates_let_agents_act_within_limits_and_hold_the_rest() {
             json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                     "params": { "name": "fabric_checkpoint", "arguments": { "message": message } } })
         );
-        let run = fx.run_with_stdin(&["mcp-proxy", "--name", "erp", "--", exe, "mcp"], &input);
-        let response = run
-            .stdout
+        let mut command = fx.command();
+        command
+            .args(["mcp-proxy", "--name", "erp", "--", exe, "mcp"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(token) = token {
+            command.env("FABRIC_AGENT_TOKEN", token);
+        }
+        let mut child = command.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        let response = String::from_utf8(output.stdout)
+            .unwrap()
             .lines()
             .map(|l| serde_json::from_str::<Value>(l).unwrap())
             .find(|r| r["id"] == 2)
@@ -2272,11 +2311,18 @@ fn mandates_let_agents_act_within_limits_and_hold_the_rest() {
         response["result"]["isError"] != true
     };
     assert!(
-        !via_proxy("other-agent", "a"),
+        !via_proxy("other-agent", None, "a"),
         "another agent is not covered"
     );
-    assert!(via_proxy("finance-agent", "b"), "the named agent is");
-    assert!(!via_proxy("finance-agent", "c"), "one call a day");
+    assert!(
+        !via_proxy("finance-agent", None, "a2"),
+        "claiming to be the agent without its token is not enough"
+    );
+    assert!(
+        via_proxy("anything", Some(&token), "b"),
+        "the authenticated agent is covered"
+    );
+    assert!(!via_proxy("anything", Some(&token), "c"), "one call a day");
 
     // Revoking stops it at once.
     fx.ok_json(&["mandate", "revoke", "1", "--json"]);
@@ -2362,4 +2408,181 @@ fn a_mandate_can_require_an_approvers_signature() {
     let verify = fx.ok_json(&["evidence", "verify", "--json"]);
     assert_eq!(verify["signed_decisions"]["checked"], 1);
     assert_eq!(verify["signed_decisions"]["problems"], json!([]));
+}
+
+/// A Python interpreter, for tests that need a tiny stand-in MCP server.
+fn python() -> &'static str {
+    for candidate in ["python3", "python"] {
+        if Command::new(candidate)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+        {
+            return candidate;
+        }
+    }
+    panic!("these tests need python3 or python on PATH");
+}
+
+/// An MCP server whose one tool reports what its environment holds.
+const ENV_SERVER: &str = r#"
+import json, os, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if "id" not in m: continue
+    if m["method"] == "tools/call":
+        seen = {"secret": os.environ.get("UPSTREAM_KEY", "missing"),
+                "agent_token_visible": "FABRIC_AGENT_TOKEN" in os.environ}
+        result = {"content": [{"type": "text", "text": json.dumps(seen)}]}
+    else:
+        result = {}
+    print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": result}), flush=True)
+"#;
+
+#[test]
+fn the_gateway_holds_credentials_and_authenticates_agents() {
+    let fx = Fixture::new();
+    fx.write("README.md", "erp\n");
+    fx.ok_json(&["init", "--json"]);
+    let server = fx.home.with_file_name("env_server.py");
+    fs::write(&server, ENV_SERVER).unwrap();
+    let server = server.to_string_lossy().into_owned();
+
+    // Credentials go in through standard input and never come back out.
+    let set = fx.run_with_stdin(
+        &["secret", "set", "erp-key", "--json"],
+        "sk_test_value_123\n",
+    );
+    assert_eq!(set.code, 0, "{}", set.stderr);
+    let listed = fx.ok_json(&["secret", "list", "--json"]);
+    assert_eq!(listed["names"], json!(["erp-key"]));
+    assert!(!listed.to_string().contains("sk_test_value_123"));
+
+    let token = fx.ok_json(&[
+        "agent",
+        "add",
+        "billing-bot",
+        "--tool",
+        "erp/read_*",
+        "--json",
+    ])["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let call = |tool: &str, token: Option<&str>, secret_env: &[&str]| -> (i32, Value) {
+        let mut args = vec!["mcp-proxy", "--name", "erp"];
+        for pair in secret_env {
+            args.extend(["--secret-env", pair]);
+        }
+        let py = python();
+        args.extend(["--", py, server.as_str()]);
+        let mut command = fx.command();
+        command
+            .args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(token) = token {
+            command.env("FABRIC_AGENT_TOKEN", token);
+        }
+        let mut child = command.spawn().unwrap();
+        let message = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                              "params": { "name": tool, "arguments": {} } });
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{message}\n").as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        let response = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .next()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .unwrap_or(Value::Null);
+        (output.status.code().unwrap(), response)
+    };
+
+    // The upstream server gets the credential; it never gets the agent's token.
+    let (code, response) = call("read_ledger", Some(&token), &["UPSTREAM_KEY=erp-key"]);
+    assert_eq!(code, 0);
+    let seen: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    // The server received the credential, and the agent never sees it: a server echoing it
+    // back (as error messages do) has it scrubbed from the response and the evidence.
+    assert_eq!(seen["secret"], "[redacted credential erp-key]");
+    assert_eq!(seen["agent_token_visible"], false);
+
+    // Scopes: outside them, the call is refused before it reaches the server.
+    let (_, response) = call("pay_bill", Some(&token), &[]);
+    assert_eq!(response["result"]["isError"], true);
+    assert!(
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("agent-scope")
+    );
+
+    // Fail closed: a missing credential or a bad token stops the gateway from starting.
+    assert_ne!(
+        call("read_ledger", Some(&token), &["UPSTREAM_KEY=nope"]).0,
+        0
+    );
+    assert_ne!(call("read_ledger", Some("fat_forged"), &[]).0, 0);
+
+    // With tokens required, an unauthenticated call is refused; a revoked token cannot start.
+    fx.ok_json(&["agent", "require", "on", "--json"]);
+    let (_, response) = call("read_ledger", None, &[]);
+    assert_eq!(response["result"]["isError"], true);
+    fx.ok_json(&["agent", "revoke", "billing-bot", "--json"]);
+    assert_ne!(call("read_ledger", Some(&token), &[]).0, 0);
+
+    // Agents cannot read the credential store, by tool or by shell.
+    let secrets = fx.home.join("secrets").join("erp-key");
+    let path = secrets.to_string_lossy().into_owned();
+    assert_eq!(
+        decision(&pre_tool_use(&fx, "Read", json!({ "file_path": path }))),
+        "deny"
+    );
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "Bash",
+            json!({ "command": format!("cat '{path}'") })
+        )),
+        "deny"
+    );
+    assert_eq!(
+        decision(&pre_tool_use(
+            &fx,
+            "Bash",
+            json!({ "command": "fabric secret list" })
+        )),
+        "deny"
+    );
+    let verify = fx.ok_json(&["evidence", "verify", "--json"]);
+    assert_eq!(verify["chain"]["ok"], true);
+    // The credential is in no file Fabric wrote (evidence, logs, project data) outside the
+    // credential store itself.
+    fn files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files(&path, out);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    let mut written = Vec::new();
+    files(&fx.home, &mut written);
+    let store = fx.home.join("secrets");
+    let leaked: Vec<_> = written
+        .iter()
+        .filter(|p| !p.starts_with(&store))
+        .filter(|p| String::from_utf8_lossy(&fs::read(p).unwrap()).contains("sk_test_value_123"))
+        .collect();
+    assert!(leaked.is_empty(), "credential found in {leaked:?}");
+    assert!(written.len() > 3, "the walk found Fabric's files");
 }

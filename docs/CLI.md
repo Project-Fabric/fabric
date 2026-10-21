@@ -18,7 +18,9 @@ fabric guard rules|check|set|log   # consent rules for agent actions
 fabric guard pack finance [--scope GLOB]...      # SOX change-control rules
 fabric guard pack finance-ops      # rules for agents operating the books through tools
 fabric guard add-rule ID --decision D [--path GLOB]... [--command REGEX]... [--tool GLOB]... [--committed-only]
-fabric mcp-proxy --name NAME -- <server command>   # Fabric's controls in front of an MCP server
+fabric mcp-proxy --name NAME [--secret-env VAR=NAME]... -- <server command>
+fabric agent add NAME [--tool GLOB]... | revoke NAME | list | require on|off
+fabric secret set NAME < file | remove NAME | list
 fabric mandate grant TITLE --tool GLOB... [--agent A] [--max-per-call N] [--max-per-day N]
                      [--max-calls-per-day N] --expires YYYY-MM-DD [--out FILE]
 fabric mandate grant --signed FILE | revoke N | list
@@ -285,6 +287,29 @@ Claude Code and the proxy together, one approval covers one call at both checkpo
 proxy accepts an approval the hook used for the same action within the previous two minutes,
 once. Give the server the same name in both places so the actions match.
 
+### The gateway holds the keys and knows the agent
+
+**Credentials.** The agent should never hold the keys to the systems it acts on.
+`fabric secret set stripe-test < key.txt` stores a credential (read from standard input, never
+from the command line) in this installation's data directory, readable only by the user's
+account; `fabric mcp-proxy --secret-env STRIPE_SECRET_KEY=stripe-test -- <server>` gives it to
+that server's environment only. Values are never printed, logged or recorded, and no command
+reads one back. Servers echo credentials by accident (an error such as `Invalid API key:
+sk_...`), so every injected value of 8 characters or more is replaced by `[redacted credential
+NAME]` in whatever the server sends back, before the agent or the evidence sees it. A missing
+credential stops the proxy from starting. Agents are denied `fabric secret`, and any read,
+search or shell command that names the credential store.
+
+**Agent identity.** An MCP client says who it is, and anything can say anything. `fabric agent
+add close-bot --tool "stripe/refunds_*"` registers an agent and prints its token once (only a
+BLAKE3 hash is kept); put it in the agent's gateway configuration as `FABRIC_AGENT_TOKEN`. The
+proxy authenticates the token before starting (a bad or revoked token stops it), refuses calls
+outside the agent's `--tool` scopes, never passes the token to the upstream server, and records
+the authenticated name in the evidence (`agent_authenticated: true`); otherwise the client's
+own name is recorded as unauthenticated. A mandate naming an agent covers only calls
+authenticated as it, and only registered agents can be named. With `fabric agent require on`,
+calls without a valid token are refused.
+
 ### Mandates: bounded authority, granted ahead of time
 
 Holding every money movement for a person is safe but slow. A mandate says what an agent may
@@ -422,7 +447,9 @@ versioned format: `fabric.init/v1`, `fabric.checkpoint/v1`, `fabric.log/v1`,
 `fabric.approver.key/v1`, `fabric.approver.add/v1`, `fabric.approver.remove/v1`,
 `fabric.approver.list/v1`, `fabric.approver.require/v1`, `fabric.approver.sign/v1`,
 `fabric.mandate.grant/v1`, `fabric.mandate.proposal/v1`, `fabric.mandate.revoke/v1`,
-`fabric.mandate.list/v1`, `fabric.evidence.calls/v1`
+`fabric.mandate.list/v1`, `fabric.evidence.calls/v1`, `fabric.agent.add/v1` (includes the
+token, once), `fabric.agent.revoke/v1`, `fabric.agent.list/v1`, `fabric.agent.require/v1`,
+`fabric.secret.set/v1`, `fabric.secret.remove/v1`, `fabric.secret.list/v1` (names only)
 (`fabric.evidence.verify/v1` adds `signed_decisions`, `fabric.evidence.verify_pack/v1` adds
 its count), and
 on failure `fabric.error/v1`:

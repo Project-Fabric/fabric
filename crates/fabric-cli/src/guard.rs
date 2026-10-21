@@ -132,7 +132,7 @@ const RULES: &[Rule] = &[
         description: "Agents changing Fabric's history, rules or data",
         default: Decision::Deny,
         matcher: Matcher::Command(&[
-            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve|review|approver|mandate)\b",
+            r"\bfabric(\.exe)?\s+(restore|revert|resume|gc|approve|review|approver|mandate|secret|agent)\b",
             r"\bfabric(\.exe)?\s+guard\s+(set|pack|add-rule|remove-rule)\b",
             r"\bfabric(\.exe)?\s+integrate\b",
         ]),
@@ -589,6 +589,9 @@ pub fn pre_tool_use(
     event: &Value,
 ) -> Result<Option<Value>, CliError> {
     let input = &event["tool_input"];
+    if let Some(answer) = secrets_access(home, event) {
+        return Ok(Some(answer));
+    }
     let action = match event["tool_name"].as_str() {
         Some("Bash") => input["command"].as_str().map(Action::Command),
         Some("Write" | "Edit" | "MultiEdit") => input["file_path"].as_str().map(Action::WriteFile),
@@ -622,6 +625,36 @@ pub fn pre_tool_use(
         ),
     };
     Ok(Some(hook_decision(verdict.decision.name(), &reason)))
+}
+
+/// Denies agents any read, search or command that names the credential store. Writes there
+/// are already denied as writes to Fabric's data directory.
+fn secrets_access(home: &Home, event: &Value) -> Option<Value> {
+    let dir = crate::identity::secrets_dir(home);
+    let forms: Vec<String> = [
+        dir.to_string_lossy().into_owned(),
+        resolve_lenient(&dir).map_or_else(String::new, |p| p.to_string_lossy().into_owned()),
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .flat_map(|s| [s.replace('\\', "/"), s.replace('/', "\\")])
+    .map(|s| s.to_lowercase())
+    .collect();
+    let input = &event["tool_input"];
+    let mentioned = ["command", "file_path", "path", "pattern", "notebook_path"]
+        .iter()
+        .filter_map(|k| input[*k].as_str())
+        .any(|v| {
+            let v = v.to_lowercase();
+            forms.iter().any(|f| v.contains(f.as_str()))
+        });
+    mentioned.then(|| {
+        hook_decision(
+            "deny",
+            "Blocked by Fabric guard (fabric-secrets): agents never read Fabric's credential store. \
+             The gateway gives credentials to the servers that need them.",
+        )
+    })
 }
 
 pub fn hook_decision(decision: &str, reason: &str) -> Value {
@@ -1326,6 +1359,8 @@ mod tests {
             ("fabric approve 3 --yes", "fabric-tamper"),
             ("fabric review 1 --yes", "fabric-tamper"),
             ("fabric approver sign req.json --yes", "fabric-tamper"),
+            ("fabric secret set stripe-live", "fabric-tamper"),
+            ("fabric agent add close-bot", "fabric-tamper"),
             (
                 "fabric mandate grant x --tool '*' --max-per-call 1 --expires 2099-01-01",
                 "fabric-tamper",

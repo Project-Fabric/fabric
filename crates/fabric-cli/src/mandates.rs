@@ -9,7 +9,8 @@
 //! ```
 //!
 //! A tool call held by an `approve` rule goes through without waiting when an active mandate
-//! covers it: the tool matches, the agent matches (if the mandate names one), the call's
+//! covers it: the tool matches, the agent matches (if the mandate names one, the call must be
+//! authenticated as that agent: see `identity`), the call's
 //! amount is within the per-call limit, and the day's total and count stay within theirs. The
 //! use is recorded in the evidence with the mandate, the amount and the running totals. Calls
 //! outside every mandate are held for a person as before; `deny` rules are never covered.
@@ -288,7 +289,14 @@ enum Fit {
     No,
 }
 
-fn fits(m: &Mandate, tool: &str, agent: &str, amount: Result<Option<i128>, ()>, now: u64) -> Fit {
+fn fits(
+    m: &Mandate,
+    tool: &str,
+    agent: &str,
+    authenticated: bool,
+    amount: Result<Option<i128>, ()>,
+    now: u64,
+) -> Fit {
     let t = &m.terms;
     if m.revoked_at.is_some() || t.expired(now) {
         return Fit::No;
@@ -296,7 +304,12 @@ fn fits(m: &Mandate, tool: &str, agent: &str, amount: Result<Option<i128>, ()>, 
     if !globs(&t.tools).is_ok_and(|g| g.is_match(tool)) {
         return Fit::No;
     }
-    if t.agent.as_deref().is_some_and(|a| a != agent) {
+    // A mandate for a named agent covers only calls authenticated as it: a client's own
+    // claim to be that agent is not enough.
+    if t.agent
+        .as_deref()
+        .is_some_and(|a| a != agent || !authenticated)
+    {
         return Fit::No;
     }
     let Ok(amount) = amount else { return Fit::No };
@@ -343,6 +356,7 @@ pub fn cover(
     project: &Project,
     tool: &str,
     agent: &str,
+    authenticated: bool,
     digest: &str,
     arguments: &Value,
     via: &str,
@@ -371,7 +385,7 @@ pub fn cover(
                 amount,
                 day_total,
                 day_calls,
-            } = fits(m, tool, agent, amount, now)
+            } = fits(m, tool, agent, authenticated, amount, now)
             {
                 m.uses.push(Use {
                     at_unix: now,
@@ -470,6 +484,13 @@ pub fn grant_cmd(
     let (terms, granted_by, granter_key, signature) = match (terms, signed) {
         (Some(terms), None) => {
             terms.validate()?;
+            if let Some(agent) = &terms.agent
+                && !crate::identity::is_registered(project, agent)?
+            {
+                return Err(invalid(format!(
+                    "--agent {agent} is not a registered agent; register it with `fabric agent add {agent}`"
+                )));
+            }
             if let Some(out) = out {
                 let proposal = json!({
                     "format": PROPOSAL_FORMAT,

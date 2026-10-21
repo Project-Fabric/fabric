@@ -15,6 +15,7 @@ mod error;
 mod evidence;
 mod guard;
 mod home;
+mod identity;
 mod lessons;
 mod mandates;
 mod mcp;
@@ -148,6 +149,23 @@ enum Command {
         /// The server's command and arguments, after `--`.
         #[arg(last = true, required = true)]
         command: Vec<String>,
+        /// Give the server a stored credential as an environment variable, VAR=name
+        /// (repeatable; see `fabric secret`). The agent never sees it.
+        #[arg(long = "secret-env", value_name = "VAR=NAME")]
+        secret_env: Vec<String>,
+    },
+
+    /// Agents' identities: tokens issued by a person, scoped to tools.
+    #[command(name = "agent")]
+    AgentIdentity {
+        #[command(subcommand)]
+        command: AgentCommand,
+    },
+
+    /// Credentials the gateway gives to MCP servers; agents never see them.
+    Secret {
+        #[command(subcommand)]
+        command: SecretCommand,
     },
 
     /// Lessons learned from steps that broke things (experimental).
@@ -353,6 +371,36 @@ enum ApprovalsCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum AgentCommand {
+    /// Register an agent and print its token (once).
+    Add {
+        name: String,
+        /// Tool calls it may make, as `server/tool` globs (repeatable; default: any).
+        #[arg(long = "tool")]
+        tools: Vec<String>,
+    },
+    /// Revoke an agent's token.
+    Revoke { name: String },
+    /// Registered agents.
+    List,
+    /// Require (on) or stop requiring (off) a valid agent token for calls through the proxy.
+    Require {
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecretCommand {
+    /// Store a credential read from standard input, e.g. `fabric secret set stripe-test < key.txt`.
+    Set { name: String },
+    /// Remove a stored credential.
+    Remove { name: String },
+    /// Names of stored credentials (never their values).
+    List,
+}
+
 // Parsed once per run; the size difference between variants does not matter.
 #[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
@@ -528,9 +576,24 @@ fn main() -> ExitCode {
         Command::History { path, limit } => commands::history(&ctx, &path, limit),
         Command::Resume => commands::resume(&ctx),
         Command::Mcp => mcp::serve(&ctx.home).map(|()| error::exit::OK),
-        Command::McpProxy { name, command } => ctx
+        Command::McpProxy {
+            name,
+            command,
+            secret_env,
+        } => ctx
             .project()
-            .and_then(|project| mcp_proxy::run(&ctx.home, project, &name, &command)),
+            .and_then(|project| mcp_proxy::run(&ctx.home, project, &name, &command, &secret_env)),
+        Command::AgentIdentity { command } => ctx.project().and_then(|project| match command {
+            AgentCommand::Add { name, tools } => identity::add_cmd(&project, &name, &tools, json),
+            AgentCommand::Revoke { name } => identity::revoke_cmd(&project, &name, json),
+            AgentCommand::List => identity::list_cmd(&project, json),
+            AgentCommand::Require { state } => identity::require_cmd(&project, state == "on", json),
+        }),
+        Command::Secret { command } => match command {
+            SecretCommand::Set { name } => identity::secret_set_cmd(&ctx.home, &name, json),
+            SecretCommand::Remove { name } => identity::secret_remove_cmd(&ctx.home, &name, json),
+            SecretCommand::List => identity::secret_list_cmd(&ctx.home, json),
+        },
         Command::Lesson { command } => ctx.project().and_then(|project| match command {
             LessonCommand::Add {
                 step,

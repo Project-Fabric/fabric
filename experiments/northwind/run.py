@@ -280,14 +280,19 @@ def refunded_cents(world, tokens, order, tools, session=None):
 
 
 def validate_payment_mapping(config):
-    declared = next((p for p in config.get("payments", [])
-                     if p.get("tool") == "stripe/stripe_api_write"), None)
+    """The refund operation must be a declared payment, with the agreed field mapping. Accepts a
+    declaration scoped to PostRefunds (declare.ps1) or one covering every write."""
+    def refunds(p):
+        when = {c.get("field"): c.get("equals") for c in p.get("when", [])}
+        return p.get("tool") == "stripe/stripe_api_write" and when in (
+            {}, {"stripe_api_operation_id": "PostRefunds"})
+    declared = next((p for p in config.get("payments", []) if refunds(p)), None)
     if not declared or any((declared.get("amount") != "parameters.amount",
                             declared.get("currency") != "parameters.currency",
                             declared.get("default_currency", "").lower() != "usd",
                             declared.get("minor_units") is not True,
                             declared.get("merchant") != "parameters.payment_intent")):
-        raise RuntimeError("Stripe payment mapping is missing or incompatible. Run agentauth-stripe-demo/resume.ps1 in your terminal.")
+        raise RuntimeError("Stripe payment mapping is missing or incompatible. Run agentauth-stripe-demo/declare.ps1 in your terminal.")
 
 
 def preflight(worlds, orders, tokens, tools, check_only=False):

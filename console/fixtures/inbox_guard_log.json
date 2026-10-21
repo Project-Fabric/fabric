@@ -1,0 +1,51 @@
+{
+  "entries": [
+    {
+      "agent": "claude-code",
+      "at": "2026-10-21T12:57:08Z",
+      "decision": "approve",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-10-21T12:57:08Z",
+      "decision": "approve",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-10-21T12:57:08Z",
+      "decision": "approve",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-10-21T12:57:07Z",
+      "decision": "approve",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund"
+    },
+    {
+      "agent": "claude-code",
+      "at": "2026-10-21T12:57:07Z",
+      "decision": "approve",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund"
+    }
+  ],
+  "schema": "fabric.guard.log/v2",
+  "total": 5
+}

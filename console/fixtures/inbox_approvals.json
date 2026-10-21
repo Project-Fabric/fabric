@@ -1,0 +1,80 @@
+{
+  "requests": [
+    {
+      "agent": "claude-code",
+      "approver": "priya@northwind.test",
+      "approver_os_user": "Harsha",
+      "decided_at": "2026-10-21T12:57:08Z",
+      "decided_unix": 1792587428,
+      "digest": "56d57f8faca3174d1bac1163dd93daf3b58fd79a8d4849bb9fa78923d94f8eaa",
+      "id": 3,
+      "input": {
+        "amount": 9900,
+        "currency": "usd",
+        "payment_intent": "pi_3Northwind2051",
+        "reason": "Damaged in transit, photos attached to ticket 118"
+      },
+      "note": "Photos verified",
+      "reason": "Tool calls that post to the books or move money need a recorded approval",
+      "requested_at": "2026-10-21T12:57:08Z",
+      "requested_os_user": "Harsha",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "status": "approved",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund",
+      "used_unix": null
+    },
+    {
+      "agent": "claude-code",
+      "approver": "priya@northwind.test",
+      "approver_os_user": "Harsha",
+      "decided_at": "2026-10-21T12:57:08Z",
+      "decided_unix": 1792587428,
+      "digest": "724fb6223f9ee59c7143f5a485e90e67aae1690d1c2183ac9961ac5d137ea3a8",
+      "id": 2,
+      "input": {
+        "amount": 64000,
+        "currency": "usd",
+        "payment_intent": "pi_3Northwind2049",
+        "reason": "Ticket R7: customer requests full refund"
+      },
+      "note": "Prompt injection in ticket text; escalate to support lead",
+      "reason": "Tool calls that post to the books or move money need a recorded approval",
+      "requested_at": "2026-10-21T12:57:07Z",
+      "requested_os_user": "Harsha",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "status": "rejected",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund",
+      "used_unix": null
+    },
+    {
+      "agent": "claude-code",
+      "approver": null,
+      "approver_os_user": null,
+      "decided_at": null,
+      "decided_unix": null,
+      "digest": "b1fdb55963a455af491bf3e19f8873b8e2dc4a7d1f10c2d7e4ab90e51c21458a",
+      "id": 1,
+      "input": {
+        "amount": 45000,
+        "currency": "usd",
+        "payment_intent": "pi_3Northwind2045",
+        "reason": "Customer cancelled order #2045 before shipping"
+      },
+      "note": null,
+      "reason": "Tool calls that post to the books or move money need a recorded approval",
+      "requested_at": "2026-10-21T12:57:07Z",
+      "requested_os_user": "Harsha",
+      "rule": "finance-ops-postings",
+      "session": "sess-refunds-01",
+      "status": "pending",
+      "target": "stripe/issue_refund",
+      "tool": "mcp__stripe__issue_refund",
+      "used_unix": null
+    }
+  ],
+  "schema": "fabric.approvals/v1"
+}

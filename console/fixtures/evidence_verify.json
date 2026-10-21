@@ -1,0 +1,20 @@
+{
+  "chain": {
+    "head": "69f36af601ec36ead876e74538b50c86e5adc63895850326656ed4074f70d7f4",
+    "incomplete_tail": false,
+    "ok": true,
+    "problems": [],
+    "records": 236
+  },
+  "deep": false,
+  "exceptions": [],
+  "mandate_uses": {
+    "checked": 0,
+    "problems": []
+  },
+  "schema": "fabric.evidence.verify/v1",
+  "signed_decisions": {
+    "checked": 0,
+    "problems": []
+  }
+}

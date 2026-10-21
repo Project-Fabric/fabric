@@ -1,0 +1,135 @@
+{
+  "rules": [
+    {
+      "applies_to": "commands",
+      "decision": "deny",
+      "default": "deny",
+      "description": "Commands that can wipe disks or the whole system",
+      "rule": "system-destroy",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "deny",
+      "default": "deny",
+      "description": "Agents changing Fabric's history, rules or data",
+      "rule": "fabric-tamper",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Deleting directories recursively",
+      "rule": "recursive-delete",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Deleting files",
+      "rule": "file-delete",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Discarding work or rewriting Git history",
+      "rule": "git-history-rewrite",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Pushing code to a remote",
+      "rule": "git-push",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Publishing packages, images or releases",
+      "rule": "publish",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Dropping, truncating or bulk-deleting database data",
+      "rule": "database-destructive",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Destroying cloud or cluster resources",
+      "rule": "infrastructure-destructive",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "commands",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Downloading and running a script in one step",
+      "rule": "remote-script",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "file writes",
+      "decision": "deny",
+      "default": "deny",
+      "description": "Writing inside .git directly",
+      "rule": "git-internals",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "file writes",
+      "decision": "deny",
+      "default": "deny",
+      "description": "Writing inside Fabric's data directory",
+      "rule": "fabric-data",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "file writes",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Writing files outside the project",
+      "rule": "outside-project",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "file writes",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Writing secret files (.env, keys)",
+      "rule": "secrets",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "file writes",
+      "decision": "ask",
+      "default": "ask",
+      "description": "Changing agent or CI configuration (hooks, MCP, workflows)",
+      "rule": "agent-config",
+      "source": "built_in"
+    },
+    {
+      "applies_to": "tool calls",
+      "commands": [],
+      "committed_only": false,
+      "decision": "approve",
+      "description": "Any other Stripe write waits for a person",
+      "paths": [],
+      "rule": "stripe-writes",
+      "source": "project"
+    }
+  ],
+  "schema": "fabric.guard.rules/v2"
+}

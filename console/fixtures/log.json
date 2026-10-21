@@ -1,0 +1,20 @@
+{
+  "checkpoints": [
+    {
+      "changes": {
+        "added": 3,
+        "modified": 0,
+        "removed": 0,
+        "renamed": 0
+      },
+      "created_at": "2026-10-21T08:59:05Z",
+      "kind": "init",
+      "label": "start recording",
+      "seq": 1,
+      "snapshot": "blake3:487678fdbfa746c5ca9cc92f00f3d6e7c9cfdc46da85666446bf283df5717299"
+    }
+  ],
+  "project_root": "C:\\Users\\Harsha\\Pictures\\agentauth-stripe-demo",
+  "schema": "fabric.log/v1",
+  "total": 1
+}

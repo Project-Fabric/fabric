@@ -1,0 +1,5 @@
+{
+  "approvers": [],
+  "required": false,
+  "schema": "fabric.approver.list/v1"
+}

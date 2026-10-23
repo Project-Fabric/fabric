@@ -1,11 +1,16 @@
 # Cosigna: gateway and assistant
 
+**Unification update, 23 October 2026:** Cosigna is one product with gateway, console and
+assistant interfaces. Harsha selected a staged code merge for the existing Fabric/AgentAuth
+implementations. The landing-page refresh is authorized; the financial/runtime boundaries
+below remain intact. See [the consolidation plan](COSIGNA_UNIFICATION.md).
+
 Product direction confirmed with Harsha on 23 October 2026. This brief sets the current
 delivery order: transaction gateway first, voice pickup assistant second. It supersedes
 earlier interface-first priorities. Existing prototypes and ledgers are preserved.
 This is a design and acceptance brief, not a new implemented API or security certification.
 
-## Two products
+## One product, a shared foundation
 
 | | Cosigna Gateway | Cosigna Assistant |
 | --- | --- | --- |
@@ -23,7 +28,7 @@ explicit delegation; the first purchase pilot retains exact-quote approval for e
 
 The gateway must operate without voice, a mobile application or a particular model provider.
 The assistant is its first application. An independent agent should be able to use the same
-gateway without adopting the assistant. These are product boundaries; start with one
+gateway without adopting the assistant. These are module/interface boundaries; start with one
 modular backend rather than creating distributed services before they are needed.
 
 ## Shared transaction path

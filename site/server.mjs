@@ -7,6 +7,10 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.SITE_PORT || 3091);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid SITE_PORT.');
 const routes = new Map([
+  ['/about', ['about.html', 'text/html; charset=utf-8']],
+  ['/architecture', ['architecture.html', 'text/html; charset=utf-8']],
+  ['/benchmarks', ['benchmarks.html', 'text/html; charset=utf-8']],
+  ['/assets/gateway.svg', ['assets/gateway.svg', 'image/svg+xml']],
   ['/concept', ['pixel.html', 'text/html; charset=utf-8']],
   ['/pixel.css', ['pixel.css', 'text/css; charset=utf-8']],
   ['/pixel.js', ['pixel.js', 'text/javascript; charset=utf-8']],

@@ -3,7 +3,8 @@
 Current focus: the permission/budget and transaction execution engine, independent of voice.
 The user-provided **Cosigna Focus Areas and Build Plan** (reviewed 23 October 2026) sets the
 priorities: permission reliability, one complete purchase flow, adversarial tests, then the
-customer interface. This follows the [two-product direction](COSIGNA_REBUILD.md).
+customer interface. This follows the [unified product direction](COSIGNA_REBUILD.md)
+and [staged code-consolidation plan](COSIGNA_UNIFICATION.md).
 
 ## Working increment
 

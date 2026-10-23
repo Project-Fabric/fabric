@@ -1,5 +1,10 @@
 # Cosigna
 
+**One product, staged code consolidation (23 October 2026).** Cosigna brings agent permissions,
+approval, controlled execution and transaction recovery under one identity. Fabric and AgentAuth
+are legacy implementation names. Existing commands, API contracts and data stay compatible
+while their code paths are consolidated. See [the unification plan](docs/COSIGNA_UNIFICATION.md).
+
 Cosigna Gateway controls agent-initiated transactions through explicit permissions, exact
 approval, budget reservations and execution recovery. Cosigna Assistant is the voice product
 being developed above that foundation. This repository also preserves the existing Fabric
@@ -7,8 +12,8 @@ project recording/recovery engine; its command is `cosigna` (or the compatible `
 
 **Current product direction (23 October 2026):** build **Cosigna Gateway**, the authorization
 and execution layer for AI-initiated transactions, first. **Cosigna Assistant** will use it
-for voice-driven ordering and pickup. Interface and voice expansion are paused until the
-gateway acceptance gates are met. See [the two-product rebuild brief](docs/COSIGNA_REBUILD.md)
+for voice-driven ordering and pickup. The unified landing page is active; further assistant
+capabilities remain behind the gateway acceptance gates. See [the product rebuild brief](docs/COSIGNA_REBUILD.md)
 for existing capabilities, gaps and delivery order. Current commerce integrations remain test-only.
 
 Gateway development: [registered agent API and build plan](docs/COSIGNA_GATEWAY.md).

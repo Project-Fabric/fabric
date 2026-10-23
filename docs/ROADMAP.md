@@ -4,6 +4,11 @@ Current priority: ship a trustworthy transaction gateway. Cosigna Assistant rema
 application above it. Existing mobile, CLI and web prototypes are preserved; they are not
 evidence that production payment or identity requirements are complete.
 
+Product identity update: one **Cosigna** product, with [staged code consolidation](COSIGNA_UNIFICATION.md).
+The local landing refresh includes About, Architecture, Benchmarks, and an illustrative
+approval boundary. Browser visual review remains pending; commands, contracts and ledgers remain compatible.
+Identity delivery and consolidation gates are tracked in [#77](https://github.com/Project-Fabric/fabric/issues/77).
+
 23 October decision: local-first build and verification; cloud account creation/deployment is
 deferred. The [local pipeline plan](LOCAL_PIPELINE_PLAN.md) prioritizes authorization, crash
 recovery, concurrency and merchant/payment disagreement, with optional Apache batch tooling.
@@ -51,5 +56,5 @@ and the relevant transaction/merchant prerequisites exist. No general marketplac
 universal exactly-once execution, zero queue time or compliance certification is claimed.
 
 Implementation guides: [gateway](COSIGNA_GATEWAY.md), [transaction pipeline](TRANSACTION_PIPELINES.md),
-[two-product direction](COSIGNA_REBUILD.md), [storage/API contracts](STORAGE_FORMAT.md),
+[product/component direction](COSIGNA_REBUILD.md), [storage/API contracts](STORAGE_FORMAT.md),
 [private server operation](GATEWAY_OPERATIONS.md).

@@ -1,7 +1,12 @@
 # Cosigna Console: build brief (v1)
 
-> **Priority reset, 23 October 2026:** Cosigna is two products: the transaction gateway and
-> the voice task assistant. Gateway hardening comes first. Pause additional UI/voice expansion;
+> **Product unification, 23 October 2026:** one product, **Cosigna**, with a staged code merge
+> of the existing Fabric/AgentAuth components. The landing-page refresh is active. Preserve
+> console runtime/session/CSRF contracts and stored data; backend authority consolidation
+> remains a separately tested gate. See [the unification plan](../docs/COSIGNA_UNIFICATION.md).
+
+> **Priority reset, 23 October 2026:** Cosigna has a transaction gateway and
+> a voice task assistant interface. Gateway hardening comes first. Pause additional assistant expansion;
 > preserve existing screens and their contracts. See [the current rebuild brief](../docs/COSIGNA_REBUILD.md)
 > for the agreed boundaries and acceptance gates. The dashboard will expose gateway state;
 > it must not implement a separate payment-authority path.

@@ -2,7 +2,8 @@
 
 Current transaction-product direction: [Cosigna Gateway and Cosigna Assistant](COSIGNA_REBUILD.md).
 The gateway is the shared transaction foundation; the assistant is an application above it.
-Gateway hardening precedes further voice/UI expansion. The sections below document existing
+Gateway hardening precedes further voice capability expansion; the unified marketing site
+is active under [the staged consolidation plan](COSIGNA_UNIFICATION.md). The sections below document existing
 implementation, including the separate offline project engine and local commerce experiments;
 the rebuild brief does not change their storage or API contracts.
 

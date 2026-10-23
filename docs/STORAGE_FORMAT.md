@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 2, provider version 1)
+## Optional Cosigna agent development stores (ledger version 3, provider version 1)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 2 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events` |
+| `transactions.sqlite` | `0x43535458` | 3 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs` |
 | `fixture-provider.sqlite` | `0x43534658` | 1 | `offers`, `orders` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -321,13 +321,30 @@ timeout. Mutations that need a shared state check use `BEGIN IMMEDIATE`. The ser
 reopening and explicit interruption boundaries; physical power-loss/full-disk and actual
 process-kill durability have not been established.
 
-Ledger version 2 is an additive, single-transaction upgrade from an application-matching
-version 1 ledger. It creates the three agent tables and updates `user_version` together.
-Existing budget/task/reservation/event values, quote digests and attempt keys are unchanged.
-The fixture provider remains version 1. Versions above 2, foreign application IDs and
-unidentified nonempty databases are refused. Old executables cannot open ledger version 2;
-do not downgrade or delete agent tables in a user store. Use a separate `gateway-dev`
-profile for gateway development instead of repurposing an active phone-lab profile.
+Ledger version 2 added the three agent tables. Version 3 adds `worker_jobs` and its due-job
+index. Opening an application-matching v1/v2 ledger creates the missing tables and updates
+`user_version` to 3 in one transaction. Existing budget/task/reservation/event/agent values,
+quote digests and attempt keys are unchanged; no historical task is automatically enrolled.
+The fixture provider remains version 1. Versions above 3, foreign application IDs and
+unidentified nonempty databases are refused. Older executables refuse v3; do not downgrade
+or drop tables in user data. Stop all users of a profile and back it up before upgrading.
+Use a separate gateway development profile instead of repurposing an active phone-lab profile.
+
+- `worker_jobs`: `task_id` primary key/FK, `owner`, `state` constrained to `pending`,
+  `running`, `paused`, `done`, integer `revision`, Unix-seconds `next_at`/`updated_at`,
+  integer `reconcile_count`, nullable fixed-code `reason`. Index `worker_due` covers
+  `(state,next_at,task_id)`. Owner enrollment creates the record, not task approval.
+  Claims commit `running` before external work. Completion uses the claim's revision so
+  a later owner pause cannot be overwritten. A reopened worker pauses a running draft
+  as `planning_interrupted`; other interrupted jobs return to pending and derive their
+  next action from the existing task/approval/attempt. Unknown holds are unchanged.
+  At most 1,000 pending/running jobs; CLI ticks one job/second, waiting polls five seconds,
+  unresolved attempts back off from ten to 300 seconds and pause after twelve unresolved
+  steps. Explicit owner resume resets that allowance, never approval or attempt keys.
+- `worker.lock` is an OS-held exclusive lock for one local worker per ledger; `planner.lock`
+  bounds concurrent inference across API/worker processes using this ledger. They contain
+  no authority or secrets, are not removed on exit, and must not be deleted while a holder
+  is alive. OS lock release on process exit enables recovery. Network filesystems are unsupported.
 
 - `agents`: `id` primary key, `owner`, `name`, `budget_id` FK, JSON `permissions`
   (unique values `plan` and/or `execute`), Unix-seconds `expires_at`, Boolean `revoked`,
@@ -420,6 +437,18 @@ planner, synthetic owner approval source, pipeline ID, ordered stage names, repl
 synthetic order count and existing balance object. No bearer/hash/payment credential appears.
 `cosigna.roadmap-sync/v1` is a timestamped repository project snapshot (`captured_at`, project
 URL and item title/state/URL/item ID), not payment state or evidence of feature completeness.
+
+### Worker API version 1
+
+Owner-only GET/POST `/gateway/v1/pipelines/{id}/worker` uses `cosigna.worker/v1`.
+POST accepts only `{action}` with `enroll`, `pause` or `resume`. Success contains `schema`,
+`simulated_provider:true`, and `data` with the worker job fields above (excluding owner).
+Errors use `{schema,error:{code,message}}` with the worker schema. Registered agent/legacy
+planner/executor credentials cannot control or inspect jobs. Enrollment replay never resumes
+a paused job; only paused jobs can resume. No worker route creates approval, changes budgets
+or replaces attempt keys. Existing pipeline/task envelopes retain their versions.
+The worker CLI emits the same success envelope for processed jobs, and no request, model
+response, reasoning, bearer/hash or payment credentials. See [operations](GATEWAY_OPERATIONS.md).
 
 ### Headless gateway API version 1
 

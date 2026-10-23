@@ -190,6 +190,18 @@ impl Service {
 
     pub fn plan(&self, actor: &Actor, id: &str, planner: &dyn Planner, at: i64) -> Result<Task> {
         actor.require(&[Role::Owner, Role::Planner])?;
+        // Bound inference concurrency across API and worker processes sharing this
+        // local ledger. Acquire before rereading task state; concurrent callers
+        // fail with conflict rather than invoke a second model request.
+        let planning_lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.ledger.with_file_name("planner.lock"))?;
+        planning_lock
+            .try_lock()
+            .map_err(|_| Error::Conflict("another planning operation is in progress".into()))?;
         let task = self.task(actor, id)?;
         self.check_agent_task(
             &storage::connect(&self.ledger, false)?,

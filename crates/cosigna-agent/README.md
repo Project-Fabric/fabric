@@ -49,7 +49,10 @@ ACLs. Custom directories need appropriate local access restrictions.
 The API listens only on `127.0.0.1:3092`. It rejects browser `Origin` headers and unexpected
 `Host` headers. It has no CORS support and is not currently a mobile/public deployment.
 The HTTP server processes requests sequentially; production identity, TLS termination,
-rate limiting, cancellation, robust request timeouts and a concurrent job worker remain work.
+rate limiting and robust request timeouts remain work. A separate opt-in durable `worker`
+process now schedules owner-enrolled tasks, waits for exact approval and reconciles unknown
+outcomes. See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
+queue controls, recovery limits and private Linux systemd templates. No server is provisioned.
 
 ## Hosted planner
 
@@ -81,16 +84,17 @@ fallback. Both adapters use the same strict plan schema and local validation and
 approval/execution tools. See [Groq Responses](https://console.groq.com/docs/responses-api)
 and [structured output](https://console.groq.com/docs/structured-outputs).
 
-Only `/plan` performs inference, so calling it in hosted mode incurs provider charges.
+Planning through `/plan`, pipeline advance or the worker in hosted mode incurs provider charges.
 The adapter sends the request, required features, currency, per-purchase ceiling and the
 synthetic catalog to the selected provider's fixed HTTPS endpoint. It does not send role credentials,
 payment credentials, user IDs or task idempotency keys. `store:false` is requested; this is
 not a claim of zero provider retention. A 30-second request timeout and 256-KiB response
 limit apply. Errors/refusals/incomplete output do not authorize anything. Successful
-planning replays return the existing quote rather than repeating inference. Concurrent
-planning requests can still each incur inference cost; optimistic versions prevent one
-result overwriting a changed task. Production inference rate limits and deduplication are
-not yet implemented.
+planning replays return the existing quote rather than repeating inference. A ledger-local
+OS lock rejects concurrent planning before inference; optimistic versions still prevent
+overwriting a changed task. Worker inference failures/interruption pause for review rather
+than automatically retrying paid calls. Production/provider-wide rate limits and billing
+deduplication are not implemented.
 
 The model can return only a catalog offer ID and quantity, or a clarification. Prices,
 seller, currency, terms and fulfillment are loaded from the provider catalog by code.

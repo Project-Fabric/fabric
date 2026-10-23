@@ -197,6 +197,19 @@ pub(crate) fn dispatch_authenticated(
     };
     let parts: Vec<_> = path.split('/').collect();
     let data = match (method, parts.as_slice()) {
+        ("GET", ["", "gateway", "v1", "pipelines", id, "worker"]) if owner => {
+            return Ok(
+                json!({"schema":crate::worker::API_VERSION,"simulated_provider":true,
+                "data":crate::worker::inspect(&service,&actor,id)?}),
+            );
+        }
+        ("POST", ["", "gateway", "v1", "pipelines", id, "worker"]) if owner => {
+            let control: crate::worker::Control = decode(body)?;
+            return Ok(
+                json!({"schema":crate::worker::API_VERSION,"simulated_provider":true,
+                "data":crate::worker::control(&service,&actor,id,control.action,at)?}),
+            );
+        }
         ("POST", ["", "gateway", "v1", "pipelines"]) => {
             return Ok(serde_json::to_value(crate::pipeline::start(
                 &service,

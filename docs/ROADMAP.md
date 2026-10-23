@@ -15,7 +15,7 @@ verification evidence rather than inferring completion from a demo.
 | G1 Reproducible product baseline | Published; GitHub Rust CI passed on Windows, Linux and macOS | [#70](https://github.com/Project-Fabric/fabric/issues/70), baseline `b896759` |
 | G2 Transaction-agent pipeline | First caller-driven pipeline implemented; separate background operations remain G4 | [#71](https://github.com/Project-Fabric/fabric/issues/71): typed state, approval boundary, replay, scope, restart and recovery tests |
 | G3 Signed permits and production owner identity | Planned; existing agent bearers are development credentials | [#72](https://github.com/Project-Fabric/fabric/issues/72): transaction binding, expiry, audience, replay, verified owner proof and key lifecycle |
-| G4 Durable workers and operating controls | Next operating increment after G2 | [#73](https://github.com/Project-Fabric/fabric/issues/73): bounded queue/outbox, inference deduplication, rate limits, redacted traces and operator recovery |
+| G4 Durable workers and operating controls | Local single-worker queue/recovery and private systemd templates implemented; hosting not selected/deployed | [#73](https://github.com/Project-Fabric/fabric/issues/73): target-host smoke/reboot/restore tests, public API limits, alerting and operating hardening remain |
 | G5 One merchant/payment connector pilot | Test merchant and Stripe sandbox exist; live access/eligibility unproven | [#74](https://github.com/Project-Fabric/fabric/issues/74): select merchant/country/method; authentication, failures, webhook and compensation evidence |
 | G6 Adversarial regression and release evidence | Active; automated regression checks implemented, deeper assurance remains open | [#75](https://github.com/Project-Fabric/fabric/issues/75): property-based invariants, process-kill tests, held-out model attacks and independent review |
 | G7 Design-partner adoption | Planned; test payments are not revenue or customer traction | [#76](https://github.com/Project-Fabric/fabric/issues/76): one narrow adopted workflow and measured operational outcomes |
@@ -47,4 +47,5 @@ and the relevant transaction/merchant prerequisites exist. No general marketplac
 universal exactly-once execution, zero queue time or compliance certification is claimed.
 
 Implementation guides: [gateway](COSIGNA_GATEWAY.md), [transaction pipeline](TRANSACTION_PIPELINES.md),
-[two-product direction](COSIGNA_REBUILD.md), [storage/API contracts](STORAGE_FORMAT.md).
+[two-product direction](COSIGNA_REBUILD.md), [storage/API contracts](STORAGE_FORMAT.md),
+[private server operation](GATEWAY_OPERATIONS.md).

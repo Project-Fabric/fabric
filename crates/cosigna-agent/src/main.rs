@@ -42,6 +42,20 @@ enum Command {
         #[arg(long)]
         test_merchant_url: Option<String>,
     },
+    /// Run the opt-in durable scheduler. Only explicitly owner-enrolled tasks are processed.
+    Worker {
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+        #[arg(long, value_enum, default_value_t = PlannerMode::Fixtures)]
+        planner: PlannerMode,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        test_merchant_url: Option<String>,
+        /// Process at most one due job then exit (also useful for scheduler checks).
+        #[arg(long)]
+        once: bool,
+    },
     /// Run an isolated, deterministic end-to-end demo; no API key or real purchase.
     Demo,
     /// Exercise registered agent permissions and exact approval; fixtures only, no secrets logged.
@@ -91,18 +105,38 @@ fn run() -> Result<()> {
             let directory = directory(data_dir)?;
             let credentials = Credentials::load(&directory.join("credentials.json"))?;
             let service = open_service(&directory, test_merchant_url)?;
-            let planner: Box<dyn Planner> = match planner {
-                PlannerMode::Fixtures => Box::new(FixturePlanner),
-                PlannerMode::Openai => Box::new(HostedPlanner::new(
-                    model.unwrap_or_else(|| "gpt-6.1-sol".into()),
-                    OpenAITransport::from_env()?,
-                )?),
-                PlannerMode::Groq => Box::new(HostedPlanner::new(
-                    model.unwrap_or_else(|| "openai/gpt-oss-120b".into()),
-                    GroqTransport::from_env()?,
-                )?),
-            };
+            let planner = make_planner(planner, model)?;
             api::serve(&service, planner.as_ref(), &credentials, port)
+        }
+        Command::Worker {
+            data_dir,
+            planner,
+            model,
+            test_merchant_url,
+            once,
+        } => {
+            let directory = directory(data_dir)?;
+            // Refuse an accidental new store: initialize this profile explicitly.
+            Credentials::load(&directory.join("credentials.json"))?;
+            let service = open_service(&directory, test_merchant_url)?;
+            let mut worker = cosigna_agent::worker::Worker::open(&service)?;
+            let planner = make_planner(planner, model)?;
+            eprintln!(
+                "Cosigna worker · enrolled tasks only · planner: {} · SIMULATED merchant",
+                planner.name()
+            );
+            loop {
+                if let Some(job) = worker.tick(planner.as_ref(), now())? {
+                    println!(
+                        "{}",
+                        json!({"schema":cosigna_agent::worker::API_VERSION,"simulated_provider":true,"data":job})
+                    );
+                }
+                if once {
+                    return Ok(());
+                }
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
         }
         Command::Demo => demo(),
         Command::GatewayDemo => {
@@ -120,6 +154,20 @@ fn run() -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn make_planner(mode: PlannerMode, model: Option<String>) -> Result<Box<dyn Planner>> {
+    Ok(match mode {
+        PlannerMode::Fixtures => Box::new(FixturePlanner),
+        PlannerMode::Openai => Box::new(HostedPlanner::new(
+            model.unwrap_or_else(|| "gpt-6.1-sol".into()),
+            OpenAITransport::from_env()?,
+        )?),
+        PlannerMode::Groq => Box::new(HostedPlanner::new(
+            model.unwrap_or_else(|| "openai/gpt-oss-120b".into()),
+            GroqTransport::from_env()?,
+        )?),
+    })
 }
 
 fn open_service(directory: &std::path::Path, url: Option<String>) -> Result<Service> {

@@ -294,7 +294,10 @@ pub fn serve(
         if gateway_request && value.get("error").is_some() {
             let pipeline_request = request.url() == "/gateway/v1/pipelines"
                 || request.url().starts_with("/gateway/v1/pipelines/");
-            value["schema"] = if pipeline_request {
+            let worker_request = pipeline_request && request.url().ends_with("/worker");
+            value["schema"] = if worker_request {
+                crate::worker::API_VERSION
+            } else if pipeline_request {
                 crate::pipeline::API_VERSION
             } else {
                 crate::gateway::API_VERSION

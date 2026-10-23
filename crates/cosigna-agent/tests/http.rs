@@ -150,7 +150,14 @@ fn loopback_server_authenticates_roles_and_rejects_browser_origins() {
         let status = response.status().as_u16();
         assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
         let value: Value = response.body_mut().read_json().unwrap();
-        assert_eq!(value["schema"], cosigna_agent::gateway::API_VERSION);
+        assert_eq!(
+            value["schema"],
+            if path.ends_with("/worker") {
+                cosigna_agent::worker::API_VERSION
+            } else {
+                cosigna_agent::gateway::API_VERSION
+            }
+        );
         (status, value)
     };
     let (status, issued) = send_gateway(
@@ -248,6 +255,31 @@ fn loopback_server_authenticates_roles_and_rejects_browser_origins() {
     assert_eq!(pipeline["schema"], cosigna_agent::pipeline::API_VERSION);
     assert_eq!(pipeline["status"], "confirmed");
     assert_eq!(pipeline["pipeline_id"], gateway_task);
+    let worker_path = format!("/pipelines/{gateway_task}/worker");
+    let (status, denied) = send_gateway(&agent_auth, &worker_path, json!({"action":"enroll"}));
+    assert_eq!(status, 404);
+    assert_eq!(denied["schema"], cosigna_agent::worker::API_VERSION);
+    let (status, enrolled) = send_gateway(&owner_auth, &worker_path, json!({"action":"enroll"}));
+    assert_eq!(status, 200);
+    assert_eq!(enrolled["schema"], cosigna_agent::worker::API_VERSION);
+    assert_eq!(enrolled["data"]["state"], "pending");
+    assert_eq!(
+        send_gateway(
+            &owner_auth,
+            &worker_path,
+            json!({"action":"resume","approved":true})
+        )
+        .0,
+        400
+    );
+    let mut job_response = client
+        .get(format!("{address}/gateway/v1{worker_path}"))
+        .header("Authorization", &owner_auth)
+        .call()
+        .unwrap();
+    assert_eq!(job_response.status(), 200);
+    let job: Value = job_response.body_mut().read_json().unwrap();
+    assert_eq!(job["schema"], cosigna_agent::worker::API_VERSION);
     let mut rejected = client
         .post(format!(
             "{address}/gateway/v1/pipelines/{gateway_task}/advance"

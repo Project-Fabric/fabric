@@ -9,7 +9,9 @@ customer interface. This follows the [two-product direction](COSIGNA_REBUILD.md)
 
 The [transaction pipeline](TRANSACTION_PIPELINES.md) now coordinates these primitives through
 create/read/advance endpoints. It pauses for owner approval and recovers existing attempts;
-it is caller-driven and does not yet provide background workers or a production deployment.
+it supports caller-driven advances and an opt-in local worker. See
+[persistent server operation](GATEWAY_OPERATIONS.md) for explicit scheduling and private systemd
+templates. No production deployment or hosting account is provisioned.
 
 Registered agents now have separate credentials, immutable `plan`/`execute` permissions,
 one owner-controlled budget, expiry and revocation. Creation, planning and execution use the

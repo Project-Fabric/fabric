@@ -6,7 +6,9 @@ task, quote, approval, reservation and attempt are the source of truth; restarti
 does not create another purchase or forget an uncertain result.
 
 Each `advance` performs at most one planning, execution or reconciliation operation. It does
-not run an unrestricted agent loop or start a background worker. A registered agent supplies
+not run an unrestricted agent loop. An optional separate `worker` process now schedules
+explicitly owner-enrolled tasks; see [persistent operation](GATEWAY_OPERATIONS.md).
+A registered agent supplies
 only its scoped bearer credential; the server selects the configured planner and connector.
 
 ```mermaid
@@ -82,13 +84,16 @@ adapter. Real inference requires a backend key and consumes provider quota; CI u
 and fake transports. The model still receives no approval or execution tool. Model training
 and independent quality/attack evaluations are separate work.
 
-## Next operating increment
+## Persistent operation and remaining work
 
-The next pipeline stage is a bounded durable worker/queue with outbox recovery, inference
-deduplication and rate limits, secret isolation, redacted traces and operator recovery. It must
-preserve the same approval/claim/reconciliation boundaries. Production owner identity,
-signed one-time transaction permits and a supported live connector remain separate gates.
-Do not expose the current loopback lab as a production service.
+The bounded local worker/queue is implemented: explicit enrollment, durable operation markers,
+single-process scheduling, bounded concurrent inference, approval polling, lookup backoff and
+review after interrupted inference. It uses the existing approval/claim/reconciliation
+boundaries and never auto-enrolls old tasks. Systemd templates support a private sandbox pilot;
+target-host operation is not yet verified. Distributed workers, public API rate limits,
+production owner identity, signed one-time transaction permits, authoritative AgentAuth
+integration and a supported live connector remain separate gates. Do not expose the current
+loopback lab as a production service.
 
 Tests cover approval gating, model-call repetition, scope escalation, service reopen,
 uncertain provider outcomes, concurrent execution, expiry/revocation and HTTP versioning.

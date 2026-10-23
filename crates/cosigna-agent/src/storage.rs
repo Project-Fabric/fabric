@@ -33,7 +33,7 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
                 CREATE TABLE reservations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), budget_id TEXT NOT NULL REFERENCES budgets(id), amount INTEGER NOT NULL CHECK(amount>0), state TEXT NOT NULL CHECK(state IN ('held','spent','released')));
                 CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, at INTEGER NOT NULL);")?;
         }
-    } else if app != expected || !(version == 1 || (!provider && version == 2)) {
+    } else if app != expected || !(version == 1 || (!provider && (2..=3).contains(&version))) {
         return Err(Error::StoreFormat);
     }
     // Additive, transactional upgrade; existing task JSON and provider format stay v1.
@@ -46,6 +46,18 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
             CREATE TABLE task_agents (task_id TEXT PRIMARY KEY REFERENCES tasks(id), agent_id TEXT NOT NULL REFERENCES agents(id));
             CREATE TABLE agent_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL REFERENCES agents(id), kind TEXT NOT NULL, at INTEGER NOT NULL);")?;
         tx.pragma_update(None, "user_version", 2)?;
+    }
+    if !provider && version < 3 {
+        tx.execute_batch(
+            "CREATE TABLE worker_jobs (
+            task_id TEXT PRIMARY KEY REFERENCES tasks(id), owner TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('pending','running','paused','done')),
+            revision INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL,
+            reconcile_count INTEGER NOT NULL DEFAULT 0, reason TEXT,
+            updated_at INTEGER NOT NULL);
+            CREATE INDEX worker_due ON worker_jobs(state,next_at,task_id);",
+        )?;
+        tx.pragma_update(None, "user_version", 3)?;
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL;")?;

@@ -10,6 +10,7 @@ pub mod planner;
 pub mod provider;
 pub mod service;
 mod storage;
+pub mod worker;
 
 pub use domain::*;
 pub use service::Service;

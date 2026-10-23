@@ -32,6 +32,12 @@ jobs:
       - run: rustup show
       - run: cargo test -p cosigna-agent --locked
       - run: cargo run -p cosigna-agent --locked -- pipeline-demo
+      - run: node scripts/check-gateway-service.mjs
+      - name: Validate private Linux service templates
+        run: |
+          sudo install -d /opt/cosigna/bin
+          sudo install -m 0755 target/debug/cosigna-agent /opt/cosigna/bin/cosigna-agent
+          systemd-analyze verify deploy/systemd/cosigna-api.service deploy/systemd/cosigna-worker.service
       - run: npm ci
         working-directory: testbeds/voice-merchant
       - run: npm test

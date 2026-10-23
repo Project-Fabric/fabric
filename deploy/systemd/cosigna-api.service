@@ -1,0 +1,28 @@
+[Unit]
+Description=Cosigna private sandbox gateway API
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=cosigna
+Group=cosigna
+UMask=0077
+StateDirectory=cosigna
+StateDirectoryMode=0700
+ExecStart=/opt/cosigna/bin/cosigna-agent serve --data-dir /var/lib/cosigna --port 3100 --planner fixtures
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cosigna
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

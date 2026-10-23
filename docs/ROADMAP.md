@@ -5,8 +5,9 @@ application above it. Existing mobile, CLI and web prototypes are preserved; the
 evidence that production payment or identity requirements are complete.
 
 Product identity update: one **Cosigna** product, with [staged code consolidation](COSIGNA_UNIFICATION.md).
-The local landing refresh includes About, Architecture, Benchmarks, and an illustrative
-approval boundary. Browser visual review remains pending; commands, contracts and ledgers remain compatible.
+24 October: the landing page was restored to the earlier dark version from before the blue
+redesign. The subsequent subpages, theme switch and Griffin-style refresh were removed from
+the active preview. Product consolidation remains staged; commands, contracts and ledgers remain compatible.
 Identity delivery and consolidation gates are tracked in [#77](https://github.com/Project-Fabric/fabric/issues/77).
 
 23 October decision: local-first build and verification; cloud account creation/deployment is

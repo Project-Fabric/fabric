@@ -23,6 +23,11 @@ domain change, key rotation, package rename or database migration is part of the
 
 ## Stage 1 — one identity and honest product surface
 
+24 October status: Harsha requested restoration of the earlier dark landing page, before the
+blue redesign. The later subpages, theme switch and editorial refresh are retained in Git
+history only. Their design/implementation notes below describe that earlier attempt, not
+the active preview. The one-product decision and staged backend consolidation still apply.
+
 - Public-facing product name: Cosigna. Gateway, Console and Assistant are components/interfaces.
 - One landing page explains the authority boundary and links About, Architecture and Benchmarks.
 - Separate implemented sandbox capabilities, illustrative UI and planned integrations.
@@ -75,9 +80,3 @@ or customer statistic was copied. The blue gateway SVG and all Cosigna UI exampl
 
 Browser connectivity was unavailable during implementation; functional DOM, route and motion
 checks are recorded separately from any future browser visual review.
-
-The subsequent editorial refresh follows Harsha's Griffin reference: warm dark/light themes,
-serif typography, an original character field, isometric transaction layers with reversible
-scroll/manual controls, and an illustrative UI/JSON view. It preserves the exact-approval
-demo boundary. No Griffin source, commercial fonts, artwork, customer claims or regulated
-banking claims were imported. Source consolidation and browser visual review remain open.

@@ -116,60 +116,20 @@ if (!reducedMotion.matches && 'IntersectionObserver' in window) {
   for (const element of document.querySelectorAll('.reveal')) observer.observe(element);
 }
 
-// Original ambient wireframe, behind the locally authored gateway illustration.
+// Original character field; capped at 30fps and stopped offscreen or when paused.
 const canvas = document.querySelector('#authority-field');
 const context = canvas?.getContext('2d');
 const motionToggle = document.querySelector('#motion-toggle');
 if (context && motionToggle) {
-  let width = 0, height = 0, phase = 0, lastTime = 0, frame = 0;
-  let paused = reducedMotion.matches;
-  let artVisible = true;
-  const ringPoints = [];
-  for (let ring = 0; ring < 2; ring++) {
-    const paths = [];
-    for (let meridian = 0; meridian < 19; meridian++) {
-      const path = []; const v = meridian / 19 * Math.PI * 2;
-      for (let step = 0; step <= 96; step++) path.push(surface(step / 96 * Math.PI * 2, v, ring));
-      paths.push(path);
-    }
-    for (let step = 0; step < 50; step++) {
-      const path = []; const u = step / 50 * Math.PI * 2;
-      for (let meridian = 0; meridian <= 28; meridian++) path.push(surface(u, meridian / 28 * Math.PI * 2, ring));
-      paths.push(path);
-    }
-    ringPoints.push(paths);
-  }
-  function surface(u, v, ring) {
-    const radius = 1.72 + .36 * Math.cos(v);
-    let x = radius * Math.cos(u), y = radius * Math.sin(u) * 1.13, z = .36 * Math.sin(v);
-    const tilt = ring === 0 ? -.7 : .7;
-    [x, z] = [x * Math.cos(tilt) + z * Math.sin(tilt), -x * Math.sin(tilt) + z * Math.cos(tilt)];
-    x += ring === 0 ? -.72 : .72;
-    return [x, y, z];
-  }
-  function project(point) {
-    let [x, y, z] = point;
-    const a = .68 + Math.sin(phase * .18) * .12, b = -.46 + Math.sin(phase * .12) * .1;
-    [y, z] = [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
-    [x, y] = [x * Math.cos(b) - y * Math.sin(b), x * Math.sin(b) + y * Math.cos(b)];
-    const perspective = 7 / (7 + z), scale = Math.min(width * .16, height * .26);
-    return [width * .53 + x * scale * perspective, height * .51 + y * scale * perspective, z];
-  }
-  function draw() {
-    context.clearRect(0, 0, width, height); context.lineWidth = .65;
-    for (const [ring, paths] of ringPoints.entries()) for (const path of paths) {
-      const projected = path.map(project), depth = projected.reduce((sum, p) => sum + p[2], 0) / projected.length;
-      context.strokeStyle = `rgba(${ring === 0 ? '83,116,207' : '113,146,227'},${Math.max(.07, .17 - depth * .028)})`;
-      context.beginPath(); for (const [index, point] of projected.entries()) { if (index === 0) context.moveTo(point[0], point[1]); else context.lineTo(point[0], point[1]); } context.stroke();
-    }
-    for (let ring = 0; ring < 2; ring++) {
-      const p = project(surface(phase * .13 + ring * Math.PI, .35, ring));
-      context.beginPath(); context.arc(p[0], p[1], 2.6, 0, Math.PI * 2); context.fillStyle = '#dfcfb3'; context.fill();
-    }
-  }
+  document.body.classList.add('has-character-canvas');
+  let width = 0, height = 0, phase = 1.1, lastTime = 0, frame = 0;
+  let paused = reducedMotion.matches, artVisible = true;
+  function draw() { drawAuthorityCharacters(context, width, height, phase, document.documentElement.dataset.theme === 'dark'); }
   function resize() {
     const rect = canvas.getBoundingClientRect(); width = rect.width; height = rect.height;
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.75); canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); context.setTransform(ratio, 0, 0, ratio, 0, 0); draw();
+    const ratio = Math.min(window.devicePixelRatio || 1, 1.75);
+    canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
+    context.setTransform(ratio, 0, 0, ratio, 0, 0); draw();
   }
   function tick(time) {
     frame = 0; if (paused || document.hidden || !artVisible) return;
@@ -190,6 +150,7 @@ if (context && motionToggle) {
   document.addEventListener('visibilitychange', updateMotion);
   if ('ResizeObserver' in window) new ResizeObserver(resize).observe(canvas); else window.addEventListener('resize', resize);
   if ('IntersectionObserver' in window) new IntersectionObserver(entries => { artVisible = entries.some(entry => entry.isIntersecting); updateMotion(); }).observe(canvas);
+  new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   resize(); updateMotion();
 } else if (motionToggle) {
   let paused = reducedMotion.matches;

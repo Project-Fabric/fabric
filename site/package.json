@@ -3,5 +3,5 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "node server.mjs", "start": "node server.mjs", "check": "node --check server.mjs && node --check theme.js && node --check app.js && node --check pixel.js && node --check pixel-renderer.js", "test": "node --test tests/*.test.mjs ../console/tests/landing.test.mjs ../console/tests/pixel.test.mjs" }
+  "scripts": { "dev": "node server.mjs", "start": "node server.mjs", "check": "node --check server.mjs && node --check theme.js && node --check character-field.js && node --check story.js && node --check app.js && node --check pixel.js && node --check pixel-renderer.js", "test": "node --test tests/*.test.mjs ../console/tests/landing.test.mjs ../console/tests/pixel.test.mjs" }
 }

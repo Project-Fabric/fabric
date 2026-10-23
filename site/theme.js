@@ -11,7 +11,7 @@
     const theme = preference === 'system' ? (device.matches ? 'dark' : 'light') : preference;
     root.dataset.theme = theme;
     root.dataset.themePreference = preference;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0b101b' : '#f8f9fc');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0c0c0b' : '#f5f2eb');
     for (const toggle of document.querySelectorAll('[data-theme-toggle]')) {
       const label = `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`;
       toggle.setAttribute('aria-label', label); toggle.title = label; toggle.hidden = false;

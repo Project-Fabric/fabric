@@ -18,7 +18,7 @@ function landing(withCanvas = false, options = {}) {
   }
   const frames = new Map(); let id = 0, draws = 0;
   const finite = (...values) => values.forEach(value => assert.ok(Number.isFinite(value), 'Canvas coordinates must be finite.'));
-  const context = { clearRect() { draws++; }, setTransform: finite, beginPath() {}, moveTo: finite, lineTo: finite, stroke() {}, arc: finite, fill() {} };
+  const context = { clearRect() { draws++; }, setTransform: finite, fillText(_char, x, y) { finite(x, y); }, beginPath() {}, moveTo: finite, lineTo: finite, stroke() {}, arc: finite, fill() {} };
   Object.defineProperty(dom.window.HTMLCanvasElement.prototype, 'getContext', { value: () => withCanvas ? context : null });
   Object.defineProperty(dom.window.HTMLCanvasElement.prototype, 'getBoundingClientRect', { value: () => ({ width: 800, height: 600 }) });
   dom.window.requestAnimationFrame = callback => { frames.set(++id, callback); return id; };
@@ -27,7 +27,9 @@ function landing(withCanvas = false, options = {}) {
   Object.defineProperty(dom.window.HTMLDialogElement.prototype, 'close', { value: function () { this.removeAttribute('open'); } });
   dom.window.eval(readFileSync(new URL('../../site/theme.js', import.meta.url), 'utf8'));
   dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+  dom.window.eval(readFileSync(new URL('../../site/character-field.js', import.meta.url), 'utf8'));
   dom.window.eval(readFileSync(new URL('../../site/app.js', import.meta.url), 'utf8'));
+  dom.window.eval(readFileSync(new URL('../../site/story.js', import.meta.url), 'utf8'));
   return { dom, frames, timers, device, requests: () => requests, draws: () => draws };
 }
 
@@ -54,7 +56,7 @@ test('landing provides dashboard guidance with an accessible closeable dialog', 
   } finally { dom.window.close(); }
 });
 
-test('wireframe starts still for reduced motion and supports an explicit resume and pause', () => {
+test('character field starts still for reduced motion and supports an explicit resume and pause', () => {
   const preview = landing(true), { dom, frames } = preview;
   try {
     const toggle = dom.window.document.querySelector('#motion-toggle');
@@ -140,7 +142,7 @@ test('theme follows the device until explicitly changed and persists across page
       try {
         const document = next.dom.window.document;
         assert.equal(document.documentElement.dataset.theme, 'dark');
-        assert.equal(document.querySelector('meta[name="theme-color"]').content, '#0b101b');
+        assert.equal(document.querySelector('meta[name="theme-color"]').content, '#0c0c0b');
         const source = readFileSync(new URL(`../../site/${page}.html`, import.meta.url), 'utf8');
         assert.ok(source.indexOf('src="/theme.js"') < source.indexOf('href="/styles.css"'), 'Resolve theme before styles');
       } finally { next.dom.window.close(); }
@@ -151,6 +153,46 @@ test('theme follows the device until explicitly changed and persists across page
     assert.equal(p.dom.window.localStorage.getItem('cosigna.theme'), null);
     p.device.matches = true; p.device.change(); assert.equal(doc.documentElement.dataset.theme, 'dark');
     assert.equal(doc.querySelector('#purchase-demo').dataset.state, 'waiting'); assert.equal(p.requests(), 0);
+  } finally { p.dom.window.close(); }
+});
+
+test('transaction layers scrub forward and backward without granting approval', () => {
+  const p = landing(false, { reduced: false }), { dom, frames } = p, doc = dom.window.document;
+  try {
+    const story = doc.querySelector('#authority-story');
+    let progress = 0;
+    story.getBoundingClientRect = () => ({ top: 88 - progress * (2400 - dom.window.innerHeight), height: 2400 });
+    for (const [value, expected] of [[0, '0'], [.4, '1'], [.8, '3'], [.1, '0']]) {
+      progress = value; dom.window.dispatchEvent(new dom.window.Event('scroll'));
+      for (const [id, callback] of [...frames]) { frames.delete(id); callback(1000); }
+      assert.equal(story.dataset.stage, expected);
+      assert.equal(doc.querySelector('#purchase-demo').dataset.state, 'waiting');
+    }
+    doc.querySelector('[data-chapter="2"]').click(); assert.equal(story.dataset.stage, '2');
+    progress = 1; dom.window.dispatchEvent(new dom.window.Event('scroll')); assert.equal(frames.size, 0);
+    assert.equal(story.dataset.stage, '2', 'Manual selection stays under user control');
+    doc.querySelector('[data-story-mode]').click();
+    for (const [id, callback] of [...frames]) { frames.delete(id); callback(1000); }
+    assert.equal(story.dataset.stage, '3'); assert.equal(p.requests(), 0);
+  } finally { dom.window.close(); }
+});
+
+test('reduced-motion chapter controls and JSON view remain interactive without payment I/O', async () => {
+  const p = landing(), doc = p.dom.window.document;
+  try {
+    const story = doc.querySelector('#authority-story');
+    assert.equal(story.classList.contains('is-scrubbing'), false);
+    assert.equal(doc.querySelector('[data-story-mode]').hidden, true);
+    doc.querySelector('[data-chapter="3"]').click(); assert.equal(story.dataset.stage, '3');
+    assert.equal(doc.querySelector('#purchase-demo').dataset.state, 'waiting');
+    doc.querySelector('#view-record').click(); assert.equal(doc.querySelector('#purchase-ui').hidden, true);
+    assert.equal(doc.querySelector('#purchase-record').hidden, false);
+    doc.querySelector('[data-scenario="over"]').click(); await Promise.resolve();
+    const record = JSON.parse(doc.querySelector('#example-record').textContent);
+    assert.equal(record.amount_minor, 2800); assert.equal(record.state, 'blocked'); assert.equal(record.illustrative, true);
+    doc.querySelector('#view-record').dispatchEvent(new p.dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    assert.equal(doc.activeElement, doc.querySelector('#view-ui')); assert.equal(doc.querySelector('#purchase-ui').hidden, false);
+    assert.equal(doc.querySelector('#demo-approve').disabled, true); assert.equal(p.requests(), 0);
   } finally { p.dom.window.close(); }
 });
 

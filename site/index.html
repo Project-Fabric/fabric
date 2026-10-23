@@ -4,9 +4,9 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cosigna — Your agents. Your authority.</title>
 <meta name="description" content="The control layer for AI-initiated payments. Define permissions, review exact actions, and reconcile uncertain results with Cosigna.">
-<meta name="theme-color" content="#f8f9fc"><meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f5f2eb"><meta name="robots" content="noindex,nofollow">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="preload" href="/assets/inter-medium.woff2" as="font" type="font/woff2" crossorigin>
-<script src="/theme.js"></script><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/theme.css"><script src="/app.js" defer></script>
+<script src="/theme.js"></script><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/editorial.css"><script src="/character-field.js" defer></script><script src="/app.js" defer></script><script src="/story.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -20,37 +20,39 @@
 <main id="main">
 <section class="hero" aria-labelledby="hero-title">
 <div class="hero-copy">
-<p class="overline"><span class="small-dot"></span> THE AUTHORITY LAYER FOR AI PAYMENTS</p>
-<h1 id="hero-title">Your agents.<br><span>Your authority.</span></h1>
-<p class="hero-description">Give agents the ability to move money, with the boundaries you set. Permissions, exact approvals, and transaction recovery. Together in Cosigna.</p>
+<p class="overline"><span class="small-dot"></span> TRANSACTION INFRASTRUCTURE FOR AI</p>
+<h1 id="hero-title">Agents act.<br><span>You decide.</span></h1>
+<p class="hero-description">The transaction foundation for AI agents. Set the boundaries, approve the exact action, and follow every attempt through to its outcome.</p>
 <div class="hero-actions"><a class="button button-dark" href="#live-example">See how it works <span aria-hidden="true">↗</span></a><a class="text-button" href="/architecture">Explore the architecture <span aria-hidden="true">→</span></a></div>
 <p class="preview-caption"><span class="small-dot"></span> Developer preview <span>·</span> Payments tested in sandbox</p>
 </div>
-<div class="hero-art" aria-label="An illustrative payment passing through a blue Cosigna gateway" role="img">
-<canvas id="authority-field" aria-hidden="true"></canvas>
-<div class="gateway-visual"><img class="gateway-light" src="/assets/gateway.svg" alt="" width="780" height="650" fetchpriority="high"><img class="gateway-dark" src="/assets/gateway-dark.svg" alt="" width="780" height="650"></div>
-<div class="floating-ticket"><span class="ticket-icon" aria-hidden="true">↗</span><div><span class="ticket-eyebrow">PURCHASE REQUEST</span><strong>One oat latte</strong><span>Pickup · fixture café</span></div><b>$7.00</b></div>
-<div class="floating-policy"><span class="policy-check" aria-hidden="true">✓</span><div><strong>Inside your $10 limit</strong><span>Waiting for your exact approval</span></div><span class="policy-dot" aria-hidden="true"></span></div>
-<span class="art-label">ILLUSTRATIVE WORKFLOW</span>
+<div class="hero-art" aria-label="Three connected forms drawn from moving characters, illustrating a continuous transaction boundary" role="img">
+<canvas id="authority-field" aria-hidden="true"></canvas><pre class="ascii-fallback" aria-hidden="true">     . : + # + : .       . : + # + : .       . : + # + : .
+  : + #         # + : : + #         # + : : + #         # + :
+: #               # + #               # + #               # :
+  : + #         # + : : + #         # + : : + #         # + :
+     . : + # + : .       . : + # + : .       . : + # + : .</pre>
 </div>
-<div class="hero-foot"><a href="#approach">Built for the next move <span aria-hidden="true">↓</span></a><div class="hero-flow"><span>Permission</span><i>→</i><span>Approval</span><i>→</i><span>Execution</span><i>→</i><span>Recovery</span></div><button id="motion-toggle" type="button" aria-pressed="false" aria-label="Pause background animation">Ⅱ <span>Pause motion</span></button></div>
+<div class="hero-foot"><a href="#approach">The next move is yours <span aria-hidden="true">↓</span></a><div class="hero-flow"><span>Permission</span><i>→</i><span>Approval</span><i>→</i><span>Execution</span><i>→</i><span>Recovery</span></div><button id="motion-toggle" type="button" aria-pressed="false" aria-label="Pause background animation">Ⅱ <span>Pause motion</span></button></div>
 </section>
 
-<section id="approach" class="section-pad introduction">
-<p class="section-label reveal">01 / ONE CONTROL LAYER</p>
-<div class="intro-grid reveal"><h2>More capable agents.<br><span>Clearly defined authority.</span></h2><p>An agent can understand a request. Cosigna checks whether it has the authority to act, keeps the amount inside its budget, and records the outcome.</p></div>
-<div class="principles reveal">
-<article><span class="feature-icon" aria-hidden="true">⌘</span><span class="micro-label">DEFINE</span><h3>Set the boundaries.</h3><p>Give each agent a purpose, a merchant scope, spending limits, and an expiry.</p><span class="feature-detail">AGENT → PERMISSION → BUDGET</span></article>
-<article><span class="feature-icon" aria-hidden="true">↗</span><span class="micro-label">DECIDE</span><h3>Approve the exact action.</h3><p>Review the actual quote. Bind your approval to the amount, merchant, and terms.</p><span class="feature-detail">EXACT QUOTE. EXPLICIT APPROVAL.</span></article>
-<article><span class="feature-icon" aria-hidden="true">↶</span><span class="micro-label">RECOVER</span><h3>Know what happened.</h3><p>A timeout keeps its place in the ledger. Look up the original attempt before deciding what comes next.</p><span class="feature-detail">ONE ATTEMPT. A TRACEABLE OUTCOME.</span></article>
-</div>
+<div class="capability-strip" aria-label="Current development foundation"><span><i aria-hidden="true">*</i> Rust transaction engine</span><span><i aria-hidden="true">+</i> Stripe sandbox</span><span><i aria-hidden="true">/</i> Exact approval</span><span><i aria-hidden="true">#</i> Durable ledger</span><span><i aria-hidden="true">?</i> Local merchant API</span></div>
+<section id="authority-story" class="authority-story" aria-labelledby="story-heading" data-stage="0">
+<div class="story-content" id="approach"><div class="story-copy"><p class="section-label">01 / BUILT AROUND YOUR AUTHORITY</p><h2 id="story-heading">Agentic transactions.<br>Deliberate by design.</h2><p class="story-intro">An agent can find the next move. Cosigna brings the permissions, approval, accounting, and recovery that make it a move you authorized.</p>
+<div class="story-chapters" role="group" aria-label="Explore the transaction layers"><button type="button" data-chapter="0" aria-pressed="true"><span>01</span> Your agent</button><button type="button" data-chapter="1" aria-pressed="false"><span>02</span> Your boundaries</button><button type="button" data-chapter="2" aria-pressed="false"><span>03</span> Your approval</button><button type="button" data-chapter="3" aria-pressed="false"><span>04</span> A verified outcome</button></div><button type="button" class="story-mode" data-story-mode hidden aria-pressed="false">Use chapter controls ?</button></div>
+<div class="story-visual"><div class="stack-scene" aria-hidden="true">
+<div class="stack-plate is-current" data-layer="0"><div class="plate-heading"><span>01 / AGENT REQUEST</span><span>PROPOSAL</span></div><span class="plate-symbol">intent ?</span><span class="plate-caption">One oat latte ? fixture caf?</span><div class="plate-lines"><i></i><i></i><i></i></div></div>
+<div class="stack-plate" data-layer="1"><div class="plate-heading"><span>02 / POLICY BOUNDARY</span><span>CHECK</span></div><span class="plate-symbol">$7 &lt; $10</span><span class="plate-caption">Merchant ? Currency ? Limit ? Expiry</span><div class="plate-lines"><i></i><i></i><i></i></div></div>
+<div class="stack-plate" data-layer="2"><div class="plate-heading"><span>03 / EXACT APPROVAL</span><span>OWNER</span></div><span class="plate-symbol">you decide.</span><span class="plate-caption">The actual quote. The actual terms.</span><div class="plate-lines"><i></i><i></i><i></i></div></div>
+<div class="stack-plate" data-layer="3"><div class="plate-heading"><span>04 / EXECUTION LEDGER</span><span>RECOVER</span></div><span class="plate-symbol">claim ? result</span><span class="plate-caption">An attempt. A receipt. A traceable outcome.</span><div class="plate-lines"><i></i><i></i><i></i></div></div>
+</div><div class="story-detail"><span id="story-count">01 / 04</span><div><h3 id="story-title">A request, with a purpose.</h3><p id="story-description">The agent proposes a purchase. Its request carries intent, never payment authority.</p></div></div><p class="story-disclosure">ILLUSTRATIVE LAYERS ? Scrolling never grants approval or submits a payment.</p></div></div>
 </section>
 
 <section id="live-example" class="demo-section section-pad">
-<div class="demo-copy reveal"><p class="section-label">02 / THE BOUNDARY, IN ACTION</p><h2>A little coffee.<br>A bigger idea.</h2><p>The agent brings the intent. You set the authority. Try three situations to see how the boundary responds.</p>
+<div class="demo-copy reveal"><p class="section-label">02 / THE BOUNDARY, IN ACTION</p><h2>Designed for the<br>moment of decision.</h2><p>The agent brings the intent. You set the authority. Try three situations to see how the boundary responds.</p>
 <div class="scenario-options" role="group" aria-label="Illustrative purchase scenarios"><button type="button" data-scenario="within" aria-pressed="true"><span>01</span> Within budget <i>↗</i></button><button type="button" data-scenario="over" aria-pressed="false"><span>02</span> Over the limit <i>↗</i></button><button type="button" data-scenario="replay" aria-pressed="false"><span>03</span> A repeated request <i>↗</i></button></div>
 <p class="demo-disclosure">Interactive illustration. No account connection, order, or payment is made.</p></div>
-<div class="purchase-demo reveal" id="purchase-demo" data-state="waiting">
+<div class="demo-preview reveal"><div id="purchase-ui" role="tabpanel" aria-labelledby="view-ui"><div class="purchase-demo" id="purchase-demo" data-state="waiting">
 <div class="demo-card-head"><span class="wordmark small"><span class="brand-orbits" aria-hidden="true"></span>cosigna</span><span class="demo-mode">EXAMPLE</span></div>
 <div class="demo-agent"><span class="agent-avatar" aria-hidden="true">✳</span><div><strong>Purchase agent</strong><span>Scoped to fixture café · USD</span></div><span class="agent-online" aria-hidden="true"></span></div>
 <div class="order-row"><div class="coffee-drawing" aria-hidden="true"><span></span></div><div><h3 id="demo-item">One oat latte</h3><p>Pickup · fixture café</p></div><strong id="demo-amount">$7.00</strong></div>
@@ -59,7 +61,7 @@
 <div class="demo-decision" role="status" aria-live="polite"><span class="decision-indicator"></span><div><strong id="demo-status">Your approval is required.</strong><p id="demo-detail">A budget alone does not authorize this purchase.</p></div></div>
 <button class="button button-dark demo-approve" id="demo-approve" type="button">Simulate exact approval <span aria-hidden="true">↗</span></button>
 <p class="demo-card-foot" id="demo-footnote">Illustration only · No money moves</p>
-</div>
+</div></div><div id="purchase-record" class="record-panel" role="tabpanel" aria-labelledby="view-record" hidden><div class="record-heading"><span>TRANSACTION RECORD</span><span>ILLUSTRATIVE</span></div><pre><code id="example-record">{ "illustrative": true, "state": "waiting" }</code></pre><p>Illustrative data, not an API response. No network request is made.</p></div><div class="preview-views" role="tablist" aria-label="Purchase illustration view"><button id="view-ui" type="button" role="tab" data-preview-view="ui" aria-controls="purchase-ui" aria-selected="true">UI</button><button id="view-record" type="button" role="tab" data-preview-view="record" aria-controls="purchase-record" aria-selected="false" tabindex="-1">JSON</button></div></div>
 </section>
 
 <section class="architecture-section section-pad" id="architecture">
@@ -81,7 +83,7 @@
 <section class="evidence-section section-pad"><div class="evidence-story reveal"><div><p class="section-label">06 / THE EARLY EVIDENCE</p><h2>Same requests.<br>Enforced boundaries.</h2><p>In one controlled Stripe test-mode comparison, agents processed the same ten support tickets with and without enforced spending authority.</p><a class="text-button" href="/benchmarks">Read the experiment and its limits <span aria-hidden="true">↗</span></a></div><div class="experiment-result"><span class="experiment-kicker">EXCESS REFUNDS IN THAT COMPARISON</span><div class="result-pair"><div><span>Without controls</span><strong>$528<span>.00</span></strong></div><span class="result-arrow" aria-hidden="true">→</span><div class="result-guarded"><span>With controls</span><strong>$0<span>.00</span></strong></div></div><div class="result-rule"></div><p>One run per configuration. Synthetic company, actual Stripe test-mode refunds. This is early evidence, not a production performance guarantee.</p></div></div></section>
 
 <section id="questions" class="faq-section section-pad"><div class="reveal"><p class="section-label">A LITTLE MORE CONTEXT</p><h2>Good questions.<br><span>Clear answers.</span></h2></div><div class="faq-list reveal"><details><summary>What is Cosigna?<span aria-hidden="true">+</span></summary><p>Cosigna is one product for agent permissions, approvals, controlled transaction execution, and recovery. The gateway is its foundation; the console and assistant are interfaces above it.</p></details><details><summary>Can an agent approve its own payment?<span aria-hidden="true">+</span></summary><p>No. The current purchase gateway requires an owner to approve the exact quote. A model proposal, voice request, budget, or workflow message is not approval.</p></details><details><summary>Can I use it with real money today?<span aria-hidden="true">+</span></summary><p>The available purchase path is a development sandbox. Production identity, signed transaction permits, authorization consolidation, and a supported live connector remain release gates.</p></details><details><summary>Where does the voice assistant fit?<span aria-hidden="true">+</span></summary><p>The assistant is an application of the same transaction foundation. Its local voice-ordering prototype uses the sandbox; general merchant access and pickup integrations are still in development.</p></details></div></section>
-<section class="closing"><div class="closing-orbit" aria-hidden="true"></div><p class="overline">BUILD WITH INTENTION</p><h2>Give agents a next move.<br>Make it one you authorized.</h2><button class="button button-light" data-open-dashboard>Explore the developer preview <span aria-hidden="true">↗</span></button><a href="/architecture">Start with the architecture →</a></section>
+<section class="closing"><div class="closing-orbit" aria-hidden="true"></div><p class="overline">BUILD WITH INTENTION</p><h2>Build the next generation<br>of agentic transactions.<br>Keep authority yours.</h2><button class="button button-light" data-open-dashboard>Explore the developer preview <span aria-hidden="true">↗</span></button><a href="/architecture">Start with the architecture →</a></section>
 </main>
 <footer class="site-footer"><div><a class="wordmark" href="/"><span class="brand-orbits" aria-hidden="true"></span>cosigna<span class="brand-period">.</span></a><p>Your agents. Your authority.</p></div><nav aria-label="Footer navigation"><a href="/about">About</a><a href="/architecture">Architecture</a><a href="/benchmarks">Benchmarks</a><a href="/concept">Motion study ↗</a></nav><div class="footer-meta"><span>Developer preview<br>© 2026 Cosigna</span><button type="button" class="theme-system" data-theme-system hidden aria-pressed="true">Use device theme</button></div></footer>
 <dialog id="dashboard-dialog" aria-labelledby="dashboard-title"><button class="dialog-close" aria-label="Close dashboard instructions">×</button><p class="overline">LOCAL DEVELOPER PREVIEW</p><h2 id="dashboard-title">Meet your console.</h2><p>Run these commands from your project directory. Open the one-time sign-in link printed in the terminal to enter the fixture console.</p><pre><code id="dashboard-command">cd console

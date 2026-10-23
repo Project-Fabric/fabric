@@ -1,8 +1,9 @@
 # Cosigna landing page
 
-Local, buildless developer-preview site for Cosigna: light and dark themes, blue dimensional
-gateway illustration, responsive navigation, restrained motion, and an interactive
-transaction-boundary example. The existing `design/` prototypes are retained unchanged.
+Local, buildless developer-preview site for Cosigna: warm light/dark themes, editorial serif
+headlines, a character-based animated hero, and an isometric scroll-controlled transaction
+story. The interactive purchase example includes UI/illustrative JSON views. The existing
+`design/` prototypes and earlier gateway SVGs are retained unchanged.
 No dependency installation is required to serve the site.
 
 ```powershell
@@ -29,10 +30,17 @@ sessions. The dashboard keeps its one-time sign-in link, session and CSRF bounda
 No site is published or domain ownership assumed. The preview is marked `noindex`.
 
 Canvas motion is capped at 30 frames/second and pauses offscreen or in background tabs.
-The explicit motion control also pauses the CSS illustration and route animation.
+The explicit motion control also pauses the route animation and disables scroll scrubbing.
 Reduced-motion preferences start the site still. Content stays visible without JavaScript;
 navigation, workflow tabs, dialogs and controls support keyboard use. Native page transitions
 are an enhancement where supported.
+
+The layered transaction story follows native scrolling on desktop screens taller than 650px.
+Chapter buttons switch to manual exploration; the follow-scroll control restores scrubbing.
+Phones, short screens, reduced-motion preferences and paused motion use chapter controls.
+Scrolling never grants owner approval or submits a transaction. The JSON view is illustrative
+data rather than an API response or contract. All scene geometry and controller code is original;
+no animation library, downloaded model, third-party artwork, or model API is required.
 
 Stripe is labelled as test-mode validated. Other provider entries are planned. Agent
 workflows are illustrative and agent templates are drafts. The $528 result is the single
@@ -45,12 +53,20 @@ and [Stripe](https://stripe.com/), with original copy, components, and SVG artwo
 screens or third-party artwork were used. See the [staged product consolidation plan](../docs/COSIGNA_UNIFICATION.md)
 for the one-product identity and remaining technical merge work.
 
+The current editorial composition uses [Griffin](https://www.griffin.com/) as the primary
+visual reference: warm neutrals, large serif headings, character animation, a layered scroll
+sequence and split product panels. Cosigna's words, geometry, implementation and evidence are
+its own. Georgia supplies local serif typography; Griffin's commercial font files and branded
+artwork are not included. This is a Cosigna adaptation, not a pixel-exact copy.
+
 Run `npm run check` and `npm test` here. Tests use the installed Console jsdom dependency.
-The 14 tests cover landing interactions, stale simulation callbacks, reduced motion,
+The 17 tests cover landing interactions, stale simulation callbacks, reduced motion,
 keyboard navigation, subpage content, route/asset availability, the preview server's
 read-only/Host boundary, theme persistence/device changes/storage failures, and the retained
-pixel concept. JavaScript syntax and CSS parsing were checked; the light and dark gateway
-SVGs were rendered and visually inspected. Primary text, button and status token pairs
+pixel concept. They also check deterministic character geometry, reversible scroll stages,
+manual exploration and the illustrative JSON view. JavaScript syntax and CSS parsing were
+checked; static character frames were rendered and inspected at desktop and phone widths.
+Primary text, button and status token pairs
 were checked for a 4.5:1 contrast minimum; this is not a full accessibility audit. Full browser layout,
 mobile composition, and scroll-feel review remain pending because no browser was connected.
 

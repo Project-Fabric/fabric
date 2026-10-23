@@ -75,3 +75,9 @@ or customer statistic was copied. The blue gateway SVG and all Cosigna UI exampl
 
 Browser connectivity was unavailable during implementation; functional DOM, route and motion
 checks are recorded separately from any future browser visual review.
+
+The subsequent editorial refresh follows Harsha's Griffin reference: warm dark/light themes,
+serif typography, an original character field, isometric transaction layers with reversible
+scroll/manual controls, and an illustrative UI/JSON view. It preserves the exact-approval
+demo boundary. No Griffin source, commercial fonts, artwork, customer claims or regulated
+banking claims were imported. Source consolidation and browser visual review remain open.

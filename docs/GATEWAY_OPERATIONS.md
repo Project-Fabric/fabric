@@ -105,6 +105,43 @@ there is no graceful-drain implementation yet. Restart uses the durable boundari
 Do not clear a ledger/queue, remove a live lock file, create replacement idempotency keys or
 release unknown holds as a repair. Stop both services before upgrading or restoring storage.
 
+## Oracle pilot provisioning
+
+Selected 23 October 2026: Oracle Cloud Always Free for the private sandbox. Account creation
+and the VM are still pending. No paid resource, model quota or live payment is authorized
+by this hosting choice. The backend stays accessible through SSH forwarding initially.
+
+1. Create/sign in to [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/). Complete
+   identity/payment verification directly with Oracle. If creating an account, choose Mumbai
+   or Hyderabad if offered; home region cannot be changed after tenancy creation. Existing
+   accounts must use their existing home region for Always Free compute/storage.
+2. In Compute > Instances > Create instance, name it `cosigna-gateway-dev`. Select an
+   Always Free eligible Ubuntu ARM image and `VM.Standard.A1.Flex`, **2 OCPUs / 12 GB RAM**,
+   with a **50 GB boot volume**. These resources consume account-wide allowances; check
+   existing usage and the console's current eligibility before creating anything. The
+   documented total is 2 OCPUs/12 GB and 200 GB combined boot/block volume storage, not a
+   separate allowance per VM. If free capacity is unavailable, retry later; do not silently
+   substitute a paid shape or enable extra paid services.
+3. For this pilot, use a VCN public subnet with a route to its Internet gateway and a public
+   IP for SSH. Restrict incoming TCP 22 to the administrator's current public IP (`/32`).
+   Keep TCP 3100 closed externally. The application API itself binds to loopback.
+4. Add an SSH **public** key. Keep the corresponding private key on the administrator's
+   computer, outside the repository. If Oracle generates a pair, save the private key
+   locally when offered; do not send its contents in chat. Ubuntu images use the `ubuntu`
+   SSH user. Record the VM's public IP and local key path for deployment.
+5. Connect with `ssh -i <local-private-key-path> ubuntu@<vm-public-ip>`. Build the Linux ARM
+   binary on the VM or another compatible ARM build host; the Windows executable is not
+   deployable there. Install the reviewed source and services using the Linux section below,
+   then test health, owner-approved fixture execution, service restart and reboot recovery.
+
+Oracle may reclaim idle Always Free instances. Keep reviewed backups and treat this as a
+sandbox availability constraint. Free hosting does not include hosted model API allowances.
+Oracle ARM target-host build/runtime and backup recovery still require verification.
+
+Sources checked 23 October 2026: [free limits and idle reclamation](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm),
+[home region](https://docs.oracle.com/en-us/iaas/Content/Identity/Tasks/managingregions.htm),
+[Linux instance creation](https://docs.oracle.com/en-us/iaas/Content/Compute/tutorials/first-linux-instance/overview.htm).
+
 ## Linux server pilot
 
 Use one Linux machine with systemd and persistent **local** disk, an unprivileged service

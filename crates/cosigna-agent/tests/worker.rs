@@ -307,7 +307,9 @@ fn unresolved_payment_has_bounded_backoff_and_keeps_hold_across_restart() {
 
 #[test]
 fn interrupted_inference_pauses_but_persisted_quote_and_attempt_can_recover() {
-    let s = Setup::new();
+    let mut s = Setup::new();
+    // Simulate time passing before process restart, even on a fast test machine.
+    s.at = s.at.saturating_sub(30);
     let draft = s.task("draft");
     let quoted = s.task("quoted");
     let unknown = s.task("accepted");
@@ -329,9 +331,18 @@ fn interrupted_inference_pauses_but_persisted_quote_and_attempt_can_recover() {
     let interrupted = worker::inspect(&s.service, &s.owner, &draft).unwrap();
     assert_eq!(interrupted.state, "paused");
     assert_eq!(interrupted.reason.as_deref(), Some("planning_interrupted"));
+    // Recovery schedules at restart time, not the earlier task creation clock.
+    let resumed_at = worker::inspect(&s.service, &s.owner, &quoted)
+        .unwrap()
+        .next_at
+        .max(
+            worker::inspect(&s.service, &s.owner, &unknown)
+                .unwrap()
+                .next_at,
+        );
     let planner = Count(AtomicUsize::new(0));
     for _ in 0..2 {
-        worker.tick(&planner, s.at + 1).unwrap();
+        worker.tick(&planner, resumed_at).unwrap();
     }
     assert_eq!(planner.0.load(Ordering::SeqCst), 0);
     assert_eq!(
@@ -339,8 +350,8 @@ fn interrupted_inference_pauses_but_persisted_quote_and_attempt_can_recover() {
         Stage::Confirmed
     );
     assert_eq!(s.service.provider.order_count().unwrap(), 1);
-    worker::control(&s.service, &s.owner, &draft, Action::Resume, s.at + 2).unwrap();
-    worker.tick(&planner, s.at + 2).unwrap();
+    worker::control(&s.service, &s.owner, &draft, Action::Resume, resumed_at + 1).unwrap();
+    worker.tick(&planner, resumed_at + 1).unwrap();
     assert_eq!(planner.0.load(Ordering::SeqCst), 1);
 }
 

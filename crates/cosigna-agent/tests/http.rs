@@ -238,6 +238,29 @@ fn loopback_server_authenticates_roles_and_rejects_browser_origins() {
     );
     assert_eq!(status, 200);
     assert_eq!(confirmed["data"]["stage"], "confirmed");
+    let mut pipeline_response = client
+        .get(format!("{address}/gateway/v1/pipelines/{gateway_task}"))
+        .header("Authorization", &agent_auth)
+        .call()
+        .unwrap();
+    assert_eq!(pipeline_response.status(), 200);
+    let pipeline: Value = pipeline_response.body_mut().read_json().unwrap();
+    assert_eq!(pipeline["schema"], cosigna_agent::pipeline::API_VERSION);
+    assert_eq!(pipeline["status"], "confirmed");
+    assert_eq!(pipeline["pipeline_id"], gateway_task);
+    let mut rejected = client
+        .post(format!(
+            "{address}/gateway/v1/pipelines/{gateway_task}/advance"
+        ))
+        .header("Authorization", &agent_auth)
+        .send_json(json!({"approved":true}))
+        .unwrap();
+    assert_eq!(rejected.status(), 400);
+    let rejected_body: Value = rejected.body_mut().read_json().unwrap();
+    assert_eq!(
+        rejected_body["schema"],
+        cosigna_agent::pipeline::API_VERSION
+    );
     assert_eq!(
         send_gateway(
             &owner_auth,

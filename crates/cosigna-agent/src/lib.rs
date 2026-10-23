@@ -5,6 +5,7 @@ pub mod api;
 pub mod domain;
 pub mod gateway;
 pub mod merchant;
+pub mod pipeline;
 pub mod planner;
 pub mod provider;
 pub mod service;

@@ -393,6 +393,34 @@ Public health has `schema`, `simulated_provider: true` and `status`. Error envel
 `schema` and `error: {code, message}`. Input schemas reject unknown fields; purchase plan
 fields are only `offer_id`, `quantity`, `clarification`. No plan can contain spending authority.
 
+### Transaction pipeline API version 1
+
+The pipeline adds no database tables, task fields, stored stages or ledger migration. Its ID
+is the existing task ID. `POST /gateway/v1/pipelines` accepts existing strict `TaskInput`;
+GET `/gateway/v1/pipelines/{id}` reads; POST `.../{id}/advance` accepts only `{}`. Creation
+is owner-scoped idempotent task creation followed by one allowed step. Replays recover the
+same task; quote/input waiting states do not repeatedly call a model. An approved task may
+execute, while submitting/unknown tasks only reconcile. Exact owner approval is still a
+separate existing operation. Core scope checks, reservations and attempt claims are unchanged.
+
+Success envelope `cosigna.pipeline/v1` contains `schema`, `simulated_provider:true`,
+`pipeline_id`, nullable `agent_id`, `status`, `next_action`, nullable `blocked_reason`,
+nullable `approval_digest`, and `data` with unchanged task JSON. Status values:
+`ready_to_plan`, `needs_input`, `awaiting_approval`, `ready_to_execute`, `reconciling`,
+`needs_review`, `confirmed`, `declined`, `cancelled`. Next actions are respectively
+`advance`, `provide_input`, `owner_approve_quote`, `advance`, `advance`, `review_or_cancel`,
+`none`, `none`, `none`. Review reasons are `budget_inactive`, `agent_inactive` or
+`quote_expired`. These are derived views, not independently stored authority. Review applies
+only before submission; an existing attempt stays recoverable after authority/quote expiry.
+Errors on pipeline routes retain `{schema,error:{code,message}}` with the pipeline schema.
+Other gateway, mobile and legacy envelopes retain their existing schema identifiers.
+
+`cosigna.pipeline-demo/v1` reports a simulated fixture flow: schema, simulated flag,
+planner, synthetic owner approval source, pipeline ID, ordered stage names, replay status,
+synthetic order count and existing balance object. No bearer/hash/payment credential appears.
+`cosigna.roadmap-sync/v1` is a timestamped repository project snapshot (`captured_at`, project
+URL and item title/state/URL/item ID), not payment state or evidence of feature completeness.
+
 ### Headless gateway API version 1
 
 `/gateway/v1/` is a new API, not a change to `/v1/` or the mobile/test merchant envelopes.

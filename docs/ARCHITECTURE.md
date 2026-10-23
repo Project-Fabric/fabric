@@ -49,6 +49,12 @@ JSON, quote digests, provider storage and legacy API envelopes retain their vers
 development agent registry does not supply production user identity or signed transaction
 permits. The supplied Focus Areas and Build Plan is mapped to remaining work in that guide.
 
+The caller-driven [transaction pipeline](TRANSACTION_PIPELINES.md) coordinates planning,
+approval waiting, execution and reconciliation over those same persisted task records. Each
+advance performs one allowed operation; there is no independent workflow state to drift from
+the ledger and no implicit owner approval. A worker/queue, production identity and signed
+transaction permits remain separate [roadmap gates](ROADMAP.md).
+
 The optional [voice merchant lab](../testbeds/voice-merchant/README.md) adds a Node development
 UI/voice backend and an independent merchant HTTP API with its own stock/order store. The
 Rust service's fixed loopback connector pins merchant identity and verifies receipt fields

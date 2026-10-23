@@ -284,4 +284,15 @@ impl Service {
             )
             .optional()?)
     }
+
+    pub(crate) fn task_agent_active(&self, actor: &Actor, task: &Task, at: i64) -> Result<bool> {
+        let Some(id) = self.task_agent_id(actor, &task.id)? else {
+            return Ok(true);
+        };
+        let agent = load(&storage::connect(&self.ledger, false)?, &id)?;
+        if agent.owner != task.owner || agent.budget_id != task.input.budget_id {
+            return Err(Error::StoreFormat);
+        }
+        Ok(!agent.revoked && agent.expires_at > at)
+    }
 }

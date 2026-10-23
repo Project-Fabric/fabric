@@ -46,6 +46,8 @@ enum Command {
     Demo,
     /// Exercise registered agent permissions and exact approval; fixtures only, no secrets logged.
     GatewayDemo,
+    /// Run a restartable transaction pipeline with synthetic owner approval and no real payment.
+    PipelineDemo,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -107,6 +109,13 @@ fn run() -> Result<()> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&cosigna_agent::gateway::demo()?)?
+            );
+            Ok(())
+        }
+        Command::PipelineDemo => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&cosigna_agent::pipeline::demo()?)?
             );
             Ok(())
         }

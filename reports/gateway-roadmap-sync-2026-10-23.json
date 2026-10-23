@@ -1,0 +1,49 @@
+{
+  "schema": "cosigna.roadmap-sync/v1",
+  "project": "https://github.com/orgs/agentauth-io/projects/1",
+  "items": [
+    {
+      "title": "G1 Publish the Cosigna gateway and sandbox product baseline",
+      "state": "Done",
+      "url": "https://github.com/Project-Fabric/fabric/issues/70",
+      "itemId": "PVTI_lADODyijWM4Bn9JHzhDA3EQ"
+    },
+    {
+      "title": "G2 Add a restartable transaction-agent pipeline",
+      "state": "In Progress",
+      "url": "https://github.com/Project-Fabric/fabric/issues/71",
+      "itemId": "PVTI_lADODyijWM4Bn9JHzhDA3N0"
+    },
+    {
+      "title": "G3 Implement signed transaction permits and production owner identity",
+      "state": "Todo",
+      "url": "https://github.com/Project-Fabric/fabric/issues/72",
+      "itemId": "PVTI_lADODyijWM4Bn9JHzhDA3ZE"
+    },
+    {
+      "title": "G4 Add durable workers and gateway operating controls",
+      "state": "Todo",
+      "url": "https://github.com/Project-Fabric/fabric/issues/73",
+      "itemId": "PVTI_lADODyijWM4Bn9JHzhDA3lQ"
+    },
+    {
+      "title": "G5 Validate one real merchant and payment-provider connector",
+      "state": "Todo",
+      "url": "https://github.com/Project-Fabric/fabric/issues/74",
+      "itemId": "PVTI_lADODyijWM4Bn9JHzhDA3xw"
+    },
+    {
+      "title": "G6 Maintain adversarial regression and release evidence",
+      "state": "In Progress",
+      "url": "https://github.com/Project-Fabric/fabric/issues/75",
+      "itemId": "PVTI_lADODyijWM4Bn9JHzhDA39Q"
+    },
+    {
+      "title": "G7 Recruit a design partner and measure the transaction workflow",
+      "state": "Todo",
+      "url": "https://github.com/Project-Fabric/fabric/issues/76",
+      "itemId": "PVTI_lADODyijWM4Bn9JHzhDA4Ig"
+    }
+  ],
+  "captured_at": "2026-10-23T14:20:15.380Z"
+}

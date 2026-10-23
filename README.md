@@ -15,6 +15,10 @@ Gateway development: [registered agent API and build plan](docs/COSIGNA_GATEWAY.
 Run `cargo run -p cosigna-agent -- gateway-demo` for an isolated permission/approval/execution
 example without voice, model credentials or real payments.
 
+Transaction pipeline: [API and recovery behavior](docs/TRANSACTION_PIPELINES.md).
+Run `cargo run -p cosigna-agent -- pipeline-demo` for a restartable, approval-gated flow.
+Delivery status and remaining production gates: [roadmap](docs/ROADMAP.md).
+
 Consumer agent development: [intelligence and transaction service](crates/cosigna-agent/README.md).
 Run `cargo run -p cosigna-agent -- demo` for an isolated budget/approval/reconciliation demo.
 An optional hosted planner is available; all merchant transactions remain simulated.

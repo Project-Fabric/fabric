@@ -1,5 +1,11 @@
 # Cosigna: YC readiness
 
+> **Current delivery update, 23 October 2026:** the gateway-first plan is tracked in
+> [ROADMAP.md](ROADMAP.md) and G-series issues #70–#76 on the private board. The implementation
+> and production gaps are documented in [the gateway guide](COSIGNA_GATEWAY.md). The scorecard
+> below is the historical 21 October snapshot; its test counts and M-series priorities are
+> not the current gateway completion criteria. Test-mode payments remain engineering evidence.
+
 > **Name:** the product is **Cosigna** (renamed from AgentAuth on 21 October 2026). "AgentAuth" below refers to the existing API service, the `agentauth-io` GitHub organization and the earlier application, which keep that name until they are moved.
 
 **As of 21 October 2026 (updated after the Northwind run).** Tracked on the shared board

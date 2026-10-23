@@ -1,0 +1,50 @@
+# Cosigna delivery roadmap
+
+Current priority: ship a trustworthy transaction gateway. Cosigna Assistant remains a separate
+application above it. Existing mobile, CLI and web prototypes are preserved; they are not
+evidence that production payment or identity requirements are complete.
+
+The private [Cosigna road to YC board](https://github.com/orgs/agentauth-io/projects/1) is the
+live work tracker. G-series issues below track the current gateway-first plan. Earlier M-series
+items describe the legacy engine/control-plane roadmap; their completion does not imply the
+new production gateway is finished. Update issue checklists/status with implementation and
+verification evidence rather than inferring completion from a demo.
+
+| Milestone | Current delivery | Acceptance / live tracking |
+| --- | --- | --- |
+| G1 Reproducible product baseline | Published; GitHub Rust CI passed on Windows, Linux and macOS | [#70](https://github.com/Project-Fabric/fabric/issues/70), baseline `b896759` |
+| G2 Transaction-agent pipeline | First caller-driven pipeline implemented; separate background operations remain G4 | [#71](https://github.com/Project-Fabric/fabric/issues/71): typed state, approval boundary, replay, scope, restart and recovery tests |
+| G3 Signed permits and production owner identity | Planned; existing agent bearers are development credentials | [#72](https://github.com/Project-Fabric/fabric/issues/72): transaction binding, expiry, audience, replay, verified owner proof and key lifecycle |
+| G4 Durable workers and operating controls | Next operating increment after G2 | [#73](https://github.com/Project-Fabric/fabric/issues/73): bounded queue/outbox, inference deduplication, rate limits, redacted traces and operator recovery |
+| G5 One merchant/payment connector pilot | Test merchant and Stripe sandbox exist; live access/eligibility unproven | [#74](https://github.com/Project-Fabric/fabric/issues/74): select merchant/country/method; authentication, failures, webhook and compensation evidence |
+| G6 Adversarial regression and release evidence | Active; automated regression checks implemented, deeper assurance remains open | [#75](https://github.com/Project-Fabric/fabric/issues/75): property-based invariants, process-kill tests, held-out model attacks and independent review |
+| G7 Design-partner adoption | Planned; test payments are not revenue or customer traction | [#76](https://github.com/Project-Fabric/fabric/issues/76): one narrow adopted workflow and measured operational outcomes |
+
+## Monitoring
+
+- **Rust CI:** push/PR formatting, Clippy and workspace tests across Windows, macOS and Linux.
+- **Product checks:** push/PR/manual and weekday 04:00 UTC runs for gateway/merchant regressions,
+  credential-pattern checks, console/site, mobile contracts/Expo bundle and Go CLI.
+- **Roadmap:** issue checklists and the board show delivery progress, blockers and remaining
+  acceptance work. Passing CI does not automatically mark a feature production-ready.
+- **Release readiness:** production identity, signed permits, external merchant access, supported
+  payment authentication, operating controls and security review are still explicit gates.
+
+Actions run on GitHub's configured runners; a configured schedule is not proof that a given
+run succeeded. Check [the actual Actions runs](https://github.com/Project-Fabric/fabric/actions).
+No scheduled job performs live payments, calls a paid model or autonomously develops features.
+The repository does not yet enforce required PR checks or production deployment approval rules.
+
+## Product boundaries
+
+The planner interprets a request and proposes typed choices. Owner authority, policy, budget,
+exact approval and execution claims are enforced by code. The gateway keeps payment/order/
+fulfillment outcomes distinct and reconciles uncertainty. The assistant will later provide
+voice ordering, merchant readiness and pickup coordination over that same boundary.
+
+Do not add broad assistant integrations or train a model before a measured task-quality gap
+and the relevant transaction/merchant prerequisites exist. No general marketplace access,
+universal exactly-once execution, zero queue time or compliance certification is claimed.
+
+Implementation guides: [gateway](COSIGNA_GATEWAY.md), [transaction pipeline](TRANSACTION_PIPELINES.md),
+[two-product direction](COSIGNA_REBUILD.md), [storage/API contracts](STORAGE_FORMAT.md).

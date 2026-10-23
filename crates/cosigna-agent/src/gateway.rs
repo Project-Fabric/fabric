@@ -197,6 +197,26 @@ pub(crate) fn dispatch_authenticated(
     };
     let parts: Vec<_> = path.split('/').collect();
     let data = match (method, parts.as_slice()) {
+        ("POST", ["", "gateway", "v1", "pipelines"]) => {
+            return Ok(serde_json::to_value(crate::pipeline::start(
+                &service,
+                &actor,
+                planner,
+                decode::<TaskInput>(body)?,
+                at,
+            )?)?);
+        }
+        ("GET", ["", "gateway", "v1", "pipelines", id]) => {
+            return Ok(serde_json::to_value(crate::pipeline::inspect(
+                &service, &actor, id, at,
+            )?)?);
+        }
+        ("POST", ["", "gateway", "v1", "pipelines", id, "advance"]) => {
+            empty(body)?;
+            return Ok(serde_json::to_value(crate::pipeline::advance(
+                &service, &actor, planner, id, at,
+            )?)?);
+        }
         ("POST", ["", "gateway", "v1", "budgets"]) if owner => serde_json::to_value(
             service.create_budget(&actor, decode::<BudgetInput>(body)?, at)?,
         )?,

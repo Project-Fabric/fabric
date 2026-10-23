@@ -7,6 +7,10 @@ customer interface. This follows the [two-product direction](COSIGNA_REBUILD.md)
 
 ## Working increment
 
+The [transaction pipeline](TRANSACTION_PIPELINES.md) now coordinates these primitives through
+create/read/advance endpoints. It pauses for owner approval and recovers existing attempts;
+it is caller-driven and does not yet provide background workers or a production deployment.
+
 Registered agents now have separate credentials, immutable `plan`/`execute` permissions,
 one owner-controlled budget, expiry and revocation. Creation, planning and execution use the
 existing durable task/quote/reservation/attempt machinery. A task is atomically attributed to

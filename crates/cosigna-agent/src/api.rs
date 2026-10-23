@@ -291,8 +291,15 @@ pub fn serve(
             Ok(value) => (200, value),
             Err(error) => error_response(&error),
         };
-        if gateway_request {
-            value["schema"] = crate::gateway::API_VERSION.into();
+        if gateway_request && value.get("error").is_some() {
+            let pipeline_request = request.url() == "/gateway/v1/pipelines"
+                || request.url().starts_with("/gateway/v1/pipelines/");
+            value["schema"] = if pipeline_request {
+                crate::pipeline::API_VERSION
+            } else {
+                crate::gateway::API_VERSION
+            }
+            .into();
         }
         let mut response = Response::from_string(value.to_string()).with_status_code(status);
         for (name, value) in [

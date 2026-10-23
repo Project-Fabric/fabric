@@ -318,8 +318,9 @@ and version; foreign databases and unsupported versions are refused.
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
 timeout. Mutations that need a shared state check use `BEGIN IMMEDIATE`. The service tests
-reopening and explicit interruption boundaries; physical power-loss/full-disk and actual
-process-kill durability have not been established.
+reopening, explicit interruption boundaries and real process termination at four fixed
+fixture planning/claim/acceptance/confirmation boundaries. Physical power-loss/full-disk
+and arbitrary process-kill durability across live providers have not been established.
 
 Ledger version 2 added the three agent tables. Version 3 adds `worker_jobs` and its due-job
 index. Opening an application-matching v1/v2 ledger creates the missing tables and updates
@@ -449,6 +450,22 @@ a paused job; only paused jobs can resume. No worker route creates approval, cha
 or replaces attempt keys. Existing pipeline/task envelopes retain their versions.
 The worker CLI emits the same success envelope for processed jobs, and no request, model
 response, reasoning, bearer/hash or payment credentials. See [operations](GATEWAY_OPERATIONS.md).
+
+### Optional batch verification report version 1
+
+The Apache lab writes non-authoritative artifacts below its ignored
+`.runs/reports/<first-24-hex-of-SHA256-Airflow-run-id>/` directory. These are test reports,
+not payment state, production telemetry or signed audit evidence. No existing ledger/API
+schema changes. `crash.json`, `rules.json`, `service.json` use `cosigna.verification/v1`:
+`schema`, `simulated:true`, `suite`, `status` (`passed`/`failed`), Boolean `log_truncated`,
+and `checks` containing `check`, `status`, nullable `exit_code`, nullable fixed-code `reason`
+(`nonzero_exit`, `timeout`, `cannot_start`) and integer `duration_ms`. Durations describe the
+verification run, not an application latency guarantee. Per-suite UTF-8 logs are at most
+65,536 bytes; runtime command environments are allowlisted and stores are synthetic/temp.
+`summary.json` uses the same schema/simulated/status fields, `suite:"summary"`, and `suites`
+containing name/status for `crash`, `rules`, `service`. Missing, malformed, incomplete or
+failed suite results fail the summary task. Reports are replaced through a sibling temporary
+file and rename; no transaction-durability or tamper-resistance claim applies to artifacts.
 
 ### Headless gateway API version 1
 

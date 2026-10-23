@@ -59,6 +59,13 @@ Linux service templates and recovery limits are in [operations](GATEWAY_OPERATIO
 Production identity, signed permits, AgentAuth authorization consolidation and public server
 hardening remain separate [roadmap gates](ROADMAP.md).
 
+The optional [Apache verification lab](../testbeds/pipeline-lab/README.md) runs fixture
+crash/authorization/replay/service checks as an Airflow batch DAG. It uses no existing user
+ledger, provider keys or public network at runtime. Airflow does not schedule customer
+payments or grant authority; Docker/Airflow are not dependencies of the offline engine or
+Rust gateway. Kafka/Camel are candidates documented in the [local plan](LOCAL_PIPELINE_PLAN.md),
+not implemented transaction integrations.
+
 The optional [voice merchant lab](../testbeds/voice-merchant/README.md) adds a Node development
 UI/voice backend and an independent merchant HTTP API with its own stock/order store. The
 Rust service's fixed loopback connector pins merchant identity and verifies receipt fields

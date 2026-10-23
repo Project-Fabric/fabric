@@ -1,0 +1,18 @@
+name: cosigna-pipeline-lab
+services:
+  verify:
+    build:
+      context: ../..
+      dockerfile: testbeds/pipeline-lab/Dockerfile
+    image: cosigna-pipeline-lab:local
+    command: ["bash", "-euc", "airflow db migrate && airflow dags test cosigna_gateway_verification"]
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - ./.runs/reports:/opt/cosigna/reports
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 4g
+    cpus: 2

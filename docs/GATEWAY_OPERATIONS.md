@@ -1,5 +1,10 @@
 # Persistent gateway sandbox
 
+23 October update: cloud signup and deployment are deferred at the user's request. Build and
+verify the transaction foundation locally first; see the [local pipeline plan](LOCAL_PIPELINE_PLAN.md)
+and optional [Apache verification lab](../testbeds/pipeline-lab/README.md). The Oracle provisioning
+instructions below are retained as a future reference, not an active deployment.
+
 The one-shot `pipeline-demo` exits deliberately. An always-running sandbox now has two
 processes: the authenticated loopback API and an opt-in transaction worker, both using the
 same durable ledger on local disk. Linux systemd templates restart failed processes and
@@ -107,8 +112,8 @@ release unknown holds as a repair. Stop both services before upgrading or restor
 
 ## Oracle pilot provisioning
 
-Selected 23 October 2026: Oracle Cloud Always Free for the private sandbox. Account creation
-and the VM are still pending. No paid resource, model quota or live payment is authorized
+Previously considered 23 October 2026: Oracle Cloud Always Free for the private sandbox.
+Account creation and the VM are deferred. No paid resource, model quota or live payment is authorized
 by this hosting choice. The backend stays accessible through SSH forwarding initially.
 
 1. Create/sign in to [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/). Complete
@@ -206,6 +211,9 @@ Verified locally on Windows: queue/approval/restart/replay, grant boundaries, un
 backoff/holds, paused inference, owner-pause races, v1/v2 migration, shared inference lock,
 HTTP auth/schema and OS lock release after killing an idle worker process. Simulated
 interruption boundaries are not proof of process-kill durability during every payment phase.
+The local pipeline increment also adds four real process-kill tests at fixed fixture
+planning/claim/acceptance/confirmation boundaries. Broader provider failures and power loss
+remain unverified; see `crates/cosigna-agent/tests/crash_recovery.rs`.
 The Linux systemd units still need an actual target-host smoke test, reboot test and backup
 restore drill. Production identity/permits, AgentAuth authorization consolidation, public API
 rate limits/timeouts, alerting and a live connector remain tracked in G3–G6.

@@ -29,6 +29,7 @@ jobs:
           cache-dependency-path: testbeds/voice-merchant/package-lock.json
       - run: node scripts/check-source-secrets.mjs
       - run: node --test scripts/tests/*.test.mjs
+      - run: python -m unittest discover -s testbeds/pipeline-lab/tests
       - run: rustup show
       - run: cargo test -p cosigna-agent --locked
       - run: cargo run -p cosigna-agent --locked -- pipeline-demo

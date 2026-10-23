@@ -1,0 +1,30 @@
+name: Local Apache verification lab
+
+# This optional full container run is explicit, not a customer transaction scheduler.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  airflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/check-source-secrets.mjs
+      - run: python -m unittest discover -s testbeds/pipeline-lab/tests
+      - name: Prepare isolated fixture reports
+        run: |
+          mkdir -p testbeds/pipeline-lab/.runs/reports
+          sudo chown 50000:0 testbeds/pipeline-lab/.runs/reports
+      - name: Execute Apache Airflow verification DAG
+        run: docker compose -f testbeds/pipeline-lab/compose.yaml run --build --rm verify
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: cosigna-fixture-verification
+          path: testbeds/pipeline-lab/.runs/reports/
+          if-no-files-found: warn
+          retention-days: 7

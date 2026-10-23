@@ -1,0 +1,12 @@
+.git
+.bundle
+log
+tmp
+storage
+coverage
+vendor/bundle
+config/master.key
+config/credentials*.yml.enc
+config/credentials
+.env
+.env.*

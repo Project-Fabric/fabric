@@ -1,0 +1,12 @@
+FROM ruby:3.4-slim@sha256:b259273c3eecb9aa8e91aa8cd74241c7988aa794f553891a27d90adf8473bd9c
+RUN apt-get update && apt-get install --no-install-recommends -y build-essential pkg-config libyaml-dev libsqlite3-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+ENV BUNDLE_FROZEN=true
+COPY Gemfile Gemfile.lock ./
+RUN bundle install --jobs 4 --retry 2
+RUN groupadd --gid 10001 cosigna && useradd --uid 10001 --gid 10001 --home-dir /app --shell /bin/sh cosigna
+COPY --chown=cosigna:cosigna . .
+RUN chmod +x bin/* && mkdir -p tmp/pids log storage && chown cosigna:cosigna /app && chown -R cosigna:cosigna tmp log storage
+USER cosigna
+EXPOSE 3000
+CMD ["bundle", "exec", "rails", "server", "--binding", "0.0.0.0", "--port", "3000"]

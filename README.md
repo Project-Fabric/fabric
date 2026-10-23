@@ -17,6 +17,9 @@ capabilities remain behind the gateway acceptance gates. See [the product rebuil
 for existing capabilities, gaps and delivery order. Current commerce integrations remain test-only.
 
 Gateway development: [registered agent API and build plan](docs/COSIGNA_GATEWAY.md).
+Application backend: [Rails foundation and local Docker commands](backend/README.md).
+Rails will host customer-facing business workflows; the existing Rust engine retains
+transaction authority. This first increment exposes application/sandbox-health metadata only.
 Run `cargo run -p cosigna-agent -- gateway-demo` for an isolated permission/approval/execution
 example without voice, model credentials or real payments.
 

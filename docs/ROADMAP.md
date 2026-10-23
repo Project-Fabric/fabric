@@ -10,6 +10,12 @@ redesign. The subsequent subpages, theme switch and Griffin-style refresh were r
 the active preview. Product consolidation remains staged; commands, contracts and ledgers remain compatible.
 Identity delivery and consolidation gates are tracked in [#77](https://github.com/Project-Fabric/fabric/issues/77).
 
+24 October: Rails is selected for application/business workflows. The [initial backend](../backend/README.md)
+adds local status and a bounded, read-only Rust health adapter. Customer authentication,
+organization/tenant mapping and authorized transaction operations remain unimplemented G3
+work. Existing Rust, Python, console and mobile paths are preserved.
+Rails delivery and remaining acceptance gates: [#78](https://github.com/Project-Fabric/fabric/issues/78).
+
 23 October decision: local-first build and verification; cloud account creation/deployment is
 deferred. The [local pipeline plan](LOCAL_PIPELINE_PLAN.md) prioritizes authorization, crash
 recovery, concurrency and merchant/payment disagreement, with optional Apache batch tooling.
@@ -33,7 +39,7 @@ verification evidence rather than inferring completion from a demo.
 ## Monitoring
 
 - **Rust CI:** push/PR formatting, Clippy and workspace tests across Windows, macOS and Linux.
-- **Product checks:** push/PR/manual and weekday 04:00 UTC runs for gateway/merchant regressions,
+- **Product checks:** push/PR/manual and weekday 04:00 UTC runs for the Rails foundation, gateway/merchant regressions,
   credential-pattern checks, console/site, mobile contracts/Expo bundle and Go CLI.
 - **Roadmap:** issue checklists and the board show delivery progress, blockers and remaining
   acceptance work. Passing CI does not automatically mark a feature production-ready.

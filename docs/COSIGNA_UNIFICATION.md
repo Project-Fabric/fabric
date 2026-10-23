@@ -15,6 +15,7 @@ not merge financial ledgers, change service URLs or make separate authorization 
 | Authorization service | Separate `agentauth-io/agentauth` repository; local sibling `agentauth` | Python API/consent service with its own schemas and migrations |
 | Transaction engine | `crates/cosigna-agent` | Version 3 budget/approval/reservation/attempt ledger; not yet integrated with that mandate service |
 | Console | `console` | Existing fixture/engine interfaces, one-time sign-in, session and CSRF controls |
+| Application backend | `backend` | Rails API foundation; status and read-only gateway health only; customer identity and authority mapping remain G3 |
 | Assistant | `mobile` and `testbeds/voice-merchant` | Local voice/order prototype using the sandbox transaction path |
 
 The private `Project-Fabric/fabric` repository and public `agentauth-io/agentauth` repository
@@ -35,6 +36,13 @@ the active preview. The one-product decision and staged backend consolidation st
 - Capture the code-consolidation boundary here and in G3/G6 tracking.
 
 ## Stage 2 — one authoritative permission contract (G3)
+
+24 October application-backend decision: begin Rails for customer-facing business workflows
+while preserving the Rust transaction engine. The first Rails increment is metadata/health
+only; it receives no owner or payment credentials and exposes no transaction writes. Adding
+customer accounts must define a verified mapping to gateway owner/agent authority before
+customer task data or spending actions are exposed. The Python consent service is not copied
+or replaced by this foundation. See [the Rails backend](../backend/README.md).
 
 Define the owner/agent identity, mandate and exact-transaction approval decision shared by the
 existing tool gateway and transaction engine. Specify issuer/audience, canonical transaction

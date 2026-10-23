@@ -16,6 +16,25 @@ env:
   GOTELEMETRY: 'off'
 
 jobs:
+  rails:
+    name: Rails application foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      RAILS_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          working-directory: backend
+      - run: bundle exec rails zeitwerk:check
+      - run: bundle exec rails test
+
   gateway:
     name: Gateway and merchant regressions
     runs-on: ubuntu-latest

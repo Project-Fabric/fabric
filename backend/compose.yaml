@@ -1,0 +1,32 @@
+name: cosigna-backend
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: cosigna-backend:dev
+    init: true
+    ports:
+      - "127.0.0.1:3101:3000"
+    environment:
+      RAILS_ENV: development
+      COSIGNA_GATEWAY_HEALTH_HOST: host.docker.internal
+      COSIGNA_GATEWAY_HEALTH_PORT: "${COSIGNA_GATEWAY_HEALTH_PORT:-}"
+    volumes:
+      - rails-storage:/app/storage
+    healthcheck:
+      test: ["CMD", "ruby", "-rnet/http", "-e", "exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/up')).code == '200' ? 0 : 1)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: cosigna-backend:dev
+    profiles: ["verify"]
+    environment:
+      RAILS_ENV: test
+    command: ["bundle", "exec", "rails", "test"]
+volumes:
+  rails-storage:

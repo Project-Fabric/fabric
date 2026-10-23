@@ -681,3 +681,20 @@ The Android bridge accepts only `request`; authentication, role credentials, spe
 and confirmation commands in extras cannot authorize payment. Continuing the draft requires
 an explicit voice-session action and processing permissions; actual approval still requires
 a fresh spoken turn after the exact quote has finished reading.
+
+## Rails application foundation: `cosigna.backend/v1`
+
+The separate `backend` Rails API introduces a new metadata envelope, `cosigna.backend/v1`.
+`GET /api/v1/platform` reports the product, foundation phase, Rails application backend,
+Rust transaction authority, unimplemented customer authentication and absent write endpoints.
+`GET /api/v1/gateway/health` returns that schema and a whitelisted verified
+`cosigna.agent/v1` sandbox health object, or HTTP 503 and one of `gateway_unconfigured`,
+`gateway_configuration_invalid`, `gateway_unavailable`, or `gateway_unverified`. It accepts
+no client-selected destination and forwards no credentials. `/up` is Rails' own health route.
+
+This increment adds no customer tables, payment records or financial migrations. Active
+Record's local development/test databases live under the Rails app's separate `storage`
+directory (a dedicated Compose volume in Docker). Rails never opens or changes the Rust
+ledger, provider store, project manifests or Python consent database. Their versions and
+existing wire contracts are unchanged. This is a local development API, not a tenant identity
+or signed spending-authority contract.

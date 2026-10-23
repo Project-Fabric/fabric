@@ -5,7 +5,10 @@ import { JSDOM } from 'jsdom';
 
 function landing(withCanvas = false, options = {}) {
   const dom = new JSDOM(readFileSync(new URL(`../../site/${options.page || 'index'}.html`, import.meta.url), 'utf8'), { runScripts: 'outside-only', url: 'http://127.0.0.1:3091', pretendToBeVisual: true });
-  Object.defineProperty(dom.window, 'matchMedia', { value: () => ({ matches: options.reduced ?? true, addEventListener() {} }) });
+  const device = { matches: options.dark ?? false, addEventListener(_type, callback) { this.change = callback; } };
+  Object.defineProperty(dom.window, 'matchMedia', { value: query => query.includes('color-scheme') ? device : ({ matches: options.reduced ?? true, addEventListener() {} }) });
+  if (options.savedTheme) dom.window.localStorage.setItem('cosigna.theme', options.savedTheme);
+  if (options.blockStorage) Object.defineProperty(dom.window, 'localStorage', { get() { throw new dom.window.DOMException('Storage blocked', 'SecurityError'); } });
   let requests = 0, timerId = 0;
   dom.window.fetch = () => { requests++; throw new Error('The landing illustration must not submit requests.'); };
   const timers = new Map();
@@ -22,8 +25,10 @@ function landing(withCanvas = false, options = {}) {
   dom.window.cancelAnimationFrame = frame => frames.delete(frame);
   Object.defineProperty(dom.window.HTMLDialogElement.prototype, 'showModal', { value: function () { this.setAttribute('open', ''); } });
   Object.defineProperty(dom.window.HTMLDialogElement.prototype, 'close', { value: function () { this.removeAttribute('open'); } });
+  dom.window.eval(readFileSync(new URL('../../site/theme.js', import.meta.url), 'utf8'));
+  dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
   dom.window.eval(readFileSync(new URL('../../site/app.js', import.meta.url), 'utf8'));
-  return { dom, frames, timers, requests: () => requests, draws: () => draws };
+  return { dom, frames, timers, device, requests: () => requests, draws: () => draws };
 }
 
 test('landing workflow supports mouse and keyboard selection without executing a transaction', () => {
@@ -118,4 +123,50 @@ test('About, Architecture and Benchmarks use the shared navigation without a her
       doc.querySelector('[data-open-dashboard]').click(); assert.ok(doc.querySelector('#dashboard-dialog').hasAttribute('open'));
     } finally { dom.window.close(); }
   }
+});
+
+test('theme follows the device until explicitly changed and persists across pages', () => {
+  const p = landing(false, { dark: true }), doc = p.dom.window.document;
+  try {
+    assert.equal(doc.documentElement.dataset.theme, 'dark');
+    const toggle = doc.querySelector('[data-theme-toggle]');
+    assert.equal(toggle.hidden, false); assert.equal(toggle.getAttribute('aria-label'), 'Switch to light theme');
+    p.device.matches = false; p.device.change(); assert.equal(doc.documentElement.dataset.theme, 'light');
+    toggle.click(); assert.equal(doc.documentElement.dataset.theme, 'dark');
+    assert.equal(p.dom.window.localStorage.getItem('cosigna.theme'), 'dark');
+    p.device.change(); assert.equal(doc.documentElement.dataset.theme, 'dark', 'Explicit choice overrides device');
+    for (const page of ['index', 'about', 'architecture', 'benchmarks']) {
+      const next = landing(false, { page, savedTheme: p.dom.window.localStorage.getItem('cosigna.theme') });
+      try {
+        const document = next.dom.window.document;
+        assert.equal(document.documentElement.dataset.theme, 'dark');
+        assert.equal(document.querySelector('meta[name="theme-color"]').content, '#0b101b');
+        const source = readFileSync(new URL(`../../site/${page}.html`, import.meta.url), 'utf8');
+        assert.ok(source.indexOf('src="/theme.js"') < source.indexOf('href="/styles.css"'), 'Resolve theme before styles');
+      } finally { next.dom.window.close(); }
+    }
+    doc.querySelector('[data-theme-system]').click();
+    assert.equal(doc.documentElement.dataset.theme, 'light');
+    assert.equal(doc.documentElement.dataset.themePreference, 'system');
+    assert.equal(p.dom.window.localStorage.getItem('cosigna.theme'), null);
+    p.device.matches = true; p.device.change(); assert.equal(doc.documentElement.dataset.theme, 'dark');
+    assert.equal(doc.querySelector('#purchase-demo').dataset.state, 'waiting'); assert.equal(p.requests(), 0);
+  } finally { p.dom.window.close(); }
+});
+
+test('theme handles unavailable storage, invalid values and changes from another tab', () => {
+  const blocked = landing(false, { blockStorage: true });
+  try {
+    blocked.dom.window.document.querySelector('[data-theme-toggle]').click();
+    assert.equal(blocked.dom.window.document.documentElement.dataset.theme, 'dark');
+  } finally { blocked.dom.window.close(); }
+  const p = landing(false, { savedTheme: 'invalid' }), doc = p.dom.window.document;
+  try {
+    assert.equal(doc.documentElement.dataset.themePreference, 'system');
+    p.dom.window.dispatchEvent(new p.dom.window.StorageEvent('storage', { key: 'cosigna.theme', newValue: 'dark' }));
+    assert.equal(doc.documentElement.dataset.theme, 'dark');
+    p.dom.window.dispatchEvent(new p.dom.window.StorageEvent('storage', { key: 'cosigna.theme', newValue: null }));
+    assert.equal(doc.documentElement.dataset.theme, 'light');
+    assert.equal(doc.querySelector('[data-theme-system]').getAttribute('aria-pressed'), 'true');
+  } finally { p.dom.window.close(); }
 });

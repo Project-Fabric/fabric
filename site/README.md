@@ -1,6 +1,6 @@
 # Cosigna landing page
 
-Local, buildless developer-preview site for Cosigna: a light layout, blue dimensional
+Local, buildless developer-preview site for Cosigna: light and dark themes, blue dimensional
 gateway illustration, responsive navigation, restrained motion, and an interactive
 transaction-boundary example. The existing `design/` prototypes are retained unchanged.
 No dependency installation is required to serve the site.
@@ -15,6 +15,13 @@ Try the within-budget, over-limit, and repeated-request scenarios, workflow tabs
 motion control, and console launch instructions. The purchase illustration never calls a
 backend or executes a payment. Inter is bundled locally with licensing retained in
 `assets/FONT-LICENSE.txt`. No analytics, external fonts or outbound calls run on page load.
+
+The header's sun/moon button switches appearance on all four product pages. The device
+preference is used initially; an explicit choice is remembered in browser-local storage.
+Use the footer's **Use device theme** button to return to automatic appearance. Theme
+selection runs before styles load to avoid a flash of the wrong palette. It also works
+when browser storage is blocked (the choice then lasts for the current page only).
+The separate pixel-art motion study retains its authored scene palette.
 
 The site serves only an explicit file allowlist and binds to loopback. It has no account,
 lead submission or provider authorization endpoint. It does not mint or share Console
@@ -39,10 +46,12 @@ screens or third-party artwork were used. See the [staged product consolidation 
 for the one-product identity and remaining technical merge work.
 
 Run `npm run check` and `npm test` here. Tests use the installed Console jsdom dependency.
-The 12 tests cover landing interactions, stale simulation callbacks, reduced motion,
+The 14 tests cover landing interactions, stale simulation callbacks, reduced motion,
 keyboard navigation, subpage content, route/asset availability, the preview server's
-read-only/Host boundary, and the retained pixel concept. JavaScript syntax and CSS parsing
-were checked; the gateway SVG was rendered and visually inspected. Full browser layout,
+read-only/Host boundary, theme persistence/device changes/storage failures, and the retained
+pixel concept. JavaScript syntax and CSS parsing were checked; the light and dark gateway
+SVGs were rendered and visually inspected. Primary text, button and status token pairs
+were checked for a 4.5:1 contrast minimum; this is not a full accessibility audit. Full browser layout,
 mobile composition, and scroll-feel review remain pending because no browser was connected.
 
 ## Pixel-art concept preview

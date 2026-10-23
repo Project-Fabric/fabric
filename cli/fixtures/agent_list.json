@@ -1,0 +1,54 @@
+{
+  "agents": [
+    {
+      "created_at": "2026-10-21T08:59:06Z",
+      "name": "refunds-bot",
+      "revoked_at": "2026-10-21T09:00:13Z",
+      "tools": [
+        "stripe/*"
+      ]
+    },
+    {
+      "created_at": "2026-10-21T08:59:06Z",
+      "name": "billing-bot",
+      "revoked_at": "2026-10-21T09:00:13Z",
+      "tools": [
+        "stripe/*"
+      ]
+    },
+    {
+      "created_at": "2026-10-21T08:59:06Z",
+      "name": "ops-bot",
+      "revoked_at": "2026-10-21T09:00:14Z",
+      "tools": [
+        "stripe/*"
+      ]
+    },
+    {
+      "created_at": "2026-10-21T09:00:13Z",
+      "name": "refunds-bot",
+      "revoked_at": null,
+      "tools": [
+        "stripe/*"
+      ]
+    },
+    {
+      "created_at": "2026-10-21T09:00:13Z",
+      "name": "billing-bot",
+      "revoked_at": null,
+      "tools": [
+        "stripe/*"
+      ]
+    },
+    {
+      "created_at": "2026-10-21T09:00:14Z",
+      "name": "ops-bot",
+      "revoked_at": null,
+      "tools": [
+        "stripe/*"
+      ]
+    }
+  ],
+  "required": true,
+  "schema": "fabric.agent.list/v1"
+}

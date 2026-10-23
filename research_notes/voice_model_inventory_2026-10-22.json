@@ -1,0 +1,416 @@
+{
+  "research_date": "2026-10-22",
+  "scope": "Published checkpoint metadata only; no model weights or runtime installed.",
+  "notes": [
+    "Alternate weight formats in a repository are not additive inference requirements.",
+    "File size is not GPU memory needed for inference.",
+    "License metadata is a snapshot; review applicable terms at the pinned revision.",
+    "Downloaded weight bytes must be verified against their publisher SHA-256 before loading."
+  ],
+  "models": [
+    {
+      "repo": "mistralai/Voxtral-Mini-4B-Realtime-2602",
+      "revision": "2769294da9567371363522aac9bbcfdd19447add",
+      "role": "streaming_asr",
+      "publisher_model_card": "https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-2602/tree/2769294da9567371363522aac9bbcfdd19447add",
+      "license_metadata": "apache-2.0",
+      "metadata_source": "https://huggingface.co/api/models/mistralai/Voxtral-Mini-4B-Realtime-2602/revision/2769294da9567371363522aac9bbcfdd19447add?blobs=true",
+      "weights_downloaded": false,
+      "assets": [
+        {
+          "path": ".gitattributes",
+          "size_bytes": 1567
+        },
+        {
+          "path": "README.md",
+          "size_bytes": 14942
+        },
+        {
+          "path": "config.json",
+          "size_bytes": 1572
+        },
+        {
+          "path": "consolidated.safetensors",
+          "size_bytes": 8859462744,
+          "sha256": "263f178fe752c90a2ae58f037a95ed092db8b14768b0978b8c48f66979c8345d"
+        },
+        {
+          "path": "generation_config.json",
+          "size_bytes": 191
+        },
+        {
+          "path": "model.safetensors",
+          "size_bytes": 8859446848,
+          "sha256": "e745e4902df6a4c48f29f2f8dc1f6d0fb4cc73c7156bc45923451a5bcdfcd1d6"
+        },
+        {
+          "path": "params.json",
+          "size_bytes": 1343
+        },
+        {
+          "path": "processor_config.json",
+          "size_bytes": 384
+        },
+        {
+          "path": "tekken.json",
+          "size_bytes": 14910348,
+          "sha256": "8434af1d39eba99f0ef46cf1450bf1a63fa941a26933a1ef5dbbf4adf0d00e44"
+        }
+      ]
+    },
+    {
+      "repo": "mistralai/Voxtral-4B-TTS-2603",
+      "revision": "b81be46c3777f88621676791b512bb01dc1cb970",
+      "role": "tts_noncommercial_candidate",
+      "publisher_model_card": "https://huggingface.co/mistralai/Voxtral-4B-TTS-2603/tree/b81be46c3777f88621676791b512bb01dc1cb970",
+      "license_metadata": "cc-by-nc-4.0",
+      "metadata_source": "https://huggingface.co/api/models/mistralai/Voxtral-4B-TTS-2603/revision/b81be46c3777f88621676791b512bb01dc1cb970?blobs=true",
+      "weights_downloaded": false,
+      "assets": [
+        {
+          "path": ".gitattributes",
+          "size_bytes": 1619
+        },
+        {
+          "path": "README.md",
+          "size_bytes": 5998
+        },
+        {
+          "path": "consolidated.safetensors",
+          "size_bytes": 8004752248,
+          "sha256": "66c4fd998db10e1a6d9cc5baa10e6264bf10701ec22ccdc0822c7dcc45dbe55b"
+        },
+        {
+          "path": "params.json",
+          "size_bytes": 3482
+        },
+        {
+          "path": "tekken.json",
+          "size_bytes": 14894731,
+          "sha256": "587989c9f56676b35e7d16d6fc61461301e402d908392a8ce16f0349f61b56d7"
+        },
+        {
+          "path": "voice_embedding/ar_male.pt",
+          "size_bytes": 413253,
+          "sha256": "f44603f6433cbb4b2abc7f496a382632171118557a175cb385df168a0dc20464"
+        },
+        {
+          "path": "voice_embedding/casual_female.pt",
+          "size_bytes": 1316421,
+          "sha256": "780637984644064ee22e60b3152e0cd43fa64b2dcd39d9cab6cd2c62f2ce0342"
+        },
+        {
+          "path": "voice_embedding/casual_male.pt",
+          "size_bytes": 904773,
+          "sha256": "7a056c9156ad0058e9d1368363bf3a25a9fcd8fe53e211ffac97de0bbffb3504"
+        },
+        {
+          "path": "voice_embedding/cheerful_female.pt",
+          "size_bytes": 812613,
+          "sha256": "75fe69c8fcb5a0883a3d0bc1215b28f28cc0586aff5732eeebd2b254e8288253"
+        },
+        {
+          "path": "voice_embedding/de_female.pt",
+          "size_bytes": 904773,
+          "sha256": "282fc191fda496de2ebf2c809acb44056dde6fbe2f1cb99e85e67985bc6f6619"
+        },
+        {
+          "path": "voice_embedding/de_male.pt",
+          "size_bytes": 1003077,
+          "sha256": "bd75d9fd3ffb9df0481668ce8781287a58f552e2388c5bbc0efdd4ebff0421bf"
+        },
+        {
+          "path": "voice_embedding/es_female.pt",
+          "size_bytes": 849477,
+          "sha256": "90e01ad34f231cc881987c3b1c0728853fd9b904e52c296a07c71a132949d8a6"
+        },
+        {
+          "path": "voice_embedding/es_male.pt",
+          "size_bytes": 1279557,
+          "sha256": "ec116d8f4a102291bae3d9156d7c3222d9e1056020bf5894a7504bfc09640fdf"
+        },
+        {
+          "path": "voice_embedding/fr_female.pt",
+          "size_bytes": 597573,
+          "sha256": "82628d963670f919aa302f9c8a7336c745418a145934edb211810b07d9c8b852"
+        },
+        {
+          "path": "voice_embedding/fr_male.pt",
+          "size_bytes": 597573,
+          "sha256": "73395073472be3fb586b487705ac4ebf35f99db664f56400137e8bfcfe4cd8a8"
+        },
+        {
+          "path": "voice_embedding/hi_female.pt",
+          "size_bytes": 529989,
+          "sha256": "aa7718cdd6f65735226bcc701379fdec64f36d0207ca79fc4c61b445ca7bde82"
+        },
+        {
+          "path": "voice_embedding/hi_male.pt",
+          "size_bytes": 579141,
+          "sha256": "c3cde36ab9a336f67fd33b46435cdf645cff9e10117f13bcbcb67b44b80a11b0"
+        },
+        {
+          "path": "voice_embedding/it_female.pt",
+          "size_bytes": 1058373,
+          "sha256": "29e1714bdb3ce0726e590ce1862fbe953c168ba51a05bc7daa8cb35cddc312b4"
+        },
+        {
+          "path": "voice_embedding/it_male.pt",
+          "size_bytes": 1033797,
+          "sha256": "b98ba2253e2a0b872e20d33d29cab32263cc81062c01e3f5a8696de89e6f47b1"
+        },
+        {
+          "path": "voice_embedding/neutral_female.pt",
+          "size_bytes": 1340997,
+          "sha256": "2a03f4008614da7b1505a360a6b0d58d94dd72b0b0f49bf216e39de5eb733c61"
+        },
+        {
+          "path": "voice_embedding/neutral_male.pt",
+          "size_bytes": 1039941,
+          "sha256": "439df812990e6e4bcc6010ca12f12df90916e862bc1e1b56036d6433b892834e"
+        },
+        {
+          "path": "voice_embedding/nl_female.pt",
+          "size_bytes": 898629,
+          "sha256": "b1bad34c22e0563f05c1f13c1db96680778c297aea6a5c0bb202950648b796b6"
+        },
+        {
+          "path": "voice_embedding/nl_male.pt",
+          "size_bytes": 849477,
+          "sha256": "43fd2de89dc08503f37ae3107273eeb3f2a6195d705ff58d2228b3b5642ff7de"
+        },
+        {
+          "path": "voice_embedding/pt_female.pt",
+          "size_bytes": 1076805,
+          "sha256": "82f1006b2cd69118cba67085daa1795d9dab90b9bc70e1392e77f82cb616c9ce"
+        },
+        {
+          "path": "voice_embedding/pt_male.pt",
+          "size_bytes": 886341,
+          "sha256": "7b30dca6c5d16c7b10a1c09c53e971c1bb1fab65692d7244876fbdc4ad52ba18"
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+      "revision": "85e237c12c027371202489a0ec509ded67b5e4b5",
+      "role": "tts_candidate",
+      "publisher_model_card": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice/tree/85e237c12c027371202489a0ec509ded67b5e4b5",
+      "license_metadata": "apache-2.0",
+      "metadata_source": "https://huggingface.co/api/models/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice/revision/85e237c12c027371202489a0ec509ded67b5e4b5?blobs=true",
+      "weights_downloaded": false,
+      "assets": [
+        {
+          "path": ".gitattributes",
+          "size_bytes": 1519
+        },
+        {
+          "path": "README.md",
+          "size_bytes": 3263
+        },
+        {
+          "path": "config.json",
+          "size_bytes": 4908
+        },
+        {
+          "path": "generation_config.json",
+          "size_bytes": 245
+        },
+        {
+          "path": "merges.txt",
+          "size_bytes": 1671839
+        },
+        {
+          "path": "model.safetensors",
+          "size_bytes": 1811626576,
+          "sha256": "bc3c7e785eb961179c25450d1acff03f839e0002f2f3a5aeb67b5735c0fa2adb"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "size_bytes": 127
+        },
+        {
+          "path": "speech_tokenizer/config.json",
+          "size_bytes": 2336
+        },
+        {
+          "path": "speech_tokenizer/configuration.json",
+          "size_bytes": 76
+        },
+        {
+          "path": "speech_tokenizer/model.safetensors",
+          "size_bytes": 682293092,
+          "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+        },
+        {
+          "path": "speech_tokenizer/preprocessor_config.json",
+          "size_bytes": 234
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size_bytes": 7344
+        },
+        {
+          "path": "vocab.json",
+          "size_bytes": 2776833
+        }
+      ]
+    },
+    {
+      "repo": "Qwen/Qwen3-4B",
+      "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+      "role": "small_reasoning_candidate",
+      "publisher_model_card": "https://huggingface.co/Qwen/Qwen3-4B/tree/1cfa9a7208912126459214e8b04321603b3df60c",
+      "license_metadata": "apache-2.0",
+      "metadata_source": "https://huggingface.co/api/models/Qwen/Qwen3-4B/revision/1cfa9a7208912126459214e8b04321603b3df60c?blobs=true",
+      "weights_downloaded": false,
+      "assets": [
+        {
+          "path": ".gitattributes",
+          "size_bytes": 1570
+        },
+        {
+          "path": "LICENSE",
+          "size_bytes": 11343
+        },
+        {
+          "path": "README.md",
+          "size_bytes": 16857
+        },
+        {
+          "path": "config.json",
+          "size_bytes": 726
+        },
+        {
+          "path": "generation_config.json",
+          "size_bytes": 239
+        },
+        {
+          "path": "merges.txt",
+          "size_bytes": 1671853
+        },
+        {
+          "path": "model-00001-of-00003.safetensors",
+          "size_bytes": 3957900840,
+          "sha256": "328a91d3122359d5547f9d79521205bc0a46e1f79a792dfe650e99fc2d651223"
+        },
+        {
+          "path": "model-00002-of-00003.safetensors",
+          "size_bytes": 3987450520,
+          "sha256": "6cd087b316306a68c562436b5492edbcf6e16c6dba3a1308279caa5a58e21ca5"
+        },
+        {
+          "path": "model-00003-of-00003.safetensors",
+          "size_bytes": 99630640,
+          "sha256": "e4bf436957184f4eeb86a80e9db394503f1f56446b2e6b7edeac5b81470f4ca1"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size_bytes": 32819
+        },
+        {
+          "path": "tokenizer.json",
+          "size_bytes": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size_bytes": 9732
+        },
+        {
+          "path": "vocab.json",
+          "size_bytes": 2776833
+        }
+      ]
+    },
+    {
+      "repo": "openai/gpt-oss-20b",
+      "revision": "6cee5e81ee83917806bbde320786a8fb61efebee",
+      "role": "reasoning_candidate",
+      "publisher_model_card": "https://huggingface.co/openai/gpt-oss-20b/tree/6cee5e81ee83917806bbde320786a8fb61efebee",
+      "license_metadata": "apache-2.0",
+      "metadata_source": "https://huggingface.co/api/models/openai/gpt-oss-20b/revision/6cee5e81ee83917806bbde320786a8fb61efebee?blobs=true",
+      "weights_downloaded": false,
+      "assets": [
+        {
+          "path": ".gitattributes",
+          "size_bytes": 1570
+        },
+        {
+          "path": "LICENSE",
+          "size_bytes": 11357
+        },
+        {
+          "path": "README.md",
+          "size_bytes": 7095
+        },
+        {
+          "path": "USAGE_POLICY",
+          "size_bytes": 200
+        },
+        {
+          "path": "chat_template.jinja",
+          "size_bytes": 16738
+        },
+        {
+          "path": "config.json",
+          "size_bytes": 1806
+        },
+        {
+          "path": "generation_config.json",
+          "size_bytes": 177
+        },
+        {
+          "path": "metal/model.bin",
+          "size_bytes": 13750886400,
+          "sha256": "725b7f996b5a226d922f034a731aefc398652f670dcafc2efd78620509a0fef1"
+        },
+        {
+          "path": "model-00000-of-00002.safetensors",
+          "size_bytes": 4792272488,
+          "sha256": "16d0f997dcfc4462089d536bffe51b4bcea2f872f5c430be09ef8ed392312427"
+        },
+        {
+          "path": "model-00001-of-00002.safetensors",
+          "size_bytes": 4798702184,
+          "sha256": "4fbe328ab445455d6f58dc73852b85873bd626986310abd91cd4d2ce3245eaea"
+        },
+        {
+          "path": "model-00002-of-00002.safetensors",
+          "size_bytes": 4170342232,
+          "sha256": "a18106b209e9ab35c3406db4f6f12a927364a058b21e9d1373d682e20674b303"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size_bytes": 36355
+        },
+        {
+          "path": "original/config.json",
+          "size_bytes": 376
+        },
+        {
+          "path": "original/dtypes.json",
+          "size_bytes": 13082
+        },
+        {
+          "path": "original/model.safetensors",
+          "size_bytes": 13761300984,
+          "sha256": "3340a61d1a0391e8c5b5d3463d18d4c48129a84bbc04a554c762c99020aa06ed"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size_bytes": 98
+        },
+        {
+          "path": "tokenizer.json",
+          "size_bytes": 27868174,
+          "sha256": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size_bytes": 4200
+        }
+      ]
+    }
+  ]
+}

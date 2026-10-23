@@ -1,0 +1,23 @@
+{
+  "name": "cosigna-voice-merchant-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev": "node dev.mjs",
+    "dev:fixtures": "node dev.mjs --fixtures",
+    "dev:stripe": "node dev.mjs --fixtures --stripe",
+    "dev:stripe:ai": "node dev.mjs --stripe",
+    "dev:groq": "node dev.mjs --groq",
+    "dev:stripe:groq": "node dev.mjs --stripe --groq",
+    "dev:mobile": "node dev.mjs --fixtures --mobile",
+    "dev:mobile:stripe": "node dev.mjs --fixtures --stripe --mobile",
+    "dev:mobile:ai": "node dev.mjs --stripe --mobile",
+    "dev:mobile:groq": "node dev.mjs --stripe --mobile --groq",
+    "check:stripe": "node scripts/check-stripe.mjs",
+    "check:groq": "node scripts/check-stripe.mjs --groq",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
+  },
+  "devDependencies": { "jsdom": "25.0.1" }
+}

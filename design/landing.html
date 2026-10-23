@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cosigna</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="cosigna.css">
+<style>
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 28px 0; }
+  nav { display: flex; flex-wrap: wrap; align-items: center; gap: 28px; font-size: 15px; }
+  nav a:not(.btn) { color: var(--text-2); text-decoration: none; }
+  .hero { display: flex; flex-wrap: wrap; gap: 56px; align-items: center; padding: 72px 0 96px; }
+  .hero-copy { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 28px; }
+  .badge { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px;
+    border: 1px solid var(--line-strong); border-radius: var(--r-pill); font-size: 13px; color: var(--text-2); }
+  .badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  h1 { margin: 0; font-size: clamp(44px, 6vw, 76px); line-height: 1.02; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lede { margin: 0; font-size: 19px; line-height: 1.6; color: var(--muted); max-width: 560px; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+  .ctas .btn { min-height: 48px; padding: 0 24px; font-size: 16px; }
+  .live { flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 20px; border-radius: 24px; }
+  .live-head { display: flex; justify-content: space-between; padding: 4px 4px 8px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: var(--r-md); background: var(--ground); font-size: 15px; }
+  .row.bad { border: 1px solid rgba(255, 107, 107, 0.35); }
+  .row .what { flex: 1; min-width: 0; }
+  .foot { display: flex; align-items: center; gap: 8px; padding: 8px 4px 2px; font-size: 13px; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; padding-bottom: 72px; }
+  .stats div { padding: 24px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .stats .mono { font-size: 28px; }
+  .stats span:last-child { font-size: 15px; color: var(--muted); }
+  .how { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; padding-bottom: 96px; }
+  .how .card { padding: 28px; display: flex; flex-direction: column; gap: 12px; }
+  .how h3 { margin: 0; font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .how p { margin: 0; color: var(--muted); line-height: 1.6; }
+  .step { font-family: var(--font-mono); font-size: 13px; color: var(--accent-text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="mark" href="#">
+      <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="25" cy="32" r="17" fill="none" stroke="#8E7DFF" stroke-width="6"/>
+        <circle cx="39" cy="32" r="17" fill="none" stroke="#F2F3F5" stroke-width="6"/>
+      </svg><span>cosigna</span>
+    </a>
+    <nav aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#evidence">Evidence</a>
+      <a href="#docs">Docs</a>
+      <a class="btn btn-light" href="#demo">Book a demo</a>
+    </nav>
+  </header>
+
+  <main class="hero">
+    <div class="hero-copy">
+      <span class="badge"><i></i>For finance teams running AI agents</span>
+      <h1 class="display">Your agents move money.<br><em>Cosigna signs off.</em></h1>
+      <p class="lede">Give each agent the authority it needs and nothing more. Payments inside the limit go through; the rest wait for a person. Every decision is evidence your auditor can verify.</p>
+      <div class="ctas">
+        <a class="btn btn-primary" href="#demo">Book a demo</a>
+        <a class="btn" href="#how">See how it works</a>
+      </div>
+    </div>
+
+    <div class="live card" aria-label="Example: a refunds agent under Cosigna">
+      <div class="live-head">
+        <span class="eyebrow">refunds-bot · live</span>
+        <span class="mono muted" style="font-size:13px">$182.98 of $500.00</span>
+      </div>
+      <div class="meter"><i style="width:37%"></i></div>
+      <div class="row"><span class="chip chip-allowed">Allowed</span><span class="what">Refund order #2041</span><span class="mono">$20.00</span></div>
+      <div class="row"><span class="chip chip-allowed">Allowed</span><span class="what">Goodwill refund #2047</span><span class="mono">$60.00</span></div>
+      <div class="row bad"><span class="chip chip-blocked">Blocked</span><span class="what">Refund #2045 · over budget</span><span class="mono">$450.00</span></div>
+      <div class="row bad"><span class="chip chip-blocked">Blocked</span><span class="what">ops-bot has no spending authority</span><span class="mono">$78.00</span></div>
+      <div class="foot">
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#B4A9FF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
+        Evidence intact · 236 records · verifiable offline
+      </div>
+    </div>
+  </main>
+
+  <section class="stats" aria-label="Results" id="evidence">
+    <div><span class="mono">$528.00 → $0.00</span><span>Wrong refunds by real agents on Stripe test mode, without and with Cosigna</span></div>
+    <div><span class="mono">4 → 1</span><span>Approvals for four refunds, once a mandate sets the limits</span></div>
+    <div><span class="mono">Any agent</span><span>Claude, Codex or your own, in front of Stripe, your ledger or your ERP</span></div>
+  </section>
+
+  <section class="how" id="how" aria-label="How it works">
+    <div class="card"><span class="step">01 · Authority</span><h3>Say what each agent may do</h3><p>Per-call and per-day limits, which payments, until when. Agents never hold the API keys; Cosigna injects them.</p></div>
+    <div class="card"><span class="step">02 · Sign-off</span><h3>A person approves the rest</h3><p>Anything outside the mandate waits in your inbox. Approve the exact call, once, from desk or phone.</p></div>
+    <div class="card"><span class="step">03 · Evidence</span><h3>Hand the auditor a file</h3><p>Every call, decision and approval in a hash-chained, signed record they can check without trusting us.</p></div>
+  </section>
+</div>
+</body>
+</html>

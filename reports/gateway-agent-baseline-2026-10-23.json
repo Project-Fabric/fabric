@@ -1,0 +1,46 @@
+﻿{
+  "agent": {
+    "budget_id": "budget_41d29ff810bb545e9984f27df5011fca3cb6ea38cec5fb79467d71d8b595844b",
+    "expires_at": 1792733787,
+    "id": "agent_b75719112db0eb8ac9307ff5467421fe0de82014fa2b5024f1b71cd300b73467",
+    "name": "demo-purchase-agent",
+    "owner": "local-user",
+    "permissions": [
+      "plan",
+      "execute"
+    ],
+    "revoked": true
+  },
+  "approval_source": "synthetic-owner-test-driver",
+  "balance": {
+    "available_minor": 300,
+    "budget": {
+      "id": "budget_41d29ff810bb545e9984f27df5011fca3cb6ea38cec5fb79467d71d8b595844b",
+      "owner": "local-user",
+      "revoked": false,
+      "terms": {
+        "currency": "USD",
+        "expires_at": 1792735587,
+        "limit_minor": 1000,
+        "merchants": [
+          "fixture-cafe"
+        ],
+        "per_purchase_minor": 1000
+      }
+    },
+    "reserved_minor": 0,
+    "spent_minor": 700
+  },
+  "checks": {
+    "agent_self_approval_blocked": true,
+    "confirmed": true,
+    "over_budget_blocked": true,
+    "replay_preserves_attempt": true,
+    "revoked_agent_blocked": true,
+    "unapproved_execution_blocked": true
+  },
+  "planner": "fixture-script (not AI)",
+  "schema": "cosigna.gateway-demo/v1",
+  "simulated": true,
+  "synthetic_orders": 1
+}

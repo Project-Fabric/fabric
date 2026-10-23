@@ -31,22 +31,22 @@ export async function runFabric(args: string[]): Promise<unknown> {
   if (!cwd || !path.isAbsolute(cwd)) throw new Error('Configure an absolute CONSOLE_PROJECT directory.');
   let stdout = '', failed = false, failureCode: number | string | undefined;
   try {
-    const result = await execute(process.env.CONSOLE_FABRIC || 'fabric', args, {
+    const result = await execute(process.env.CONSOLE_FABRIC || 'cosigna', args, {
       cwd, shell: false, windowsHide: true, timeout: 20000, maxBuffer: 4 * 1024 * 1024,
     });
     stdout = result.stdout;
   } catch (error) {
     const failure = error as { stdout?: string; code?: number | string };
-    if (!failure.stdout) throw new Error('Fabric could not complete the command. Check its installation, project permissions and timeout.');
+    if (!failure.stdout) throw new Error('Cosigna could not complete the command. Check its installation, project permissions and timeout.');
     stdout = failure.stdout;
     failed = true; failureCode = failure.code;
   }
   let value: unknown;
-  try { value = JSON.parse(stdout); } catch { throw new Error('Fabric returned invalid JSON. No response fields were inferred.'); }
+  try { value = JSON.parse(stdout); } catch { throw new Error('Cosigna returned invalid JSON. No response fields were inferred.'); }
   const failure = z.object({ schema: z.literal('fabric.error/v1'), error: z.object({ message: z.string() }) }).safeParse(value);
   if (failure.success) throw new Error(safeMessage(failure.data.error.message));
   if (failed && !(args[0] === 'evidence' && args[1] === 'verify' && failureCode === 5))
-    throw new Error('Fabric reported a failure. Refresh the record before attempting another decision.');
+    throw new Error('Cosigna reported a failure. Refresh the record before attempting another decision.');
   return value;
 }
 function validate<T>(schema: z.ZodType<T>, data: unknown): T {
@@ -59,12 +59,12 @@ async function read(name: keyof typeof files) {
   if (name === 'consents') {
     const url = new URL(process.env.AGENTAUTH_URL || '');
     if (url.username || url.password || (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))))
-      throw new Error('AGENTAUTH_URL must use HTTPS or a loopback HTTP address.');
-    if (!process.env.AGENTAUTH_API_KEY) throw new Error('Configure AGENTAUTH_API_KEY to load consents.');
+      throw new Error('The consent service URL must use HTTPS or a loopback HTTP address.');
+    if (!process.env.AGENTAUTH_API_KEY) throw new Error('Configure the server-side consent service key to load consents.');
     const response = await fetch(new URL('/v1/consents?limit=100&offset=0', url), {
       headers: { 'X-API-Key': process.env.AGENTAUTH_API_KEY }, cache: 'no-store', signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) throw new Error(`AgentAuth could not list consents (HTTP ${response.status}).`);
+    if (!response.ok) throw new Error(`Cosigna could not list consents (HTTP ${response.status}).`);
     return response.json() as Promise<unknown>;
   }
   return runFabric([...readArgs[name], '--json']);
@@ -166,7 +166,7 @@ export async function perform(action: ConsoleAction, session: { id: string; user
     const exported = validate(z.object({ out: z.string(), fingerprint: z.string() }), value);
     result.out = exported.out; result.fingerprint = exported.fingerprint;
     const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
-    result.verifyCommand = `& fabric evidence verify-pack ${quote(exported.out)} --key ${quote(exported.fingerprint)}`;
+    result.verifyCommand = `& cosigna evidence verify-pack ${quote(exported.out)} --key ${quote(exported.fingerprint)}`;
   }
   return result;
 }

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light"><title>Cosigna · Voice commerce lab</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/" aria-label="Cosigna home"><span class="brand-mark">c</span> cosigna<span class="word-dot">.</span></a><span class="top-label">VOICE COMMERCE LAB</span><span id="payment-badge" class="badge">Simulated payments</span></header>
+  <main>
+    <div class="intro"><div><p class="eyebrow">FROM A REQUEST TO A RECEIPT</p><h1>Your words.<br>A considered purchase.</h1><p class="intro-copy">Tell Cosigna what you want. Review the details once.<br>Watch the order arrive at the merchant’s counter.</p></div><div class="flow-note"><span class="pulse-dot"></span><span id="mode-label">Connecting to your local lab…</span><p>Independent merchant API<br>Inventory · Budget · Approval · Fulfillment</p></div></div>
+    <div class="notice">DEVELOPMENT ENVIRONMENT <span id="environment-note">This café, its stock, payments and pickup are test data. No money moves and no physical order is placed.</span></div>
+    <div class="workspace">
+      <section class="customer" aria-labelledby="customer-title">
+        <div class="section-heading"><h2 id="customer-title">Your assistant</h2><span class="section-number">01 / CUSTOMER</span></div>
+        <section class="budget-card" aria-labelledby="budget-title"><div class="card-label"><h3 id="budget-title">A budget you control</h3><span id="budget-status">Not set</span></div>
+          <div class="balance"><strong id="available">$0.00</strong><span>available for test purchases</span></div>
+          <div id="budget-summary" class="budget-summary">Set an allowance to begin. Every purchase still needs your approval.</div>
+          <form id="budget-form"><label>Test allowance, USD<input id="budget-limit" value="20.00" inputmode="decimal" required></label><label>Per-order limit, USD<input id="budget-cap" value="10.00" inputmode="decimal" required></label><button id="set-budget" type="submit" class="button secondary">Set budget</button></form>
+        </section>
+        <section class="request-card" aria-labelledby="request-title"><div class="card-label"><h3 id="request-title">What can I get for you?</h3><span class="small-label">PICKUP ONLY</span></div>
+          <form id="request-form"><label class="sr-only" for="request">Your purchase request</label><textarea id="request" maxlength="4096" rows="3" placeholder="Order one oat latte for pickup."></textarea><div class="request-actions"><button id="record" class="button mic" type="button"><span aria-hidden="true">◉</span> <span id="record-label">Speak your order</span></button><button id="plan" class="button primary" type="submit">Find my order <span aria-hidden="true">↗</span></button></div></form>
+          <p id="voice-note" class="hint">Short voice recordings are transcribed by the hosted model. You can also type.</p>
+          <div id="fixture-help" hidden><p class="hint">Offline demo: choose an example, then click Find my order. Only these exact requests are supported. Office locations and route planning are not available.</p><div class="quote-actions"><button id="example-latte" type="button" class="button secondary">Use oat latte example</button><button id="example-coffee" type="button" class="button secondary">Use black coffee example</button></div></div>
+        </section>
+        <div id="feedback" role="status" aria-live="polite"></div>
+        <section class="quote-card" id="quote-card" hidden aria-labelledby="quote-title"><div class="card-label"><h3 id="quote-title">Your order</h3><span id="task-stage" class="stage"></span></div><div id="quote-detail"></div><div id="quote-actions" class="quote-actions"><button type="button" id="approve" class="button primary">Approve &amp; place test order</button><button type="button" id="check" class="button secondary">Check status</button><button type="button" id="cancel" class="button text-button">Cancel request</button></div><p id="task-note" class="hint"></p></section>
+      </section>
+      <section class="merchant" aria-labelledby="merchant-title"><div class="section-heading"><h2 id="merchant-title">Cosigna Test Cafe</h2><span class="section-number">02 / MERCHANT</span></div>
+        <div class="menu-heading"><p>THE COUNTER MENU</p><span>All-in prices · USD</span></div><div id="products" class="products"></div>
+        <section class="counter" aria-labelledby="counter-title"><div class="card-label"><div><p class="eyebrow">ON THE OTHER SIDE OF THE API</p><h3 id="counter-title">The merchant’s order counter</h3></div><button type="button" id="refresh" class="refresh">Refresh ↻</button></div><p class="hint">Staff marks an accepted order ready, then collected. These are separate from payment confirmation.</p><div id="orders"><div class="empty-counter">No orders at the counter yet.<span>Your first approved order will appear here.</span></div></div></section>
+      </section>
+    </div>
+    <section class="budget-card" aria-labelledby="device-title"><h2 id="device-title">Connect your test phone</h2><p class="hint">Start the mobile lab on port 3097 and use USB forwarding. Pairing grants one trusted phone access to this lab's tasks and test allowance. Codes expire after five minutes. A new pairing replaces the previous phone. Disconnecting does not delete transaction records.</p><div class="quote-actions"><button type="button" id="pair-device" class="button secondary">Create one-use pairing code</button><button type="button" id="revoke-devices" class="button secondary">Revoke phone access</button></div><p id="pairing-code" role="status" class="hint"></p></section>
+    <footer><span>cosigna · developer testbed</span><span>Hosted intelligence. Deterministic spending controls.</span></footer>
+  </main>
+</body>
+</html>

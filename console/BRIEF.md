@@ -1,5 +1,24 @@
 # Cosigna Console: build brief (v1)
 
+> **Priority reset, 23 October 2026:** Cosigna is two products: the transaction gateway and
+> the voice task assistant. Gateway hardening comes first. Pause additional UI/voice expansion;
+> preserve existing screens and their contracts. See [the current rebuild brief](../docs/COSIGNA_REBUILD.md)
+> for the agreed boundaries and acceptance gates. The dashboard will expose gateway state;
+> it must not implement a separate payment-authority path.
+
+> **Personal assistant preview, 22 October 2026:** `/tasks` extends the interface with
+> synthetic shopping and flight scenarios, following the user's broader assistant vision.
+> This is a local UI prototype only: page-memory state, explicit demo approvals and simulated
+> outcomes. It must not invoke engine mutations or claim live search, identity verification,
+> provider access or booking. Preserve the finance screens and their existing contracts.
+> See [the assistant research proposal](../docs/COSIGNA_VOICE_COMMERCE_RESEARCH.md).
+
+> **Web priority update, 21 October 2026:** the CLI is under development. Current work focuses
+> on the landing page, dashboard, integrations and Cosigna-managed agents. Add an integrations
+> directory and managed-agent configuration drafts without presenting them as live connections
+> or running agents. Existing session, CSRF and engine-boundary requirements below still apply.
+> See [the current web plan](../docs/WEB_PRODUCT_PLAN.md).
+
 **For:** the coding agent building the console (Codex). **Owner of the engine and data contract:**
 the Cosigna engine in this repository (`crates/fabric-cli`; its command is still `fabric`).
 

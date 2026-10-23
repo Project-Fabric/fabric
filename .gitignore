@@ -1,4 +1,20 @@
 /target
+# Dependencies, local configuration and transaction state are never source artifacts.
+**/node_modules/
+.env
+.env.*
+!.env.example
+**/credentials.json
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
+*.pem
+*.p12
+*.jks
+*.apk
+.DS_Store
 __pycache__/
 experiments/*/runs*/
 testbeds/*/books.db

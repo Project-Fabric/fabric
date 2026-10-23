@@ -1,4 +1,4 @@
-# AgentAuth Console
+# Cosigna Console
 
 Local, single-user Next.js 14 console. The approval inbox is the primary flow; activity,
 authority, agents, evidence and overview use the captured engine contracts in `fixtures/`.
@@ -22,7 +22,7 @@ the provided server is the session boundary.
 
 `npm run dev` explicitly selects fixtures and uses the fixture approver
 `priya@northwind.test` unless `CONSOLE_USER` is set. Decisions, mandate changes and agent
-changes update temporary memory for that session. They never invoke Fabric, edit fixtures,
+changes update temporary memory for that session. They never invoke Cosigna, edit fixtures,
 create evidence packs or move money. Restart to restore the fixture state. Fixture token
 registration displays an explicitly fake, one-time token. The light/dark preference is the
 only browser-persisted application setting.
@@ -58,8 +58,8 @@ Run from a person's terminal. Configure server-only environment variables (or co
 $env:CONSOLE_FIXTURES = '0'
 $env:CONSOLE_USER = 'your-approver-identity'
 $env:CONSOLE_PROJECT = 'C:\Users\Harsha\Pictures\agentauth-stripe-demo'
-# Optional absolute binary path; otherwise fabric is resolved on PATH.
-$env:CONSOLE_FABRIC = 'C:\Users\Harsha\.cargo\bin\fabric.exe'
+# Optional absolute binary path; otherwise cosigna is resolved on PATH.
+$env:CONSOLE_FABRIC = 'C:\Users\Harsha\.cargo\bin\cosigna.exe'
 # Optional: required only for listing API consents.
 $env:AGENTAUTH_URL = 'http://127.0.0.1:18090'
 # Set AGENTAUTH_API_KEY privately in this terminal. Never use a NEXT_PUBLIC_ variable.
@@ -71,7 +71,7 @@ npm start
 
 The API lists `/v1/consents?limit=100&offset=0` using a server-side key. Engine commands use
 `execFile` with argument arrays, `--json`, a configured cwd, a timeout and no shell. Engine
-agent markers are never removed. If Fabric refuses a decision or requires a separate signing
+agent markers are never removed. If Cosigna refuses a decision or requires a separate signing
 key, that message is shown; the console does not retry around it. Identity comes only from
 `CONSOLE_USER`, not from the browser. Export destinations are server-selected children of
 `CONSOLE_EXPORT_DIR`; no browser-supplied path is accepted.
@@ -84,3 +84,36 @@ read-only in this brief. Approving an exact request records permission; the agen
 that action separately. Approval does not itself execute a refund.
 
 Use `npm run start:fixtures` to preview a production build with simulated actions.
+
+## Current web development
+
+The public landing preview is a separate buildless app in [site/](../site/README.md).
+Its typography, editorial layout and restrained motion take direction from Glasswing;
+Cosigna's text and canvas artwork are original. No public route was added to this Console's
+session boundary to serve the marketing page.
+
+The dashboard now includes `/integrations` and `/automations`. Integration cards show
+test-mode validation or planned status; connection plans collect no credentials and run no
+OAuth flow. Cosigna agent templates create in-memory drafts and export a versioned
+`cosigna.agent-draft/v1` configuration. Drafts never invoke engine mutations, models or
+payment APIs and are lost on navigation unless exported. Every export has execution disabled
+and human review before writes. The existing `/agents` route remains the identity registry.
+
+The CLI is under development; web work has priority. See [WEB_PRODUCT_PLAN.md](../docs/WEB_PRODUCT_PLAN.md)
+for the connector architecture and the prerequisites for a real managed-agent runtime.
+
+## Personal task preview
+
+Startup regression checks: `npm run test:dev` verifies the real development sign-in, fixture
+mode and session/CSRF flow in a temporary checkout. Add `-- --production` to also build and
+exercise the production HTTP flows there, without replacing a running dev server's cache.
+
+Open **Tasks preview** in the signed-in console, or visit `/tasks`. Two fictional scenarios
+cover shopping and flights: compare offers, apply a task budget, review and confirm a demo
+approval, then simulate success, a changed price, or an unknown outcome followed by a status
+lookup. A mismatched or over-budget offer cannot advance to approval.
+
+All data and outcomes are synthetic, even when the rest of the console is in live mode.
+The preview uses page memory only and resets on navigation/reload. It does not search the web,
+call the engine, connect providers, verify identity, or issue purchases/tickets. It is a UX
+prototype, not evidence of production authorization or budget enforcement.

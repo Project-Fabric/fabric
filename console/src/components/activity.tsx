@@ -16,7 +16,7 @@ export function ActivityScreen() {
       const opcode = field(input, 'stripe_api_operation_id');
       return <article className={`activity-card ${blocked ? 'blocked-card' : ''}`} key={`${call.record}-${call.session}`}>
         <div className="activity-top"><OperationIcon blocked={blocked} /><div className="activity-title"><strong>{operation(input, call.tool)}{call.payment && <span className="activity-amount">{money(call.payment.amount, call.payment.currency)}</span>}</strong><p>{call.agent} <span>·</span> {dateTime(call.at)}</p></div><Badge value={call.outcome} /></div>
-        <div className="activity-metadata"><code>{call.tool}</code>{typeof opcode === 'string' && <code>{opcode}</code>}<span>Decision <Badge value={call.decision} /></span>{call.payment && <span>AgentAuth <Badge value={call.payment.decision} /></span>}</div>
+        <div className="activity-metadata"><code>{call.tool}</code>{typeof opcode === 'string' && <code>{opcode}</code>}<span>Decision <Badge value={call.decision} /></span>{call.payment && <span>Cosigna <Badge value={call.payment.decision} /></span>}</div>
         {call.payment?.reason && <p className="payment-reason">{call.payment.reason}</p>}
         {call.payment?.authorization_code && <div className="authorization"><span>Authorization</span><code>{call.payment.authorization_code}</code></div>}
         {!call.payment && blocked && <p className="payment-reason">{call.result || 'The gateway refused this call.'}</p>}

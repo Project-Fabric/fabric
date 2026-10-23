@@ -1,0 +1,8 @@
+{
+  "schema": "fabric.guard.rules/v2",
+  "rules": [
+    {"rule": "system-destroy", "description": "Commands that can wipe disks or the whole system", "decision": "deny", "applies_to": "commands", "source": "built_in"},
+    {"rule": "git-history-rewrite", "description": "Discarding work or rewriting Git history", "decision": "ask", "applies_to": "commands", "source": "built_in"},
+    {"rule": "finance-ops-postings", "description": "Tool calls that post to the books or move money", "decision": "approve", "applies_to": "tools", "source": "project"}
+  ]
+}

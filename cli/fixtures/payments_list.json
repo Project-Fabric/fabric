@@ -1,0 +1,84 @@
+{
+  "payments": [
+    {
+      "amount": "parameters.amount",
+      "currency": "parameters.currency",
+      "default_currency": "USD",
+      "merchant": "parameters.payment_intent",
+      "minor_units": true,
+      "tool": "stripe/stripe_api_write"
+    },
+    {
+      "amount": "parameters.amount",
+      "currency": "parameters.currency",
+      "default_currency": "USD",
+      "merchant": "parameters.payment_intent",
+      "minor_units": true,
+      "tool": "stripe/stripe_api_write",
+      "when": [
+        {
+          "equals": "PostRefunds",
+          "field": "stripe_api_operation_id"
+        }
+      ]
+    },
+    {
+      "amount": "parameters.amount",
+      "currency": "parameters.currency",
+      "default_currency": "USD",
+      "merchant": null,
+      "minor_units": true,
+      "tool": "stripe/stripe_api_write",
+      "when": [
+        {
+          "equals": "PostPayouts",
+          "field": "stripe_api_operation_id"
+        }
+      ]
+    },
+    {
+      "amount": "parameters.amount",
+      "currency": "parameters.currency",
+      "default_currency": "USD",
+      "merchant": null,
+      "minor_units": true,
+      "tool": "stripe/stripe_api_write",
+      "when": [
+        {
+          "equals": "PostTransfers",
+          "field": "stripe_api_operation_id"
+        }
+      ]
+    },
+    {
+      "amount": "parameters.amount",
+      "currency": "parameters.currency",
+      "default_currency": "USD",
+      "merchant": null,
+      "minor_units": true,
+      "tool": "stripe/stripe_api_write",
+      "when": [
+        {
+          "equals": "PostPaymentIntents",
+          "field": "stripe_api_operation_id"
+        }
+      ]
+    },
+    {
+      "amount": "parameters.amount",
+      "currency": "parameters.currency",
+      "default_currency": "USD",
+      "merchant": null,
+      "minor_units": true,
+      "tool": "stripe/stripe_api_write",
+      "when": [
+        {
+          "equals": "PostCharges",
+          "field": "stripe_api_operation_id"
+        }
+      ]
+    }
+  ],
+  "schema": "fabric.payments.list/v1",
+  "url": "http://127.0.0.1:18090"
+}

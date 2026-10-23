@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approvals · Cosigna</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="cosigna.css">
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Console">
+    <a class="mark" href="#">
+      <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><circle cx="25" cy="32" r="17" fill="none" stroke="#8E7DFF" stroke-width="6"/><circle cx="39" cy="32" r="17" fill="none" stroke="#F2F3F5" stroke-width="6"/></svg><span>cosigna</span>
+    </a>
+    <nav>
+      <a href="approvals.html" aria-current="page">Approvals <b class="count">1</b></a>
+      <a href="activity.html">Activity</a>
+      <a href="#">Authority</a>
+      <a href="#">Agents</a>
+      <a href="#">Evidence</a>
+    </nav>
+    <div class="side-foot">
+      <span class="chip chip-evidence"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>Evidence intact</span>
+      <span class="muted" style="font-size:13px">priya@northwind.test</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1 class="display">Approvals</h1>
+        <p class="muted">Calls your agents made that need a person. Each approval covers this exact call, once.</p>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Filter">
+        <button role="tab" aria-selected="true">Waiting <b>1</b></button>
+        <button role="tab" aria-selected="false">Decided <b>2</b></button>
+        <button role="tab" aria-selected="false">All</button>
+      </div>
+    </div>
+
+    <div class="split">
+      <section class="list" aria-label="Requests">
+        <button class="item selected" aria-pressed="true">
+          <span class="chip chip-waiting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Waiting for you</span>
+          <span class="item-body"><b>Refund $450.00</b><span class="muted">claude-code · order #2045 · 2 min ago</span></span>
+          <span class="mono amt">$450.00</span>
+        </button>
+        <button class="item">
+          <span class="chip chip-allowed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Approved</span>
+          <span class="item-body"><b>Refund $99.00</b><span class="muted">claude-code · damaged in transit · by priya</span></span>
+          <span class="mono amt">$99.00</span>
+        </button>
+        <button class="item">
+          <span class="chip chip-blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>Rejected</span>
+          <span class="item-body"><b>Refund $640.00</b><span class="muted">claude-code · prompt injection in ticket · by priya</span></span>
+          <span class="mono amt">$640.00</span>
+        </button>
+      </section>
+
+      <section class="detail card" aria-label="Request 1">
+        <div class="detail-head">
+          <span class="eyebrow">Request #1 · stripe/issue_refund</span>
+          <div class="big mono">$450.00 <small>USD</small></div>
+          <p class="why">Customer cancelled order #2045 before shipping</p>
+        </div>
+
+        <dl class="facts">
+          <div><dt>Agent</dt><dd>claude-code <span class="muted">· session sess-refunds-01</span></dd></div>
+          <div><dt>Payment</dt><dd class="mono">pi_3Northwind2045</dd></div>
+          <div><dt>Why it's held</dt><dd>Tool calls that post to the books or move money need a recorded approval <span class="muted">(rule finance-ops-postings)</span></dd></div>
+          <div><dt>Spent today</dt><dd><span class="mono">$182.98</span> of <span class="mono">$500.00</span> <span class="muted">· this refund would go over</span><div class="meter" style="margin-top:8px"><i style="width:37%"></i></div></dd></div>
+          <div><dt>Call digest</dt><dd class="mono digest">b1fdb559 63a455af 491bf3e1 9f8873b8</dd></div>
+        </dl>
+
+        <label class="note">
+          <span>Note for the record <span class="muted">(optional)</span></span>
+          <textarea rows="2" placeholder="e.g. Checked order status in Shopify"></textarea>
+        </label>
+
+        <div class="actions" id="actions">
+          <button class="btn btn-danger" data-confirm="reject">Reject</button>
+          <button class="btn btn-primary" data-confirm="approve">Approve $450.00</button>
+        </div>
+
+        <div class="confirm" id="confirm" hidden role="alertdialog" aria-labelledby="confirm-title">
+          <b id="confirm-title">Approve a $450.00 refund?</b>
+          <span class="muted">The agent can make this exact call once. Your name goes in the evidence.</span>
+          <div class="actions">
+            <button class="btn" id="cancel">Cancel</button>
+            <button class="btn btn-primary" id="go">Yes, approve</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+<script>
+  const confirmBox = document.getElementById('confirm');
+  const actions = document.getElementById('actions');
+  document.querySelectorAll('[data-confirm]').forEach(b => b.addEventListener('click', () => {
+    const approve = b.dataset.confirm === 'approve';
+    document.getElementById('confirm-title').textContent = approve ? 'Approve a $450.00 refund?' : 'Reject this $450.00 refund?';
+    const go = document.getElementById('go');
+    go.textContent = approve ? 'Yes, approve' : 'Yes, reject';
+    go.className = approve ? 'btn btn-primary' : 'btn btn-danger';
+    actions.hidden = true; confirmBox.hidden = false; go.focus();
+  }));
+  document.getElementById('cancel').addEventListener('click', () => { confirmBox.hidden = true; actions.hidden = false; });
+</script>
+</body>
+</html>

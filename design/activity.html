@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Activity · Cosigna</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="cosigna.css">
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Console">
+    <a class="mark" href="#">
+      <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><circle cx="25" cy="32" r="17" fill="none" stroke="#8E7DFF" stroke-width="6"/><circle cx="39" cy="32" r="17" fill="none" stroke="#F2F3F5" stroke-width="6"/></svg><span>cosigna</span>
+    </a>
+    <nav>
+      <a href="approvals.html">Approvals <b class="count">1</b></a>
+      <a href="activity.html" aria-current="page">Activity</a>
+      <a href="#">Authority</a>
+      <a href="#">Agents</a>
+      <a href="#">Evidence</a>
+    </nav>
+    <div class="side-foot">
+      <span class="chip chip-evidence"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>Evidence intact</span>
+      <span class="muted" style="font-size:13px">priya@northwind.test</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1 class="display">Activity</h1>
+        <p class="muted">Every call your agents made through Cosigna today, and what was decided.</p>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Filter">
+        <button role="tab" aria-selected="true">All</button>
+        <button role="tab" aria-selected="false">Money moved</button>
+        <button role="tab" aria-selected="false">Blocked</button>
+      </div>
+    </div>
+
+    <section class="summary" aria-label="Today">
+      <div class="card"><span class="muted">Refunded</span><span class="mono">$182.98</span><span class="muted">8 refunds · all inside mandates</span></div>
+      <div class="card"><span class="muted">Blocked</span><span class="mono" style="color:var(--blocked-text)">$528.00</span><span class="muted">2 attempts stopped</span></div>
+      <div class="card"><span class="muted">Waiting</span><span class="mono" style="color:var(--waiting-text)">1</span><span class="muted">$450.00 for your sign-off</span></div>
+      <div class="card"><span class="muted">Evidence</span><span class="mono" style="color:var(--accent-text)">236</span><span class="muted">records · chain intact</span></div>
+    </section>
+
+    <section class="timeline" aria-label="Events">
+      <div class="event">
+        <span class="time">12:57</span>
+        <span class="chip chip-waiting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Waiting</span>
+        <span class="what"><span>claude-code asked to refund order #2045</span><span class="muted">Held for approval · <a href="approvals.html">review</a></span></span>
+        <span class="mono amt">$450.00</span>
+      </div>
+      <div class="event">
+        <span class="time">12:44</span>
+        <span class="chip chip-blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>Blocked</span>
+        <span class="what"><span>refunds-bot tried a goodwill refund</span><span class="reason">budget_exhausted: The consent has 30.0 USD left of 50.0</span></span>
+        <span class="mono amt">$45.00</span>
+      </div>
+      <div class="event">
+        <span class="time">12:41</span>
+        <span class="chip chip-blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>Blocked</span>
+        <span class="what"><span>ops-bot tried to refund order #2052</span><span class="reason">no_authority: ops-bot holds no spending consent</span></span>
+        <span class="mono amt">$78.00</span>
+      </div>
+      <div class="event">
+        <span class="time">12:40</span>
+        <span class="chip chip-allowed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Allowed</span>
+        <span class="what"><span>ops-bot read refunds for a payment</span><span class="muted">stripe_api_read · GetRefunds · no money moved</span></span>
+        <span class="mono amt muted">—</span>
+      </div>
+      <div class="event">
+        <span class="time">12:38</span>
+        <span class="chip chip-allowed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Allowed</span>
+        <span class="what"><span>refunds-bot refunded goodwill #2047</span><span class="muted">Inside mandate · per-call limit $100.00</span></span>
+        <span class="mono amt">$60.00</span>
+      </div>
+      <div class="event">
+        <span class="time">12:36</span>
+        <span class="chip chip-allowed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Allowed</span>
+        <span class="what"><span>refunds-bot refunded order #2041</span><span class="muted">Inside mandate · per-call limit $100.00</span></span>
+        <span class="mono amt">$20.00</span>
+      </div>
+      <div class="event">
+        <span class="time">12:31</span>
+        <span class="chip chip-evidence"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>Verified</span>
+        <span class="what"><span>Evidence chain checked</span><span class="muted">236 records · no gaps · no unapproved money movement</span></span>
+        <span class="mono amt muted">—</span>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

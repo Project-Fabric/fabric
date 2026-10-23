@@ -1,0 +1,30 @@
+{
+  "schema": "cosigna.stripe-protocol-check/v1",
+  "at": "2026-10-22T06:48:21.733Z",
+  "stripe_api_test_verified": true,
+  "live_money_moved": false,
+  "planner": "fixture-script (not AI)",
+  "approval_source": "test-driver owner role",
+  "order_id": "stripe_test_order_b09ddb83-324b-4553-8f17-adde50f3c8b0",
+  "payment_intent_id": "pi_3UTFnUKjRUUeoFkg1Ir0qa0I",
+  "charge_id": "ch_3UTFnUKjRUUeoFkg1V2AIcUt",
+  "stripe_status": "succeeded",
+  "amount_minor": 700,
+  "currency": "usd",
+  "quote_digest": "39131e03fcc6f0eee7b1e17a36215baaedf10cbdc677b4aa3ee39c596d54f4ec",
+  "checks": {
+    "unapproved_execution_blocked": true,
+    "wrong_quote_blocked": true,
+    "approved_purchase_succeeded": true,
+    "approval_replay_reused_order": true,
+    "matching_stripe_payment_intents": 1,
+    "over_budget_blocked_before_stripe": true
+  },
+  "budget": {
+    "limit_minor": 1000,
+    "spent_minor": 700,
+    "reserved_minor": 0,
+    "available_minor": 300
+  },
+  "dashboard_url": "https://dashboard.stripe.com/test/payments/pi_3UTFnUKjRUUeoFkg1Ir0qa0I"
+}

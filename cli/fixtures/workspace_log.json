@@ -1,0 +1,9 @@
+{
+  "schema": "fabric.log/v1",
+  "project_root": "Northwind sample workspace",
+  "total": 2,
+  "checkpoints": [
+    {"seq": 2, "created_at": "2026-10-21T12:20:00Z", "kind": "manual", "label": "Before the refund batch (sample checkpoint)", "agent": null, "snapshot": "sample-not-a-real-snapshot", "changes": {"added": 1, "modified": 2, "removed": 0, "renamed": 0}},
+    {"seq": 1, "created_at": "2026-10-21T12:00:00Z", "kind": "init", "label": "Start recording (sample checkpoint)", "agent": null, "snapshot": "sample-not-a-real-snapshot", "changes": {"added": 12, "modified": 0, "removed": 0, "renamed": 0}}
+  ]
+}

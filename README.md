@@ -1,6 +1,29 @@
-> **Cosigna** (formerly AgentAuth): authority, approvals and evidence for the AI agents that change a company's code and move its money. This repository is its engine; the command is `cosigna` (or `fabric`, the same program).
+# Cosigna
 
-# Project Fabric
+Cosigna Gateway controls agent-initiated transactions through explicit permissions, exact
+approval, budget reservations and execution recovery. Cosigna Assistant is the voice product
+being developed above that foundation. This repository also preserves the existing Fabric
+project recording/recovery engine; its command is `cosigna` (or the compatible `fabric` alias).
+
+**Current product direction (23 October 2026):** build **Cosigna Gateway**, the authorization
+and execution layer for AI-initiated transactions, first. **Cosigna Assistant** will use it
+for voice-driven ordering and pickup. Interface and voice expansion are paused until the
+gateway acceptance gates are met. See [the two-product rebuild brief](docs/COSIGNA_REBUILD.md)
+for existing capabilities, gaps and delivery order. Current commerce integrations remain test-only.
+
+Gateway development: [registered agent API and build plan](docs/COSIGNA_GATEWAY.md).
+Run `cargo run -p cosigna-agent -- gateway-demo` for an isolated permission/approval/execution
+example without voice, model credentials or real payments.
+
+Consumer agent development: [intelligence and transaction service](crates/cosigna-agent/README.md).
+Run `cargo run -p cosigna-agent -- demo` for an isolated budget/approval/reconciliation demo.
+An optional hosted planner is available; all merchant transactions remain simulated.
+For voice input and a separate merchant API with stock and a staff counter, run the
+[voice commerce lab](testbeds/voice-merchant/README.md).
+Its optional `npm run dev:stripe` mode now creates verified Stripe sandbox payments with
+PaymentIntent IDs; no OpenAI key is needed for its typed fixture purchase flow.
+
+## Existing project engine
 
 **A flight recorder for AI coding agents.** Fabric records what every coding agent actually
 did to your project — step by step, across Claude Code, Codex, Cursor and others — lets any

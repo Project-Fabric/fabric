@@ -72,7 +72,8 @@ async function check(decision) {
       assert.equal((await send({ action: 'mandate-revoke', id: granted.id })).status, 200);
       const exported = await (await send({ action: 'evidence-export' })).json();
       assert.equal(exported.simulated, true); assert.equal(exported.fingerprint, undefined);
-      for (const route of ['/', '/approvals', '/approvals/1', '/activity', '/authority', '/agents', '/evidence'])
+      assert.equal((await fetch(app.origin + '/tasks')).status, 401, 'Task preview still requires the local session.');
+      for (const route of ['/', '/approvals', '/approvals/1', '/activity', '/authority', '/agents', '/evidence', '/integrations', '/automations', '/tasks'])
         assert.equal((await fetch(app.origin + route, { headers: { cookie } })).status, 200, route);
     }
     console.log(`Production fixture HTTP flow passed: ${decision}, session/CSRF, attribution, stale-decision refusal${decision === 'approve' ? ', agent/mandate simulations and all routes' : ''}.`);

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cosigna brand</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="cosigna.css">
+<style>
+  .sheet { max-width: 1280px; margin: 0 auto; padding: 72px 24px; display: flex; flex-direction: column; gap: 56px; }
+  .top { display: flex; flex-wrap: wrap; gap: 40px; justify-content: space-between; align-items: flex-end; }
+  .lockup { display: flex; align-items: center; gap: 18px; }
+  .lockup span { font-family: var(--font-display); font-size: 64px; font-weight: 600; letter-spacing: -0.03em; }
+  h1 { margin: 24px 0 16px; font-size: clamp(36px, 5vw, 56px); line-height: 1.05; }
+  .lede { margin: 0; font-size: 19px; line-height: 1.55; color: var(--muted); max-width: 640px; }
+  .proof { flex: 0 1 440px; padding: 28px; display: flex; flex-direction: column; gap: 14px; }
+  .proof div { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .proof .mono { font-size: 26px; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+  .swatches div { display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+  .swatches i { height: 96px; border-radius: var(--r-md); border: 1px solid var(--line); }
+  .swatches .mono { font-size: 13px; color: var(--muted); }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 40px; }
+  .two > div { border-top: 1px solid var(--line); padding-top: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .type div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 20px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chips .chip { padding: 8px 14px; font-size: 14px; }
+  .voice li { margin-bottom: 8px; color: var(--text-2); line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="top">
+    <div>
+      <div class="lockup">
+        <svg width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Cosigna mark"><circle cx="25" cy="32" r="17" fill="none" stroke="#8E7DFF" stroke-width="5"/><circle cx="39" cy="32" r="17" fill="none" stroke="#F2F3F5" stroke-width="5"/></svg>
+        <span>cosigna</span>
+      </div>
+      <h1 class="display">Your agents move money.<br>Cosigna signs off.</h1>
+      <p class="lede">Authority, approvals and evidence for the AI agents that change a company's code and move its money. The mark is two signatures overlapping: the agent's and the person's.</p>
+    </div>
+    <div class="proof card">
+      <span class="eyebrow">Northwind test, Stripe test mode</span>
+      <div><span style="color:var(--text-2)">Refunded wrongly without Cosigna</span><span class="mono" style="color:var(--blocked-text)">$528.00</span></div>
+      <div style="height:1px;background:var(--line)"></div>
+      <div><span style="color:var(--text-2)">Refunded wrongly with Cosigna</span><span class="mono" style="color:var(--allowed-text)">$0.00</span></div>
+    </div>
+  </div>
+
+  <div class="swatches" aria-label="Colours">
+    <div><i style="background:#0B0C0E;border-color:#2E3138"></i><b>Graphite</b><span class="mono">#0B0C0E ground</span></div>
+    <div><i style="background:#131418"></i><b>Surface</b><span class="mono">#131418 · line #23252B</span></div>
+    <div><i style="background:#8E7DFF;border:0"></i><b>Signature</b><span class="mono">#8E7DFF accent</span></div>
+    <div><i style="background:#34D399;border:0"></i><b>Allowed</b><span class="mono">#34D399</span></div>
+    <div><i style="background:#F5B04A;border:0"></i><b>Waiting</b><span class="mono">#F5B04A</span></div>
+    <div><i style="background:#FF6B6B;border:0"></i><b>Blocked</b><span class="mono">#FF6B6B</span></div>
+  </div>
+
+  <div class="two">
+    <div class="type">
+      <span class="eyebrow">Type</span>
+      <div><span class="display" style="font-size:40px">Inter Tight</span><span class="muted">Headlines</span></div>
+      <div><span style="font-size:24px">Inter</span><span class="muted">Interface and reading</span></div>
+      <div><span class="mono" style="font-size:22px">$450.00 · authz_2soK1L3l</span><span class="muted">Amounts, codes, hashes</span></div>
+    </div>
+    <div>
+      <span class="eyebrow">Status, always labelled</span>
+      <div class="chips">
+        <span class="chip chip-allowed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Allowed</span>
+        <span class="chip chip-waiting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Waiting for you</span>
+        <span class="chip chip-blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>Blocked</span>
+        <span class="chip chip-evidence"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>Evidence verified</span>
+      </div>
+      <span class="eyebrow" style="margin-top:12px">Voice</span>
+      <ul class="voice">
+        <li>Say what happened and what it cost: "Blocked a $450.00 refund: over today's limit."</li>
+        <li>Name the person and the agent. Never "the system".</li>
+        <li>Claim only what the evidence checks.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>

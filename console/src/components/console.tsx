@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Activity, ArrowDownLeft, ArrowLeft, ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3,
-  FileCheck2, Inbox, LayoutDashboard, LockKeyhole, Moon, RefreshCw, ShieldCheck, Sun, Users, X } from 'lucide-react';
+  FileCheck2, Inbox, LayoutDashboard, LockKeyhole, Moon, RefreshCw, ShieldCheck, Sun, Users, X, Bot, PlugZap } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { Snapshot, ConsoleAction, ActionResult } from '@/lib/contracts';
 
@@ -32,12 +32,15 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   return <ConsoleContext.Provider value={{ data, error, refresh, act }}>{children}</ConsoleContext.Provider>;
 }
 const links = [
+  { href: '/tasks', label: 'Tasks preview', icon: Check },
+  { href: '/integrations', label: 'Integrations', icon: PlugZap }, { href: '/automations', label: 'Cosigna agents', icon: Bot },
   { href: '/', label: 'Overview', icon: LayoutDashboard }, { href: '/approvals', label: 'Approvals', icon: Inbox },
   { href: '/activity', label: 'Activity', icon: Activity }, { href: '/authority', label: 'Authority', icon: LockKeyhole },
-  { href: '/agents', label: 'Agents', icon: Users }, { href: '/evidence', label: 'Evidence', icon: FileCheck2 },
+  { href: '/agents', label: 'Agent registry', icon: Users }, { href: '/evidence', label: 'Evidence', icon: FileCheck2 },
 ];
 export function Shell({ children }: { children: ReactNode }) {
   const { data, error, refresh } = useConsole(), pathname = usePathname();
+  const taskPreview = pathname === '/tasks';
   const [light, setLight] = useState(false);
   useEffect(() => { const enabled = localStorage.getItem('console-theme') === 'light'; setLight(enabled); document.documentElement.dataset.theme = enabled ? 'light' : 'dark'; }, []);
   const toggle = () => { const next = !light; setLight(next); document.documentElement.dataset.theme = next ? 'light' : 'dark'; localStorage.setItem('console-theme', next ? 'light' : 'dark'); };
@@ -45,8 +48,8 @@ export function Shell({ children }: { children: ReactNode }) {
   return <div className="app-shell">
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className="sidebar">
-      <Link className="brand" href="/approvals" aria-label="AgentAuth approvals"><span className="brand-mark"><ShieldCheck size={21} /></span>AgentAuth<span className="brand-tag">CONSOLE</span></Link>
-      <div className="workspace"><span className="workspace-avatar">N</span><span><strong>{data?.fixtures ? 'Northwind Supplies' : 'Local workspace'}</strong><small>Finance operations</small></span><ChevronRight size={14} className="muted" /></div>
+      <Link className="brand" href="/approvals" aria-label="Cosigna approvals"><span className="brand-mark"><ShieldCheck size={21} /></span>Cosigna<span className="brand-tag">CONSOLE</span></Link>
+      <div className="workspace"><span className="workspace-avatar">{taskPreview ? 'C' : 'N'}</span><span><strong>{taskPreview ? 'Personal assistant' : data?.fixtures ? 'Northwind Supplies' : 'Local workspace'}</strong><small>{taskPreview ? 'Interactive preview' : 'Finance operations'}</small></span><ChevronRight size={14} className="muted" /></div>
       <div className="nav-caption">WORKSPACE</div>
       <nav aria-label="Main navigation">{links.map(({ href, label, icon: Icon }) => {
         const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
@@ -56,7 +59,7 @@ export function Shell({ children }: { children: ReactNode }) {
     </aside>
     <div className="main-column">
       <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{links.find(l => l.href !== '/' && pathname.startsWith(l.href))?.label || 'Overview'}</strong></div><div className="header-actions">
-        {data && <span className={`mode-badge ${data.fixtures ? 'fixture' : ''}`}><span className="status-dot" />{data.fixtures ? 'Fixtures mode' : 'Live mode'}</span>}
+        {data && <span className={`mode-badge ${data.fixtures || taskPreview ? 'fixture' : ''}`}><span className="status-dot" />{taskPreview ? 'Tasks simulation' : data.fixtures ? 'Fixtures mode' : 'Live mode'}</span>}
         <button className="icon-button" onClick={toggle} aria-label={`Switch to ${light ? 'dark' : 'light'} mode`}>{light ? <Moon size={17} /> : <Sun size={17} />}</button>
         <span className="identity" title={data?.user} aria-label={`Console user: ${data?.user || 'Connecting'}`}><span className="user-avatar" aria-hidden="true">{data?.user?.slice(0, 1).toUpperCase() || '·'}</span><span>{data?.user || 'Connecting…'}</span></span>
       </div></header>
@@ -64,7 +67,7 @@ export function Shell({ children }: { children: ReactNode }) {
         {error ? <div className="error-panel" role="alert"><strong>Connection needs attention</strong><p>{error}</p><button className="button secondary" onClick={() => void refresh()}>Try again</button></div>
           : data ? children : <div className="loading" role="status"><RefreshCw size={21} className="spin" />Loading your workspace…</div>}
       </main>
-      <footer className="page-footer"><span><ShieldCheck size={13} /> Enforced by the engine. Decisions belong to people.</span><span>AgentAuth Console · v0.1</span></footer>
+      <footer className="page-footer"><span><ShieldCheck size={13} />{taskPreview ? 'Task simulation only. No engine commands or provider actions.' : 'Enforced by the engine. Decisions belong to people.'}</span><span>Cosigna Console · v0.1</span></footer>
     </div>
   </div>;
 }
@@ -83,7 +86,7 @@ export function SectionError({ name }: { name: string }) { const { data } = useC
 export function RefreshButton() { const { refresh } = useConsole(); const [busy, setBusy] = useState(false); return <button className="button secondary" disabled={busy} onClick={async () => { setBusy(true); await refresh(); setBusy(false); }}><RefreshCw size={15} className={busy ? 'spin' : ''} />Refresh</button>; }
 export function DetailField({ label, children, mono = false }: { label: string; children: ReactNode; mono?: boolean }) { return <div className="detail-field"><dt>{label}</dt><dd className={mono ? 'mono' : ''}>{children}</dd></div>; }
 export function JsonBlock({ value }: { value: unknown }) { return <pre className="json-block"><code>{JSON.stringify(value, null, 2)}</code></pre>; }
-export function Notice({ result }: { result: ActionResult | null }) { return result && <div className="notice" role="status"><Check size={17} /><div><strong>{result.simulated ? 'Simulation complete' : 'Decision recorded'}</strong><p>{result.message}</p>{result.simulated && <details><summary>What would have run</summary><code className="command">{JSON.stringify(['fabric', ...result.args])}</code></details>}</div></div>; }
+export function Notice({ result }: { result: ActionResult | null }) { return result && <div className="notice" role="status"><Check size={17} /><div><strong>{result.simulated ? 'Simulation complete' : 'Decision recorded'}</strong><p>{result.message}</p>{result.simulated && <details><summary>What would have run</summary><code className="command">{JSON.stringify(['cosigna', ...result.args])}</code></details>}</div></div>; }
 export function ConfirmDialog({ open, onOpenChange, title, description, children, confirm, busy, error, onConfirm, danger = false }: {
   open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; children?: ReactNode;
   confirm: string; busy: boolean; error: string; onConfirm: () => void; danger?: boolean;

@@ -1,0 +1,45 @@
+{
+  "mandates": [
+    {
+      "granted_at": "2026-10-21T12:57:08Z",
+      "granted_by": "110275819+Ashok-kumar290@users.noreply.github.com",
+      "granter_key": null,
+      "id": 1,
+      "revoked_at": null,
+      "terms": {
+        "agent": null,
+        "expires": "2026-11-30",
+        "max_calls_per_day": 20,
+        "max_per_call": "100",
+        "max_per_day": "500",
+        "title": "Small goodwill refunds",
+        "tools": [
+          "*/issue_refund"
+        ]
+      },
+      "uses": [
+        {
+          "amount": 25000000,
+          "at_unix": 1792587428,
+          "day": "2026-10-21",
+          "digest": "06e6a26b239d865efcd6c7d0962139b84f4f87d20266cadf149337e68858117e",
+          "tool": "stripe/issue_refund",
+          "via": [
+            "hook"
+          ]
+        },
+        {
+          "amount": 40000000,
+          "at_unix": 1792587428,
+          "day": "2026-10-21",
+          "digest": "56edb7617fd7130e651563b1999b9cab3092eddafaebc46f9d9a1d80a3e132b4",
+          "tool": "stripe/issue_refund",
+          "via": [
+            "hook"
+          ]
+        }
+      ]
+    }
+  ],
+  "schema": "fabric.mandate.list/v1"
+}

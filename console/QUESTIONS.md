@@ -1,5 +1,45 @@
 # Console contract questions
 
+## Proposed voice-commerce direction — research decisions
+
+Research: [Cosigna personal assistant](../docs/COSIGNA_VOICE_COMMERCE_RESEARCH.md).
+This is a proposed extension, not a replacement for the current committed web work.
+
+Scope clarified 22 October 2026: the vision includes shopping across vendors, flights,
+internet research and identity-related checks. Coffee is an example, not a committed first
+vertical. The research document now records the broader task architecture.
+
+The `/tasks` preview now demonstrates shopping and flights using fictional offers and page
+memory. INR and Bengaluru-to-Delhi are example content, not a chosen launch market. No live
+task API or persistence contract has been inferred. Before replacing fixtures, define task
+identity, quote expiry/versioning, authenticated approval binding, connector status reads,
+durable reservations and recovery behavior. The UI simulation does not implement these guarantees.
+
+- Which country launches first, and which shopping, travel or local-commerce provider can
+  supply supported execution access? Is Amazon intended for consumer accounts or Business?
+- Which identity claim should be checked: the user's identity, connected account ownership,
+  merchant/business details, or another consented workflow? Public search is not identity proof.
+- Should the first validated buyer be a consumer cohort or an enterprise design partner?
+- Which phone platform and physical devices can we test? Is macOS/Xcode available for iOS?
+  **Resolved for the first mobile version:** Android first, per the user. `mobile/` contains
+  an Expo/React Native fixture preview. Physical Android model/version is still needed for
+  device QA; iOS is deferred. Expo account/project ownership and signing must be chosen before
+  a standalone APK build. `com.cosigna.preview` is a provisional internal identifier.
+- Start with exact authenticated approval for every pilot purchase; what narrowly bounded
+  delegated routine, if any, should follow after validation?
+- Which provider-supported payment setup fits the market, and who owns fulfillment failures,
+  refunds and customer support?
+- What location/audio retention and model-processing choices should the product adopt?
+
+## Existing console and web contracts
+
+Current web priority: landing page, dashboard, provider connection plans and Cosigna agent
+drafts. The CLI is under development. Product decisions needed before enabling real managed
+agents or provider connections are tracked in [WEB_PRODUCT_PLAN.md](../docs/WEB_PRODUCT_PLAN.md):
+launch market, merchant authorization model, runtime/model provider, durable agent storage,
+and whether the first execution mode proposes actions or acts within delegated limits.
+The current UI does not infer these answers or present drafts as running agents.
+
 1. **Live approval amount units.** Requests include raw tool input but no unit/currency metadata.
    The synthetic `stripe/issue_refund` inbox uses USD cents (45000 = $450.00 in the brief),
    but it has no matching payment declaration. Fixtures use that explicit example; live mode
@@ -17,7 +57,7 @@
    Spending totals are labelled as recorded in the loaded activity, not a complete ledger.
    What pagination/range contract should provide complete daily/weekly totals?
 6. **Blocked payment context.** The captured three blocked Stripe calls have `payment: null`.
-   Their raw gateway refusal remains visible, but the console does not invent an AgentAuth
+   Their raw gateway refusal remains visible, but the console does not invent a Cosigna
    decision, normalized amount or authorization code from that prose. Should `evidence calls`
    join the related payment-authorization event for blocked calls as it does for allowed ones?
 

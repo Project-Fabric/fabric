@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Cosigna",
+    "slug": "cosigna-mobile",
+    "version": "0.1.0",
+    "scheme": "cosigna-preview",
+    "orientation": "default",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "com.cosigna.preview"
+    },
+    "android": {
+      "package": "com.cosigna.preview",
+      "permissions": [],
+      "blockedPermissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.READ_CONTACTS"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Cosigna to record an order only when you press Speak your order.",
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "./plugins/with-usb-lab.cjs",
+      "./plugins/with-cosigna-assistant.cjs",
+      "./plugins/with-android-build.cjs",
+      "expo-secure-store",
+      "expo-asset"
+    ]
+  }
+}

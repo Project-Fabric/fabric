@@ -1,0 +1,7 @@
+{
+  "name": "cosigna-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "node server.mjs", "start": "node server.mjs", "check": "node --check server.mjs && node --check app.js && node --check pixel.js && node --check pixel-renderer.js", "test": "node --test ../console/tests/landing.test.mjs ../console/tests/pixel.test.mjs" }
+}

@@ -4,8 +4,8 @@ import next from 'next';
 import nextEnv from '@next/env';
 import { COOKIE, equal, issueSession, readSession } from './server/security.mjs';
 
-nextEnv.loadEnvConfig(process.cwd());
 const dev = process.argv.includes('--dev');
+nextEnv.loadEnvConfig(process.cwd(), dev);
 if (process.argv.includes('--fixtures')) process.env.CONSOLE_FIXTURES = '1';
 const fixtures = process.env.CONSOLE_FIXTURES === '1';
 if (fixtures && !process.env.CONSOLE_USER) process.env.CONSOLE_USER = 'priya@northwind.test';
@@ -15,6 +15,15 @@ const port = Number(process.env.CONSOLE_PORT || 3090);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid CONSOLE_PORT.');
 process.env.CONSOLE_INTERNAL_KEY = randomBytes(64).toString('hex');
 process.env.CONSOLE_ORIGIN = `http://127.0.0.1:${port}`;
+// Next dev restores its initial environment while preparing/reloading the app.
+// Preserve our server-only runtime configuration in that snapshot as well, so
+// the HTTP wrapper and compiled route handlers use the same session key/mode.
+nextEnv.updateInitialEnv({
+  CONSOLE_FIXTURES: process.env.CONSOLE_FIXTURES,
+  CONSOLE_USER: process.env.CONSOLE_USER,
+  CONSOLE_INTERNAL_KEY: process.env.CONSOLE_INTERNAL_KEY,
+  CONSOLE_ORIGIN: process.env.CONSOLE_ORIGIN,
+});
 const token = randomBytes(32).toString('hex');
 const bootstrapExpires = Date.now() + 10 * 60 * 1000;
 let used = false;
@@ -58,7 +67,7 @@ server.on('upgrade', (req, socket, head) => {
   } catch { socket.destroy(); }
 });
 server.listen(port, '127.0.0.1', () => {
-  console.log(`AgentAuth Console · ${fixtures ? 'FIXTURES — actions are simulated' : 'LIVE — decisions are recorded'} · ${process.env.CONSOLE_USER}`);
+  console.log(`Cosigna Console · ${fixtures ? 'FIXTURES — actions are simulated' : 'LIVE — decisions are recorded'} · ${process.env.CONSOLE_USER}`);
   console.log(`Open once (expires in 10 minutes): ${process.env.CONSOLE_ORIGIN}/?token=${token}`);
 });
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => process.exit(0)));

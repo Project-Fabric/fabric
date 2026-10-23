@@ -1,0 +1,33 @@
+{
+  "schema": "cosigna.groq-protocol-check/v1",
+  "at": "2026-10-22T15:07:40.099Z",
+  "stripe_api_test_verified": true,
+  "live_money_moved": false,
+  "planner": "Groq / openai/gpt-oss-120b",
+  "approval_source": "test-driver owner role",
+  "transcription": "Groq / whisper-large-v3-turbo",
+  "transcript": "Order one oat latte.",
+  "audio_source": "Windows synthetic speech",
+  "order_id": "stripe_test_order_5ee5d3e9-1fbc-4abe-9dae-b4b833ab38f3",
+  "payment_intent_id": "pi_3UTNaeKjRUUeoFkg1nWZPiSc",
+  "charge_id": "ch_3UTNaeKjRUUeoFkg1Z2dP6NB",
+  "stripe_status": "succeeded",
+  "amount_minor": 700,
+  "currency": "usd",
+  "quote_digest": "df8a6089cd6d9963ddf92ebbd6f39e845d5b630deb65317e0e0a4e8eeef203cc",
+  "checks": {
+    "unapproved_execution_blocked": true,
+    "wrong_quote_blocked": true,
+    "approved_purchase_succeeded": true,
+    "approval_replay_reused_order": true,
+    "matching_stripe_payment_intents": 1,
+    "over_budget_blocked_before_stripe": true
+  },
+  "budget": {
+    "limit_minor": 1000,
+    "spent_minor": 700,
+    "reserved_minor": 0,
+    "available_minor": 300
+  },
+  "dashboard_url": "https://dashboard.stripe.com/test/payments/pi_3UTNaeKjRUUeoFkg1nWZPiSc"
+}

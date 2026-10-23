@@ -1,5 +1,11 @@
 # Cosigna: the product, layer by layer
 
+> **Current priority, 21 October 2026:** landing page, dashboard, payment integrations and
+> Cosigna-managed agents. The Go CLI is under development. The user's updated direction
+> includes agents owned by Cosigna, in addition to governing external agents. The first web
+> increment supports connection plans and agent drafts; provider connections and autonomous
+> execution need their own implementation and validation. See [WEB_PRODUCT_PLAN.md](WEB_PRODUCT_PLAN.md).
+
 > **Name:** the product is **Cosigna** (renamed from AgentAuth on 21 October 2026). "AgentAuth" below refers to the existing API service, the `agentauth-io` GitHub organization and the earlier application, which keep that name until they are moved.
 
 **Status:** plan, 20 October 2026. Supersedes the build order in `PIVOT_FINANCE.md` from

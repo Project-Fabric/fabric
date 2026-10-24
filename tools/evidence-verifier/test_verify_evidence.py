@@ -1,0 +1,166 @@
+"""Tests for the independent verifier, on evidence produced by the real gateway binary.
+
+The forged cases rewrite the chain *consistently* (every hash and link recomputed), which the
+chain check alone cannot catch; only the rules replay can. Requires the `blake3` package and a
+built `cosigna-agent` (COSIGNA_AGENT_BIN, or target/debug).
+"""
+import json
+import os
+import socket
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import blake3
+
+HERE = Path(__file__).resolve().parent
+VERIFY = HERE / "verify_evidence.py"
+ROOT = HERE.parent.parent
+BIN = os.environ.get("COSIGNA_AGENT_BIN") or str(ROOT / "target" / "debug" / ("cosigna-agent.exe" if os.name == "nt" else "cosigna-agent"))
+
+
+def http(port, auth, method, path, body=None):
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/gateway/v1{path}", method=method,
+                                     data=json.dumps(body).encode() if body is not None else None,
+                                     headers={"Authorization": auth, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return json.loads(error.read())
+
+
+def rechain(records):
+    """Rewrite a list of record dicts as a fully consistent chain (what a forger with write access could do)."""
+    lines, prev = [], "0" * 64
+    for seq, record in enumerate(records, start=1):
+        record = dict(record, seq=seq, prev=prev)
+        body = json.dumps(record, separators=(",", ":")).encode()
+        prev = blake3.blake3(body).hexdigest()
+        lines.append(prev.encode() + b" " + body)
+    return b"\n".join(lines) + b"\n"
+
+
+class Verifier(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp(prefix="cosigna-verify-")
+        subprocess.run([BIN, "init", "--data-dir", cls.dir], check=True, capture_output=True)
+        db = sqlite3.connect(os.path.join(cls.dir, "fixture-provider.sqlite"))
+        db.executemany("INSERT INTO fixture_payments(id,currency,amount_minor,customer) VALUES (?,?,?,?)",
+                       [("pay_v_1", "USD", 2000, "a"), ("pay_v_2", "USD", 45000, "b"), ("pay_v_3", "USD", 30000, "c")])
+        db.commit(); db.close()
+        owner = "Bearer " + json.load(open(os.path.join(cls.dir, "credentials.json")))["owner"]
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]
+        server = subprocess.Popen([BIN, "serve", "--data-dir", cls.dir, "--port", str(port)],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(100):
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/health"); break
+                except OSError:
+                    time.sleep(0.05)
+            now = int(time.time())
+            budget = http(port, owner, "POST", "/budgets", {"currency": "USD", "limit_minor": 100000, "per_purchase_minor": 50000,
+                          "merchants": ["m"], "expires_at": now + 3600})["data"]["id"]
+            bot = "Bearer " + http(port, owner, "POST", "/agents", {"name": "bot", "budget_id": budget, "permissions": ["execute"],
+                                   "expires_at": now + 1800, "operations": {"kinds": ["refund"], "rails": ["fixture"],
+                                   "auto_approve_minor": 5000}})["data"]["token"]
+            refund = lambda src, amount, key: http(port, bot, "POST", "/operations", {"budget_id": budget, "kind": "refund",
+                "rail": "fixture", "source": src, "amount_minor": amount, "currency": "USD", "reason": "r", "idempotency_key": key})
+            refund("pay_v_1", 2000, "auto")                       # auto-approved, paid
+            held = refund("pay_v_2", 45000, "held")               # held, then owner approves
+            http(port, owner, "POST", f"/operations/{held['data']['id']}/approve", {"proposal_digest": held["proposal_digest"]})
+            rejected = refund("pay_v_3", 30000, "reject")         # held, then owner rejects
+            http(port, owner, "POST", f"/operations/{rejected['data']['id']}/reject", {})
+            refund("pay_v_1", 100, "too-much")                     # denied: nothing left to refund
+        finally:
+            server.kill(); server.wait()
+        cls.genuine = os.path.join(cls.dir, "evidence.jsonl")
+        subprocess.run([BIN, "evidence", "export", "--data-dir", cls.dir, "--out", cls.genuine], check=True, capture_output=True)
+        with open(cls.genuine, "rb") as f:
+            cls.records = [json.loads(line.split(b" ", 1)[1]) for line in f if line.strip()]
+
+    def verify(self, data=None):
+        path = self.genuine
+        if data is not None:
+            path = os.path.join(self.dir, f"forged-{time.time_ns()}.jsonl")
+            with open(path, "wb") as f:
+                f.write(data)
+        run = subprocess.run([sys.executable, "-I", str(VERIFY), path, "--json"], capture_output=True, text=True)
+        return run.returncode, json.loads(run.stdout)
+
+    def forged(self, change):
+        records = json.loads(json.dumps(self.records))
+        change(records)
+        return rechain(records)
+
+    def test_genuine_evidence_passes_both_verifiers(self):
+        code, report = self.verify()
+        self.assertEqual(code, 0, report["problems"])
+        self.assertEqual(report["hashes_checked"], report["records"])
+        self.assertEqual(report["rules"]["operations"], 4)
+        self.assertEqual(report["rules"]["auto_approved"], 1)
+        self.assertEqual(report["rules"]["owner_decisions"], 2)
+        self.assertEqual(subprocess.run([BIN, "evidence", "verify", "--data-dir", self.dir], capture_output=True).returncode, 0)
+
+    def test_an_edited_body_breaks_its_hash(self):
+        data = open(self.genuine, "rb").read().replace(b'"amount_minor":2000', b'"amount_minor":2001', 1)
+        code, report = self.verify(data)
+        self.assertEqual(code, 5)
+        self.assertTrue(any("does not match its hash" in p for p in report["problems"]))
+
+    def test_a_consistent_rewrite_that_breaks_a_rule_is_still_caught(self):
+        def auto_over_grant(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.operation.auto_approved":
+                    e["request"]["amount_minor"] = 9000
+        def agent_approves(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.operation.owner_approved":
+                    r["event"]["by"] = {"owner": "local-user", "role": "planner", "agent": "agent_x"}
+        def overspend(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.budget.created":
+                    r["event"]["terms"]["limit_minor"] = 40000
+        def inflated_hold(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.operation.rail_result" and e["request"]["amount_minor"] == 2000:
+                    e["hold"] = {"amount_minor": 20000, "state": "spent"}
+        def paid_without_receipt(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.operation.rail_result":
+                    e["receipt"] = None
+        def wrong_digest(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.operation.owner_approved":
+                    r["event"]["approved_digest"] = "f" * 64
+        for change, expected in ((auto_over_grant, "outside the agent's grant"), (agent_approves, "not made by the owner"),
+                                 (overspend, "exceeds its limit"), (inflated_hold, "hold differs from the requested amount"), (paid_without_receipt, "without a matching receipt"),
+                                 (wrong_digest, "does not name the proposal's digest")):
+            code, report = self.verify(self.forged(change))
+            self.assertEqual(code, 5, change.__name__)
+            self.assertEqual(report["hashes_checked"], report["records"], "the forged chain is internally consistent")
+            self.assertFalse(any("hash" in p or "link" in p for p in report["problems"]), change.__name__)
+            self.assertTrue(any(expected in p for p in report["problems"]), (change.__name__, report["problems"]))
+
+    def test_removed_or_reordered_records_break_the_chain(self):
+        lines = open(self.genuine, "rb").read().splitlines()
+        code, report = self.verify(b"\n".join(lines[:2] + lines[3:]) + b"\n")
+        self.assertEqual(code, 5)
+        code, report = self.verify(b"\n".join([lines[1], lines[0]] + lines[2:]) + b"\n")
+        self.assertEqual(code, 5)
+
+
+if __name__ == "__main__":
+    unittest.main()

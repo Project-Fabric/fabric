@@ -53,6 +53,8 @@ jobs:
       - run: cargo test -p cosigna-agent --locked
       - run: cargo run -p cosigna-agent --locked -- pipeline-demo
       - run: node scripts/check-gateway-service.mjs
+      - name: Independent Python evidence verifier (rules replay, consistent-forgery tests)
+        run: python3 -m pip install blake3==1.0.11 && COSIGNA_AGENT_BIN="$PWD/target/debug/cosigna-agent" python3 tools/evidence-verifier/test_verify_evidence.py
       - name: Live attack, stress and crash lab (fixture rail, loopback only)
         run: python3 -I testbeds/gateway-attack-lab/attack_lab.py --binary "$PWD/target/debug/cosigna-agent" --out attack-lab.json
       - name: Validate private Linux service templates

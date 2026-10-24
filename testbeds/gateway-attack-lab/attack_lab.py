@@ -282,12 +282,23 @@ def run_attacks(gw, c):
     return budget
 
 
+VERIFIER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools", "evidence-verifier", "verify_evidence.py")
+
+
 def evidence_check(gw, phase):
     code, report = gw.verify()
+    # The independent Python verifier replays the rules from an export of the same chain.
+    out = os.path.join(gw.data_dir, f"export-{time.time_ns()}.jsonl")
+    subprocess.run([gw.binary, "evidence", "export", "--data-dir", gw.data_dir, "--out", out], check=True, capture_output=True)
+    independent = subprocess.run([sys.executable, "-I", VERIFIER, out, "--json"], capture_output=True, text=True)
+    ind = json.loads(independent.stdout) if independent.stdout.strip() else {}
     RESULTS["evidence"].append({"phase": phase, "exit_code": code, "records": report.get("records"),
                                 "chain_intact": report.get("chain_intact"), "state_matches": report.get("state_matches"),
-                                "exceptions": report.get("exceptions", [])[:5]})
-    return code == 0
+                                "exceptions": report.get("exceptions", [])[:5],
+                                "independent_exit_code": independent.returncode, "independent_hashes_checked": ind.get("hashes_checked"),
+                                "independent_operations_replayed": ind.get("rules", {}).get("operations"),
+                                "independent_problems": ind.get("problems", [])[:5]})
+    return code == 0 and independent.returncode == 0
 
 
 def stress(gw, c):
@@ -469,7 +480,7 @@ def main():
         "attacks": len(RESULTS["attacks"]), "attacks_blocked": sum(a["blocked"] for a in RESULTS["attacks"]),
         "stress_invariants_ok": all(s["invariant_ok"] for s in RESULTS["stress"]),
         "crash_invariants_ok": all(s["invariant_ok"] for s in RESULTS["crash"]),
-        "evidence_ok": all(e["exit_code"] == 0 for e in RESULTS["evidence"]),
+        "evidence_ok": all(e["exit_code"] == 0 and e["independent_exit_code"] == 0 for e in RESULTS["evidence"]),
     }
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(RESULTS, f, indent=2)

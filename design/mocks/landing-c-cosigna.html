@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cosigna — C · Co-signa</title>
+<style>
+@font-face { font-family: Newsreader; src: url(fonts/Newsreader-normal-300.woff2) format('woff2'); font-weight: 300; font-display: swap; }
+@font-face { font-family: Newsreader; src: url(fonts/Newsreader-normal-400.woff2) format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: Newsreader; src: url(fonts/Newsreader-normal-500.woff2) format('woff2'); font-weight: 500; font-display: swap; }
+@font-face { font-family: Newsreader; src: url(fonts/Newsreader-italic-400.woff2) format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+:root {
+  --bg: #f7f9fa; --surface: #ecf0f2; --ink: #1f3038; --muted: #4f5d64; --accent: #0d7480; --accent-ink: #ffffff; --field: #1f3038; --field-ink: #f7f9fa;
+  --step-small: 0.875rem; --step-body: clamp(1.0625rem, 1rem + 0.25vw, 1.1875rem);
+  --step-lead: clamp(1.25rem, 1.1rem + 0.7vw, 1.625rem); --step-head: clamp(2.5rem, 1.3rem + 4vw, 5rem);
+  --margin: clamp(16px, 2vw, 28px);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 var(--step-body)/1.6 Newsreader, Georgia, serif; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.button { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; background: var(--accent); color: var(--accent-ink);
+  font: 500 var(--step-body) Newsreader, serif; text-decoration: none; border: 0; cursor: pointer; }
+nav.top { display: flex; justify-content: space-between; align-items: center; padding: 24px var(--margin); font-size: 0.9375rem; }
+nav.top .links { display: flex; gap: clamp(16px, 3vw, 48px); } nav.top .links a { text-decoration: none; }
+.hero { min-height: calc(100svh - 76px); display: grid; grid-template-rows: 1fr auto; padding: 0 var(--margin) 32px; }
+.name { align-self: center; justify-self: center; margin: 0; display: inline-flex; align-items: flex-end; font: 300 clamp(6rem, 13.5vw, 13rem)/0.9 Newsreader, serif;
+  letter-spacing: -0.05em; }
+/* The "o" is a signature box: the agent has signed; it waits for the person. */
+.sig { display: inline-grid; width: clamp(4.4rem, 9.6vw, 9.25rem); height: clamp(4.4rem, 9.6vw, 9.25rem); margin-left: 0.04em; margin-right: 0.04em;
+  background: var(--field); color: var(--field-ink); font: 400 clamp(0.6rem, 0.82vw, 0.8125rem)/1.25 Newsreader, serif; letter-spacing: 0;
+  padding: clamp(6px, 0.8vw, 12px); align-content: space-between; align-self: flex-end; margin-bottom: 0.16em; }
+.sig strong { font: 500 2.1em/1 Newsreader; letter-spacing: -0.02em; display: block; }
+.sig .row { display: flex; justify-content: space-between; gap: 8px; }
+.sig .wait { background: var(--accent); color: #fff; padding: 2px 8px; }
+.sig button { font: 500 1em Newsreader; background: var(--bg); color: var(--ink); border: 0; padding: 6px 10px; cursor: pointer; }
+.sig.signed .wait { background: #2f6b3a; }
+.hero .foot { display: grid; grid-template-columns: repeat(12, 1fr); gap: 24px; align-items: end; }
+.hero h1 { grid-column: 1 / span 6; margin: 0; font: 400 var(--step-lead)/1.35 Newsreader; max-width: 36ch; }
+.hero .foot .button { grid-column: 11 / span 2; justify-self: end; }
+
+/* The headline you can type: the live thing */
+.try { background: var(--field); color: var(--field-ink); padding: clamp(120px, 12vw, 200px) var(--margin); display: grid; grid-template-columns: repeat(12, 1fr); gap: 24px; }
+.try h2 { grid-column: 1 / span 12; margin: 0 0 40px; font: 300 var(--step-head)/1 Newsreader; letter-spacing: -0.04em; }
+.sentence { grid-column: 1 / span 12; margin: 0; font: 300 clamp(2rem, 4.4vw, 4.5rem)/1.15 Newsreader; letter-spacing: -0.03em; }
+.sentence select, .sentence input { font: inherit; letter-spacing: inherit; color: var(--field-ink); background: transparent; border: 0; border-bottom: 3px solid var(--accent); padding: 0 4px; }
+.sentence input { width: 4.2em; } .sentence select option { color: var(--ink); }
+.answer { grid-column: 1 / span 7; margin-top: 48px; font-size: var(--step-lead); line-height: 1.4; }
+.answer strong { color: #8fe3ea; font-weight: 500; }
+.rules { grid-column: 9 / span 4; margin-top: 48px; font-size: var(--step-body); color: #c9d3d7; }
+.rules p { margin: 0 0 12px; }
+
+.proof { padding: clamp(120px, 12vw, 200px) var(--margin); display: grid; grid-template-columns: repeat(12, 1fr); gap: 24px; align-items: end; }
+.proof h2 { grid-column: 1 / span 12; margin: 0 0 56px; font: 300 var(--step-head)/1 Newsreader; letter-spacing: -0.04em; }
+.col { grid-column: span 4; }
+.col .big { display: block; font: 300 clamp(3.5rem, 8vw, 8.5rem)/0.9 Newsreader; letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
+.col p { margin: 12px 0 0; max-width: 30ch; }
+footer { padding: 120px var(--margin) 32px; display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 24px; }
+footer .huge { font: 300 clamp(5rem, 22vw, 22rem)/0.8 Newsreader; letter-spacing: -0.06em; margin: 0; }
+@media (max-width: 760px) {
+  .name { font-size: 22vw; }
+  .hero .foot, .try, .proof { grid-template-columns: 1fr; }
+  .hero h1, .hero .foot .button, .try h2, .sentence, .answer, .rules, .proof h2, .col { grid-column: 1; justify-self: start; }
+  footer { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<nav class="top"><a href="#">cosigna</a><span class="links"><a href="#try">Try a refund</a><a href="#proof">The test</a><a href="#">Docs</a></span></nav>
+<header class="hero">
+  <p class="name" aria-label="Cosigna">C<span class="sig" id="sig" data-ui aria-label="A refund signed by the agent, waiting for a person">
+    <span class="row"><span>refunds-bot</span><span class="wait" id="sig-state">Waits for you</span></span>
+    <span><strong>$450.00</strong>Refund · order #2045</span>
+    <span class="row"><span>Agent signed</span><button type="button" id="sign">Sign</button></span>
+  </span>signa</p>
+  <div class="foot">
+    <h1>Your AI agents sign first. A person signs anything over the line, and only the exact payment they saw.</h1>
+    <a class="button" href="mailto:hello@cosigna.ai?subject=Cosigna%20demo">Book a demo</a>
+  </div>
+</header>
+
+<section class="try" id="try" aria-labelledby="try-title">
+  <h2 id="try-title">Ask for a refund</h2>
+  <p class="sentence"><label for="who" class="visually-hidden">Agent</label><select id="who"><option>refunds-bot</option><option>ops-bot</option></select> wants to refund $<label for="amt" class="visually-hidden">Amount</label><input id="amt" inputmode="decimal" value="450"> on order <select id="ord"><option value="2045">#2045 ($450.00)</option><option value="2041">#2041 ($89.00)</option><option value="2040">#2040 ($24.99, refunded)</option></select>.</p>
+  <p class="answer" id="answer" aria-live="polite"></p>
+  <div class="rules"><p>refunds-bot may refund up to $100 on its own.</p><p>Anything over waits for a person; over $500 is refused.</p><p>ops-bot may not move money.</p></div>
+</section>
+
+<section class="proof" id="proof" aria-labelledby="proof-title">
+  <h2 id="proof-title">What real agents did</h2>
+  <div class="col"><span class="big">$1,168</span><p>refunded wrongly without Cosigna, in two of three runs; $528 in the third.</p></div>
+  <div class="col"><span class="big">2 of 3</span><p>runs where the agent obeyed a ticket claiming the CFO had suspended the limits.</p></div>
+  <div class="col"><span class="big">$0</span><p>refunded wrongly with Cosigna, in every run. Every correct refund still went through.</p></div>
+</section>
+<footer><p class="huge">cosigna</p><a class="button" href="mailto:hello@cosigna.ai?subject=Cosigna%20demo">Book a demo</a></footer>
+<style>.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}</style>
+<script>
+const sig = document.getElementById('sig'), sign = document.getElementById('sign'), state = document.getElementById('sig-state');
+sign.addEventListener('click', () => { const on = !sig.classList.toggle('signed') ? false : true; state.textContent = on ? 'Signed. Paid.' : 'Waits for you'; sign.textContent = on ? 'Signed' : 'Sign'; });
+const payments = { 2045: [45000, 0], 2041: [8900, 0], 2040: [2499, 2499] };
+function decide() {
+  const who = document.getElementById('who').value, cents = Math.round(parseFloat(document.getElementById('amt').value || '0') * 100);
+  const [paid, refunded] = payments[document.getElementById('ord').value], left = paid - refunded;
+  let text;
+  if (!(cents > 0)) text = 'Enter an amount.';
+  else if (who === 'ops-bot') text = '<strong>Refused.</strong> ops-bot has no authority to move money. Nothing reached the payment system.';
+  else if (cents > left) text = `<strong>Refused.</strong> Only $${(left / 100).toFixed(2)} of that payment is left to refund. The payment system’s own records say so.`;
+  else if (cents > 50000) text = '<strong>Refused.</strong> Over $500 per refund, whatever the ticket says.';
+  else if (cents > 10000) text = `<strong>Waits for you.</strong> $${(cents / 100).toFixed(2)} is over refunds-bot’s $100 limit. You approve this exact refund, or nothing moves.`;
+  else text = `<strong>Paid.</strong> $${(cents / 100).toFixed(2)} is within refunds-bot’s limit, so it goes through on its own, and is recorded.`;
+  document.getElementById('answer').innerHTML = text;
+}
+['who', 'amt', 'ord'].forEach(id => document.getElementById(id).addEventListener('input', decide)); decide();
+</script>
+</body>
+</html>

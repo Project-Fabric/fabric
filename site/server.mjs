@@ -17,6 +17,10 @@ const routes = new Map([
   ['/assets/inter-regular.woff2', ['assets/inter-regular.woff2', 'font/woff2']],
   ['/assets/inter-medium.woff2', ['assets/inter-medium.woff2', 'font/woff2']],
   ['/assets/FONT-LICENSE.txt', ['assets/FONT-LICENSE.txt', 'text/plain; charset=utf-8']],
+  ['/assets/fonts/clash-grotesk-400.woff2', ['assets/fonts/clash-grotesk-400.woff2', 'font/woff2']],
+  ['/assets/fonts/clash-grotesk-500.woff2', ['assets/fonts/clash-grotesk-500.woff2', 'font/woff2']],
+  ['/assets/vendor/gsap.min.js', ['assets/vendor/gsap.min.js', 'text/javascript; charset=utf-8']],
+  ['/assets/vendor/ScrollTrigger.min.js', ['assets/vendor/ScrollTrigger.min.js', 'text/javascript; charset=utf-8']],
 ]);
 const server = createServer(async (req, res) => {
   const deny = (status, message) => { res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(message); };

@@ -3,6 +3,7 @@
 mod agents;
 pub mod api;
 pub mod domain;
+pub mod evidence;
 pub mod gateway;
 pub mod merchant;
 pub mod pipeline;

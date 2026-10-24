@@ -62,7 +62,31 @@ enum Command {
     GatewayDemo,
     /// Run a restartable transaction pipeline with synthetic owner approval and no real payment.
     PipelineDemo,
+    /// Check or export the ledger's tamper-evident record of decisions.
+    Evidence {
+        #[command(subcommand)]
+        action: EvidenceAction,
+    },
 }
+
+#[derive(Subcommand)]
+enum EvidenceAction {
+    /// Verify the chain and that current state matches it. Exit code 5 if not.
+    Verify {
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
+    /// Write the chain as Fabric-format evidence.jsonl to a new file.
+    Export {
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+}
+
+/// The ledger's evidence does not verify (same code as `fabric evidence verify`).
+const EVIDENCE_FAILED: u8 = 5;
 
 #[derive(Clone, Copy, ValueEnum)]
 enum PlannerMode {
@@ -76,8 +100,9 @@ fn directory(path: Option<PathBuf>) -> Result<PathBuf> {
         .ok_or_else(|| Error::Invalid("specify --data-dir".into()))
 }
 
-fn run() -> Result<()> {
-    match Cli::parse().command {
+fn run() -> Result<std::process::ExitCode> {
+    let outcome: Result<()> = match Cli::parse().command {
+        Command::Evidence { action } => return evidence(action),
         Command::Init {
             data_dir,
             test_merchant_url,
@@ -133,7 +158,7 @@ fn run() -> Result<()> {
                     );
                 }
                 if once {
-                    return Ok(());
+                    return Ok(std::process::ExitCode::SUCCESS);
                 }
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
@@ -152,6 +177,29 @@ fn run() -> Result<()> {
                 serde_json::to_string_pretty(&cosigna_agent::pipeline::demo()?)?
             );
             Ok(())
+        }
+    };
+    outcome.map(|()| std::process::ExitCode::SUCCESS)
+}
+
+fn evidence(action: EvidenceAction) -> Result<std::process::ExitCode> {
+    match action {
+        EvidenceAction::Verify { data_dir } => {
+            let report = cosigna_agent::evidence::verify(&directory(data_dir)?)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(if report.ok() {
+                std::process::ExitCode::SUCCESS
+            } else {
+                std::process::ExitCode::from(EVIDENCE_FAILED)
+            })
+        }
+        EvidenceAction::Export { data_dir, out } => {
+            let records = cosigna_agent::evidence::export(&directory(data_dir)?, &out)?;
+            println!(
+                "{}",
+                json!({"schema":"cosigna.ledger-evidence-export/v1","records":records,"out":out})
+            );
+            Ok(std::process::ExitCode::SUCCESS)
         }
     }
 }
@@ -245,7 +293,7 @@ fn demo() -> Result<()> {
 
 fn main() -> std::process::ExitCode {
     match run() {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("Cosigna: {error}");
             std::process::ExitCode::FAILURE

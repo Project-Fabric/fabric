@@ -35,6 +35,14 @@ verification evidence rather than inferring completion from a demo.
 | G5 One merchant/payment connector pilot | Test merchant and Stripe sandbox exist; live access/eligibility unproven | [#74](https://github.com/Project-Fabric/fabric/issues/74): select merchant/country/method; authentication, failures, webhook and compensation evidence |
 | G6 Adversarial regression and release evidence | Active; four fixed-boundary process-kill regressions and optional local Airflow verification DAG added | [#75](https://github.com/Project-Fabric/fabric/issues/75): generated invariants, additional crash/provider failures, held-out model attacks and independent review remain |
 | G7 Design-partner adoption | Planned; test payments are not revenue or customer traction | [#76](https://github.com/Project-Fabric/fabric/issues/76): one narrow adopted workflow and measured operational outcomes |
+| G8 Gateway decisions as audit evidence | Increment 1 done: ledger v4 hash-chained records, `evidence verify`/`export` | [#79](https://github.com/Project-Fabric/fabric/issues/79): signed packs, one verifier with the engine chain, anchoring |
+| G9 Resolve stuck unknown payments | Planned; unknown attempts can hold budget indefinitely | [#80](https://github.com/Project-Fabric/fabric/issues/80): owner resolution backed by provider lookup, recorded as evidence |
+| G10 One approval inbox | Planned; tool-call and purchase approvals live in different places | [#82](https://github.com/Project-Fabric/fabric/issues/82): console decides gateway quotes under one approval contract |
+| G11 Phone approval security | Planned; LAN relay is plain HTTP, voice confirmation is not identity | [#83](https://github.com/Project-Fabric/fabric/issues/83): TLS, passkey-signed quote digest, narrower phone scope |
+| G12 Quote window | Planned | [#84](https://github.com/Project-Fabric/fabric/issues/84): approval near quote expiry must not fail silently |
+| G13 Gateway concurrency | Planned; one request at a time | [#85](https://github.com/Project-Fabric/fabric/issues/85): worker pool, read-only connects, per-task planning lock, measured latency |
+| D1 First customer | Founder decision | [#81](https://github.com/Project-Fabric/fabric/issues/81): finance-ops wedge vs developer gateway vs consumer voice |
+| H1 Housekeeping | Planned | [#86](https://github.com/Project-Fabric/fabric/issues/86): build warning, docs, CI minutes, README |
 
 ## Monitoring
 

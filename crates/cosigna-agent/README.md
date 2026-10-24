@@ -202,6 +202,27 @@ Revocation leaves pending reservations held until owner cancellation (before sub
 reconciliation (after submission). Cancellation after submission is rejected; refunds are a
 separate future workflow.
 
+## Evidence
+
+Every budget, agent grant, task step and scheduler delegation is appended to a hash-chained
+`evidence` table in the same transaction as the change: who acted (owner, role, agent), the
+budget terms, the exact quote and its digest, the amount held or spent, the attempt key and
+the provider outcome. Tokens and request text are not recorded (the request is bound by its
+digest). Refused operations record nothing.
+
+```powershell
+cargo run -p cosigna-agent -- evidence verify --data-dir <profile>
+cargo run -p cosigna-agent -- evidence export --data-dir <profile> --out evidence.jsonl
+```
+
+`verify` re-hashes the chain and checks that current budgets, tasks, reservations and agents
+match their last record, so a direct database edit is reported (exit code 5). It cannot detect
+a consistent rewrite of the whole chain by someone with write access; signed packs and
+external anchoring are next ([#79](https://github.com/Project-Fabric/fabric/issues/79)).
+Records use the engine's evidence record format; see
+[STORAGE_FORMAT.md](../../docs/STORAGE_FORMAT.md). A ledger upgraded from version 3 lists its
+earlier budgets, tasks and agents as unevidenced rather than reconstructing their history.
+
 This does not claim general exactly-once payments, crash/power-loss testing, cryptographically
 signed evidence, durable distributed execution, live payment authorization, or protection
 against a compromised local account. The local ledger is authoritative for this experiment;

@@ -4,7 +4,9 @@ use std::fs::{File, OpenOptions};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{Actor, Error, Result, Role, Service, Stage, pipeline, planner::Planner, storage};
+use crate::{
+    Actor, Error, Result, Role, Service, Stage, evidence, pipeline, planner::Planner, storage,
+};
 
 pub const API_VERSION: &str = "cosigna.worker/v1";
 const MAX_ACTIVE: i64 = 1000;
@@ -61,6 +63,7 @@ pub fn control(service: &Service, owner: &Actor, id: &str, action: Action, at: i
         Err(Error::NotFound) => None,
         Err(error) => return Err(error),
     };
+    let before = existing.as_ref().map(|job| job.revision);
     match action {
         Action::Enroll if existing.is_some() => {} // Replay never resumes paused work.
         Action::Pause => {
@@ -81,6 +84,14 @@ pub fn control(service: &Service, owner: &Actor, id: &str, action: Action, at: i
         }
     }
     let job = load(&tx, id)?;
+    if Some(job.revision) != before {
+        let name = match action {
+            Action::Enroll => "enrolled",
+            Action::Pause => "paused",
+            Action::Resume => "resumed",
+        };
+        evidence::worker(&tx, name, id, at, service.by(owner))?;
+    }
     tx.commit()?;
     Ok(job)
 }

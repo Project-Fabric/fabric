@@ -4,7 +4,7 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use crate::{
     Actor, Balance, Budget, BudgetInput, Error, Event, Plan, Quote, Receipt, Result, Role, Stage,
-    Task, TaskInput,
+    Task, TaskInput, evidence,
     merchant::{HttpTestMerchant, Provider},
     new_id,
     planner::Planner,
@@ -59,11 +59,15 @@ impl Service {
             terms,
             revoked: false,
         };
-        let db = storage::connect(&self.ledger, false)?;
-        db.execute(
+        let data = serde_json::to_string(&budget)?;
+        let mut db = storage::connect(&self.ledger, false)?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
             "INSERT INTO budgets(id,owner,data) VALUES (?1,?2,?3)",
-            params![budget.id, budget.owner, serde_json::to_string(&budget)?],
+            params![budget.id, budget.owner, data],
         )?;
+        evidence::budget(&tx, "created", &budget, &data, at, self.by(actor))?;
+        tx.commit()?;
         Ok(budget)
     }
 
@@ -85,17 +89,23 @@ impl Service {
     }
 
     pub fn revoke_budget(&self, actor: &Actor, id: &str) -> Result<Budget> {
+        self.revoke_budget_at(actor, id, crate::now())
+    }
+
+    pub fn revoke_budget_at(&self, actor: &Actor, id: &str, at: i64) -> Result<Budget> {
         self.require_unscoped()?;
         actor.require(&[Role::Owner])?;
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut budget = storage::budget(&tx, id)?;
         actor.owns(&budget.owner)?;
+        if budget.revoked {
+            return Ok(budget);
+        }
         budget.revoked = true;
-        tx.execute(
-            "UPDATE budgets SET data=?1 WHERE id=?2",
-            params![serde_json::to_string(&budget)?, id],
-        )?;
+        let data = serde_json::to_string(&budget)?;
+        tx.execute("UPDATE budgets SET data=?1 WHERE id=?2", params![data, id])?;
+        evidence::budget(&tx, "revoked", &budget, &data, at, self.by(actor))?;
         // Revocation prevents new submissions. It cannot undo an already claimed request.
         // Pending reservations remain held until cancellation or reconciliation.
         tx.commit()?;
@@ -150,6 +160,7 @@ impl Service {
             attempt_key: None,
             receipt: None,
         };
+        let data = serde_json::to_string(&task)?;
         tx.execute(
             "INSERT INTO tasks(id,owner,idem,fingerprint,data) VALUES (?1,?2,?3,?4,?5)",
             params![
@@ -157,7 +168,7 @@ impl Service {
                 task.owner,
                 task.input.idempotency_key,
                 fingerprint,
-                serde_json::to_string(&task)?
+                data
             ],
         )?;
         tx.execute(
@@ -170,6 +181,7 @@ impl Service {
                 params![task.id, agent],
             )?;
         }
+        evidence::task(&tx, "task_created", &task, &data, at, self.by(actor))?;
         tx.commit()?;
         Ok(task)
     }
@@ -281,7 +293,7 @@ impl Service {
         task.quote = quote;
         task.clarification = plan.clarification;
         task.approved_digest = None;
-        storage::save(&tx, &mut task, "plan_applied", at)?;
+        storage::save(&tx, &mut task, "plan_applied", at, self.by(actor))?;
         tx.commit()?;
         Ok(task)
     }
@@ -323,7 +335,7 @@ impl Service {
         )?;
         task.stage = Stage::Approved;
         task.approved_digest = Some(digest.to_string());
-        storage::save(&tx, &mut task, "owner_approved", at)?;
+        storage::save(&tx, &mut task, "owner_approved", at, self.by(actor))?;
         tx.commit()?;
         Ok(task)
     }
@@ -367,7 +379,7 @@ impl Service {
         }
         task.attempt_key = Some(new_id("attempt")?);
         task.stage = Stage::Submitting;
-        storage::save(&tx, &mut task, "submission_started", at)?;
+        storage::save(&tx, &mut task, "submission_started", at, self.by(actor))?;
         tx.commit()?;
         Ok((task, true))
     }
@@ -444,7 +456,7 @@ impl Service {
                 "submission_unknown"
             }
         };
-        storage::save(&tx, &mut task, kind, at)?;
+        storage::save(&tx, &mut task, kind, at, self.by(actor))?;
         tx.commit()?;
         Ok(task)
     }
@@ -467,9 +479,16 @@ impl Service {
         storage::release(&tx, id)?;
         task.stage = Stage::Cancelled;
         task.approved_digest = None;
-        storage::save(&tx, &mut task, "owner_cancelled", at)?;
+        storage::save(&tx, &mut task, "owner_cancelled", at, self.by(actor))?;
         tx.commit()?;
         Ok(task)
+    }
+}
+
+impl Service {
+    /// The evidence actor for a change made through this (possibly agent-scoped) service.
+    pub(crate) fn by(&self, actor: &Actor) -> serde_json::Value {
+        evidence::by(actor, self.agent_scope.as_deref())
     }
 }
 

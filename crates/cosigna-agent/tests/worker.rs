@@ -456,7 +456,7 @@ fn v2_migration_preserves_approval_and_hold_and_does_not_enroll_historical_tasks
     let before = serde_json::to_value(s.service.task(&s.owner, &id).unwrap()).unwrap();
     // Exact old schema in an isolated fixture only.
     s.db()
-        .execute_batch("DROP TABLE worker_jobs; PRAGMA user_version=2;")
+        .execute_batch("DROP TABLE evidence; DROP TABLE worker_jobs; PRAGMA user_version=2;")
         .unwrap();
     let reopened = Service::open(s.dir.path()).unwrap();
     assert_eq!(
@@ -474,7 +474,7 @@ fn v2_migration_preserves_approval_and_hold_and_does_not_enroll_historical_tasks
         s.db()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert!(
         Worker::open(&reopened)

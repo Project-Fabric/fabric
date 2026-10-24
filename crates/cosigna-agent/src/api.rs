@@ -139,7 +139,7 @@ pub fn dispatch(
         ("GET", ["", "v1", "budgets", id]) => serde_json::to_value(service.balance(actor, id)?)?,
         ("POST", ["", "v1", "budgets", id, "revoke"]) => {
             empty(body)?;
-            serde_json::to_value(service.revoke_budget(actor, id)?)?
+            serde_json::to_value(service.revoke_budget_at(actor, id, at)?)?
         }
         ("POST", ["", "v1", "tasks"]) => {
             serde_json::to_value(service.create_task(actor, decode::<TaskInput>(body)?, at)?)?

@@ -238,7 +238,7 @@ pub(crate) fn dispatch_authenticated(
         }
         ("POST", ["", "gateway", "v1", "budgets", id, "revoke"]) if owner => {
             empty(body)?;
-            serde_json::to_value(service.revoke_budget(&actor, id)?)?
+            serde_json::to_value(service.revoke_budget_at(&actor, id, at)?)?
         }
         ("GET", ["", "gateway", "v1", "agents"]) if owner => {
             serde_json::to_value(service.registered_agents(&actor)?)?

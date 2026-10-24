@@ -2,7 +2,7 @@
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{Actor, Error, Result, Role, Service, Task, new_id, storage};
+use crate::{Actor, Error, Result, Role, Service, Task, evidence, new_id, storage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,6 +127,7 @@ impl Service {
             "INSERT INTO agent_events(agent_id,kind,at) VALUES (?1,'registered',?2)",
             params![agent.id, at],
         )?;
+        evidence::agent(&tx, "registered", &agent.id, at, self.by(owner))?;
         tx.commit()?;
         Ok(IssuedAgent { agent, token })
     }
@@ -163,6 +164,7 @@ impl Service {
                 "INSERT INTO agent_events(agent_id,kind,at) VALUES (?1,'revoked',?2)",
                 params![id, at],
             )?;
+            evidence::agent(&tx, "revoked", id, at, self.by(owner))?;
             agent.revoked = true;
         }
         tx.commit()?;

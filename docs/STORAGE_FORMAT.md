@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 3, provider version 1)
+## Optional Cosigna agent development stores (ledger version 4, provider version 1)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 3 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs` |
+| `transactions.sqlite` | `0x43535458` | 4 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence` |
 | `fixture-provider.sqlite` | `0x43534658` | 1 | `offers`, `orders` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -322,12 +322,13 @@ reopening, explicit interruption boundaries and real process termination at four
 fixture planning/claim/acceptance/confirmation boundaries. Physical power-loss/full-disk
 and arbitrary process-kill durability across live providers have not been established.
 
-Ledger version 2 added the three agent tables. Version 3 adds `worker_jobs` and its due-job
-index. Opening an application-matching v1/v2 ledger creates the missing tables and updates
-`user_version` to 3 in one transaction. Existing budget/task/reservation/event/agent values,
-quote digests and attempt keys are unchanged; no historical task is automatically enrolled.
-The fixture provider remains version 1. Versions above 3, foreign application IDs and
-unidentified nonempty databases are refused. Older executables refuse v3; do not downgrade
+Ledger version 2 added the three agent tables. Version 3 added `worker_jobs` and its due-job
+index. Version 4 adds `evidence` (below). Opening an application-matching v1-v3 ledger
+creates the missing tables and updates `user_version` to 4 in one transaction. Existing
+budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
+historical task is automatically enrolled. The fixture provider remains version 1. Versions
+above 4, foreign application IDs and unidentified nonempty databases are refused. Older
+executables refuse v4; do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
 
@@ -386,7 +387,43 @@ remain privileged development roles; never hand those keys or the credential fil
   released merely because a quote expires or a budget is revoked.
 - `events`: globally increasing integer sequence, task ID (FK), event kind and Unix-seconds
   timestamp. No model reasoning, credentials or raw HTTP payloads. These rows are unsigned
-  local history, not the engine's tamper-evident evidence chain.
+  local history; the `evidence` chain below is the tamper-evident record.
+- `evidence` (version 4): `seq` integer primary key starting at 1, unique lowercase hex
+  `hash`, `body` text. Triggers abort every `UPDATE` and `DELETE`. Each body uses the engine's
+  evidence record format (`{"v":1,"seq":N,"prev":"<hex>","at":"<RFC 3339 UTC>","event":{…}}`,
+  `hash` = BLAKE3 of the body's exact bytes, `prev` of the first record = 64 zeros) and is
+  appended in the same transaction as the change it records. Record 1 is
+  `gateway.ledger.created`, or `gateway.ledger.upgraded` with `from_version` and the IDs of
+  budgets, tasks and agents that predate evidence (`unevidenced`); their earlier history is
+  not reconstructed. Event kinds:
+  - `gateway.budget.{created,revoked}`: `by`, `budget`, `owner`, `terms`, `revoked`,
+    `budget_digest` (BLAKE3 of the stored budget JSON).
+  - `gateway.agent.{registered,revoked}`: `by`, `agent`, `grant` (`owner`, `name`, `budget`,
+    `permissions`, `expires_at`, `revoked`) and `agent_digest` (BLAKE3 of the compact JSON
+    array of the agent row's owner, name, budget ID, permissions text, expiry, revoked flag
+    and token hash). Neither the token nor its hash appears in any record.
+  - `gateway.task.<step>` for `task_created`, `plan_applied`, `owner_approved`,
+    `submission_started`, `provider_result`, `provider_rejected_quote`, `submission_unknown`
+    and `owner_cancelled`: `by`, `task`, `budget`, `agent` (assigned agent or null),
+    `version`, `stage`, `request_digest` (BLAKE3 of the request text, which is not stored),
+    `idempotency_key`, `quote` (`digest`, `offer`, `merchant`, `quantity`, `total_minor`,
+    `currency`, `expires_at`) or null, `approved_digest`, `attempt_key`, `receipt`
+    (`order`, `accepted`, `total_minor`, `currency`, `simulated`) or null, `reservation`
+    (`amount_minor`, `state`) or null, and `task_digest` (BLAKE3 of the stored task JSON).
+  - `gateway.worker.{enrolled,paused,resumed}`: `by`, `task`. Scheduler delegation only.
+  - `by` is `{"owner", "role": "owner"|"planner"|"executor", "agent"}`; `agent` is the
+    registered agent whose credential made the change, or null.
+  Refused operations change nothing and record nothing. `cosigna-agent evidence verify`
+  re-hashes every record, checks `seq`/`prev` and the first record's kind, then compares each
+  current budget, task (with its reservation and agent assignment) and agent with its latest
+  record: state changed outside the service, unrecorded rows and recorded rows that are gone
+  are exceptions (exit code 5). It cannot detect a consistent rewrite of the whole chain by
+  someone with write access to the database; signing and external anchoring are not yet
+  implemented. `cosigna-agent evidence export --out FILE` writes `<hash> <body>` lines (the
+  engine's `evidence.jsonl` layout) to a new file. The verify report schema is
+  `cosigna.ledger-evidence/v1`: `records`, `head`, `chain_intact`, `state_matches`,
+  `unevidenced` counts, `exceptions` (`seq`, `subject`, `problem`; at most 100) and
+  `exceptions_truncated`.
 - `offers`: ID and typed JSON synthetic offer, including all-in unit price, currency,
   seller, features, fulfillment, terms, revision and `simulated: true`.
 - `orders`: stable attempt key primary key, quote digest and typed JSON synthetic receipt.

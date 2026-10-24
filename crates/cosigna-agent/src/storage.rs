@@ -2,7 +2,9 @@ use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-use crate::{Budget, Error, Event, Result, Task};
+use serde_json::Value;
+
+use crate::{Budget, Error, Event, Result, Task, evidence};
 
 // Separate stores from Fabric; versions are documented in docs/STORAGE_FORMAT.md.
 const LEDGER_APP: i64 = 0x43535458;
@@ -33,7 +35,7 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
                 CREATE TABLE reservations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), budget_id TEXT NOT NULL REFERENCES budgets(id), amount INTEGER NOT NULL CHECK(amount>0), state TEXT NOT NULL CHECK(state IN ('held','spent','released')));
                 CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, at INTEGER NOT NULL);")?;
         }
-    } else if app != expected || !(version == 1 || (!provider && (2..=3).contains(&version))) {
+    } else if app != expected || !(version == 1 || (!provider && (2..=4).contains(&version))) {
         return Err(Error::StoreFormat);
     }
     // Additive, transactional upgrade; existing task JSON and provider format stay v1.
@@ -59,6 +61,12 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
         )?;
         tx.pragma_update(None, "user_version", 3)?;
     }
+    // Version 4 adds the evidence chain. State that predates it is listed, not reconstructed.
+    if !provider && version < 4 {
+        tx.execute_batch(evidence::SCHEMA)?;
+        evidence::start(&tx, version, crate::now())?;
+        tx.pragma_update(None, "user_version", 4)?;
+    }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL;")?;
     Ok(db)
@@ -80,17 +88,20 @@ pub fn task(db: &Connection, id: &str) -> Result<Task> {
     Ok(serde_json::from_str(&data)?)
 }
 
-pub fn save(tx: &Transaction<'_>, task: &mut Task, kind: &str, at: i64) -> Result<()> {
+/// Writes the task, its event and its evidence record. Reservation changes for this step
+/// must already be applied in `tx`, so the record captures them.
+pub fn save(tx: &Transaction<'_>, task: &mut Task, kind: &str, at: i64, by: Value) -> Result<()> {
     task.version += 1;
+    let data = serde_json::to_string(task)?;
     tx.execute(
         "UPDATE tasks SET data=?1 WHERE id=?2",
-        params![serde_json::to_string(task)?, task.id],
+        params![data, task.id],
     )?;
     tx.execute(
         "INSERT INTO events(task_id,kind,at) VALUES (?1,?2,?3)",
         params![task.id, kind, at],
     )?;
-    Ok(())
+    evidence::task(tx, kind, task, &data, at, by)
 }
 
 pub fn totals(db: &Connection, id: &str) -> Result<(i64, i64)> {

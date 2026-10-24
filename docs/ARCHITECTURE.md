@@ -55,7 +55,8 @@ approval waiting, execution and reconciliation over those same persisted task re
 advance performs one allowed operation; there is no independent workflow state to drift from
 the ledger and no implicit owner approval. An opt-in, owner-controlled durable queue now
 adds a separate single-worker process with bounded polling/backoff and local OS locks.
-The additive ledger v3 migration leaves existing tasks and approvals unchanged. Private
+The additive ledger migrations (now v4, which adds a hash-chained record of every gateway
+decision) leave existing tasks and approvals unchanged. Private
 Linux service templates and recovery limits are in [operations](GATEWAY_OPERATIONS.md).
 Production identity, signed permits, AgentAuth authorization consolidation and public server
 hardening remain separate [roadmap gates](ROADMAP.md).

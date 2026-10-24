@@ -4,8 +4,8 @@ import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { ArrowLeft, ArrowUpRight, Clock3, ConfirmDialog, DetailField, Empty, JsonBlock, Notice, OperationIcon,
   PageTitle, Badge, RefreshButton, SectionError, useConsole } from './console';
-import type { ActionResult } from '@/lib/contracts';
-import { dateTime, waiting } from '@/lib/display';
+import type { ActionResult, OperationView } from '@/lib/contracts';
+import { dateTime, minor, waiting } from '@/lib/display';
 
 export function ApprovalInbox() {
   const { data } = useConsole(), [tab, setTab] = useState('pending');
@@ -16,6 +16,7 @@ export function ApprovalInbox() {
   const oldest = [...pending].sort((a, b) => a.requested_at.localeCompare(b.requested_at))[0];
   return <>
     <PageTitle eyebrow="HUMAN DECISIONS. CLEAR AUTHORITY." title="Approval inbox" description="A clear decision for every exception. Review the request, then decide."><RefreshButton /></PageTitle>
+    <GatewayPayments />
     <SectionError name="approvals" />
     <div className="inbox-summary"><span className="summary-icon"><Clock3 size={21} /></span><div><strong>{pending.length} {pending.length === 1 ? 'request needs' : 'requests need'} your decision</strong><p>{oldest ? `Oldest request · ${waiting(oldest.requested_at, data.now)}` : 'You’re all caught up. New requests will appear here.'}</p></div><span className="summary-tag">{data.fixtures ? 'Sample workspace' : 'This project'}</span></div>
     <Tabs.Root value={tab} onValueChange={setTab}>
@@ -69,4 +70,66 @@ export function ApprovalDetail({ id }: { id: string }) {
       <div className="confirmation-request"><span>{request.operation}</span><strong>{request.amountLabel}</strong><code>{request.counterparty}</code></div><dl><DetailField label="Record">{decision === 'reject' ? 'Reject' : 'Approve'} {request.operation.toLowerCase()} of {request.amountLabel} to {request.counterparty} as {data.user}</DetailField><DetailField label="Note">{note || 'No note'}</DetailField><DetailField label="Tool">{request.target}</DetailField></dl><details><summary>Review exact input again</summary><JsonBlock value={request.input} /></details>
     </ConfirmDialog>
   </>;
+}
+
+/** Facts the payment system verified before the decision, in plain words. */
+function verifiedFacts(op: OperationView) {
+  const facts = op.data.proposal?.facts || {}, currency = op.data.request.currency;
+  const amount = (key: string) => typeof facts[key] === 'number' ? minor(facts[key] as number, currency) : null;
+  const parts = [amount('payment_amount_minor') && `Paid ${amount('payment_amount_minor')}`,
+    amount('refunded_minor') && `refunded so far ${amount('refunded_minor')}`,
+    amount('refundable_minor') && `refundable ${amount('refundable_minor')}`,
+    typeof facts.customer === 'string' && `customer ${facts.customer}`,
+    facts.payee_known === true && 'registered payee'].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'No verified facts recorded';
+}
+
+/** Money operations from the Cosigna gateway that need a person: held above an agent's limit, or with an unknown result. */
+export function GatewayPayments() {
+  const { data, act } = useConsole();
+  const [target, setTarget] = useState<{ op: OperationView; decision: 'approve' | 'reject' | 'resolve' } | null>(null);
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [result, setResult] = useState<ActionResult | null>(null);
+  if (!data || !data.gatewayConfigured) return null;
+  const open = data.operations.filter(op => ['held', 'unknown', 'submitting'].includes(op.data.stage));
+  const submit = async () => {
+    if (!target || busy) return;
+    setBusy(true); setError('');
+    try {
+      const response = target.decision === 'resolve'
+        ? await act({ action: 'operation-resolve', id: target.op.data.id })
+        : await act({ action: 'operation-decide', id: target.op.data.id, decision: target.decision, digest: target.op.proposal_digest || '' });
+      setResult(response); setTarget(null);
+    } catch (err) { setError(err instanceof Error ? err.message : 'The gateway refused this decision.'); }
+    finally { setBusy(false); }
+  };
+  const titles = { approve: 'Confirm this payment', reject: 'Reject this payment?', resolve: 'Settle this payment?' };
+  const confirms = { approve: 'Approve and pay', reject: 'Confirm rejection', resolve: 'Settle through the payment system' };
+  return <section className="panel gateway-panel" aria-labelledby="gateway-heading">
+    <div className="section-heading"><h2 id="gateway-heading">Agent payments</h2><span className="small muted">Cosigna gateway · {open.length} {open.length === 1 ? 'needs' : 'need'} you</span></div>
+    <SectionError name="operations" />
+    <Notice result={result} />
+    {open.length ? <ul className="gateway-list">{open.map(op => <li key={op.data.id} className="gateway-row">
+      <div className="gateway-request"><OperationIcon /><div>
+        <div className="request-title"><strong>{op.kindLabel}</strong><span className="amount">{op.amountLabel}</span></div>
+        <span className="counterparty mono">{op.counterparty}</span>
+        <p className="agent-reason">{op.data.request.reason}</p>
+        <small className="muted">{op.agentName} · {op.data.stage === 'held' ? 'Above the agent’s automatic limit' : 'Result unknown: the money stays held until settled'}</small>
+        <small className="verified-facts">Verified by the payment system: {verifiedFacts(op)}</small>
+      </div></div>
+      <div className="gateway-actions">{op.data.stage === 'held'
+        ? <><button className="button primary" disabled={!op.proposal_digest} onClick={() => { setError(''); setTarget({ op, decision: 'approve' }); }}>Review payment<ArrowUpRight size={16} /></button>
+          <button className="button secondary reject" onClick={() => { setError(''); setTarget({ op, decision: 'reject' }); }}>Reject</button></>
+        : <button className="button secondary" onClick={() => { setError(''); setTarget({ op, decision: 'resolve' }); }}>Settle</button>}</div>
+    </li>)}</ul> : <Empty title="No agent payments waiting">Payments within each agent’s limit settle on their own; exceptions appear here.</Empty>}
+    {target && <ConfirmDialog open onOpenChange={next => { if (!next) setTarget(null); }} title={titles[target.decision]}
+      description={`${data.fixtures ? 'Simulate' : 'Send'} this decision to the Cosigna gateway as the owner.`} confirm={confirms[target.decision]}
+      danger={target.decision === 'reject'} busy={busy} error={error} onConfirm={() => void submit()}>
+      <div className="confirmation-request"><span>{target.op.kindLabel}</span><strong>{target.op.amountLabel}</strong><code>{target.op.counterparty}</code></div>
+      <dl><DetailField label="Agent">{target.op.agentName}</DetailField><DetailField label="Reason given">{target.op.data.request.reason}</DetailField>
+        <DetailField label="Verified">{verifiedFacts(target.op)}</DetailField>
+        {target.decision === 'approve' && <DetailField label="Approves exactly" mono>{target.op.proposal_digest}</DetailField>}
+        {target.decision === 'resolve' && <DetailField label="What happens">The payment system reports what happened, or guarantees it can no longer go through, before any held money is released.</DetailField>}
+      </dl>
+    </ConfirmDialog>}
+  </section>;
 }

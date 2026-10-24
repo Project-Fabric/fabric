@@ -40,6 +40,27 @@ export const declarationsSchema = z.object({ schema: z.literal('fabric.payments.
     currency: nullable, default_currency: nullable, merchant: nullable,
     when: z.array(z.object({ field: string, equals: string })).optional(),
   }).passthrough()) });
+// Cosigna gateway money operations (GET /gateway/v1/operations, schema cosigna.operation/v1).
+const opId = z.string().regex(/^op_[0-9a-f]{64}$/);
+const hex64 = z.string().regex(/^[0-9a-f]{64}$/);
+export const gatewayOperationSchema = z.object({
+  schema: z.literal('cosigna.operation/v1'), simulated_rail: z.boolean(), needs_owner: z.boolean(),
+  proposal_digest: hex64.nullable(),
+  data: z.object({
+    id: opId, agent: string.nullable(), version: z.number().int(),
+    request: z.object({ kind: z.enum(['refund', 'payout']), rail: string, source: nullable, payee: nullable,
+      amount_minor: z.number().int().positive(), currency: string, reason: string, budget_id: string }).passthrough(),
+    stage: z.enum(['held', 'approved', 'submitting', 'unknown', 'succeeded', 'failed', 'denied', 'rejected']),
+    decision: z.object({ outcome: z.enum(['auto_approved', 'held', 'denied']), rule: string }),
+    proposal: z.object({ facts: z.record(z.unknown()), expires_at: z.number(), amount_minor: z.number().int(),
+      currency: string }).passthrough().nullable(),
+    approved_by: nullable,
+    receipt: z.object({ rail_reference: string, succeeded: z.boolean() }).passthrough().nullable(),
+  }).passthrough(),
+});
+export const gatewayOperationsSchema = z.object({ schema: z.literal('cosigna.operation/v1'), data: z.array(gatewayOperationSchema) });
+export const gatewayAgentsSchema = z.object({ data: z.array(z.object({ id: string, name: string }).passthrough()) }).passthrough();
+export const gatewayFixtureSchema = z.object({ operations: gatewayOperationsSchema, agents: gatewayAgentsSchema });
 const id = z.number().int().positive().safe();
 const text = z.string().trim().min(1).max(200).refine(value => !value.startsWith('-'), 'Values cannot begin with an option prefix.');
 const name = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
@@ -53,6 +74,8 @@ export const actionSchema = z.discriminatedUnion('action', [
     expires: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict(),
   z.object({ action: z.literal('mandate-revoke'), id }).strict(),
   z.object({ action: z.literal('evidence-export') }).strict(),
+  z.object({ action: z.literal('operation-decide'), id: opId, decision: z.enum(['approve', 'reject']), digest: hex64 }).strict(),
+  z.object({ action: z.literal('operation-resolve'), id: opId }).strict(),
 ]);
 export type Approval = z.infer<typeof approvalSchema>;
 export type Call = z.infer<typeof callsSchema>['calls'][number];
@@ -62,10 +85,13 @@ export type Consent = z.infer<typeof consentsSchema>['consents'][number];
 export type Verification = z.infer<typeof verifySchema>;
 export type Declaration = z.infer<typeof declarationsSchema>['payments'][number];
 export type ConsoleAction = z.infer<typeof actionSchema>;
+export type GatewayOperation = z.infer<typeof gatewayOperationSchema>;
+export type OperationView = GatewayOperation & { agentName: string; amountLabel: string; counterparty: string; kindLabel: string };
 export type ApprovalView = Approval & { amountLabel: string; operation: string; counterparty: string };
 export type Snapshot = { user: string; fixtures: boolean; now: string; csrf: string;
   approvals: ApprovalView[]; calls: Call[]; agents: Agent[]; required: boolean;
   mandates: Mandate[]; consents: Consent[]; consentTotal: number; verification: Verification | null;
-  errors: Record<string, string>; exportEnabled: boolean };
+  errors: Record<string, string>; exportEnabled: boolean;
+  operations: OperationView[]; gatewayConfigured: boolean };
 export type ActionResult = { simulated: boolean; args: string[]; message: string; token?: string;
   fingerprint?: string; out?: string; verifyCommand?: string };

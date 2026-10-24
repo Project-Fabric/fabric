@@ -6,9 +6,10 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { approvalSchema, approvalsSchema, agentsSchema, callsSchema, consentsSchema, declarationsSchema,
-  mandatesSchema, verifySchema, type ConsoleAction, type Snapshot, type ActionResult } from './contracts';
+  gatewayAgentsSchema, gatewayFixtureSchema, gatewayOperationSchema, gatewayOperationsSchema,
+  mandatesSchema, verifySchema, type ConsoleAction, type Snapshot, type ActionResult, type GatewayOperation } from './contracts';
 import { buildCommand } from './commands';
-import { approvalView } from './display';
+import { approvalView, operationViews } from './display';
 import { redact, redactText } from './redact';
 
 const execute = promisify(execFile);
@@ -69,7 +70,43 @@ async function read(name: keyof typeof files) {
   }
   return runFabric([...readArgs[name], '--json']);
 }
-type FixtureState = { approvals?: z.infer<typeof approvalsSchema>; agents?: z.infer<typeof agentsSchema>; mandates?: z.infer<typeof mandatesSchema> };
+type GatewayData = { operations: GatewayOperation[]; agents: { id: string; name: string }[] };
+type FixtureState = { approvals?: z.infer<typeof approvalsSchema>; agents?: z.infer<typeof agentsSchema>; mandates?: z.infer<typeof mandatesSchema>; gateway?: GatewayData };
+
+export const gatewayConfigured = () => fixtureMode() || !!process.env.CONSOLE_GATEWAY_URL;
+/** Owner call to the Cosigna gateway. The owner credential is read here, server-side, and never returned. */
+async function gatewayCall(method: 'GET' | 'POST', route: string, body?: unknown): Promise<unknown> {
+  let base: URL;
+  try { base = new URL(process.env.CONSOLE_GATEWAY_URL || ''); } catch { throw new Error('Configure CONSOLE_GATEWAY_URL as http://127.0.0.1:<port>.'); }
+  if (base.protocol !== 'http:' || base.hostname !== '127.0.0.1' || !base.port || base.username || base.password)
+    throw new Error('CONSOLE_GATEWAY_URL must be a loopback address: http://127.0.0.1:<port>.');
+  const dir = process.env.CONSOLE_GATEWAY_DIR;
+  if (!dir || !path.isAbsolute(dir)) throw new Error('Configure an absolute CONSOLE_GATEWAY_DIR (the gateway profile holding credentials.json).');
+  let owner: string;
+  try { owner = z.object({ owner: z.string().regex(/^owner_[0-9a-f]{64}$/) }).passthrough().parse(JSON.parse(await readFile(path.join(dir, 'credentials.json'), 'utf8'))).owner; }
+  catch { throw new Error('Could not read the gateway owner credential from CONSOLE_GATEWAY_DIR.'); }
+  const response = await fetch(new URL(`/gateway/v1${route}`, base), { method, cache: 'no-store', redirect: 'error',
+    signal: AbortSignal.timeout(30000), body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { Authorization: `Bearer ${owner}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) } });
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = z.object({ error: z.object({ message: z.string() }) }).safeParse(value);
+    throw new Error(safeMessage(message.success ? `The gateway refused this: ${message.data.error.message}` : `The gateway refused this (HTTP ${response.status}).`));
+  }
+  return value;
+}
+async function gateway(session: string): Promise<GatewayData> {
+  if (fixtureMode()) {
+    const memory = state(session);
+    if (!memory.gateway) {
+      const raw = gatewayFixtureSchema.parse(JSON.parse(await readFile(path.join(process.cwd(), 'fixtures', 'gateway_operations.json'), 'utf8')));
+      memory.gateway = { operations: raw.operations.data, agents: raw.agents.data };
+    }
+    return memory.gateway;
+  }
+  const [operations, agents] = await Promise.all([gatewayCall('GET', '/operations'), gatewayCall('GET', '/agents')]);
+  return { operations: validate(gatewayOperationsSchema, operations).data, agents: validate(gatewayAgentsSchema, agents).data };
+}
 const shared = globalThis as typeof globalThis & { consoleFixtures?: Map<string, FixtureState> };
 const states: Map<string, FixtureState> = shared.consoleFixtures ??= new Map<string, FixtureState>();
 function state(session: string): FixtureState { let value = states.get(session); if (!value) { value = {}; states.set(session, value); } return value; }
@@ -89,7 +126,13 @@ export async function snapshot(session: { id: string; user: string; csrf: string
     load('approvals', approvalsSchema), load('calls', callsSchema), load('agents', agentsSchema),
     load('mandates', mandatesSchema), load('verification', verifySchema), load('consents', consentsSchema), load('declarations', declarationsSchema),
   ]);
+  let operations: Snapshot['operations'] = [];
+  if (gatewayConfigured()) {
+    try { const value = await gateway(session.id); operations = operationViews(value.operations, value.agents); }
+    catch (error) { errors.operations = safeMessage(error instanceof Error ? error.message : 'Could not load gateway operations.'); }
+  }
   const data: Snapshot = { user: session.user, csrf: session.csrf, fixtures: fixtureMode(), now: new Date().toISOString(),
+    operations, gatewayConfigured: gatewayConfigured(),
     approvals: (inbox?.requests || []).map(r => approvalView(r, declarations?.payments || [], fixtureMode())),
     calls: activity?.calls || [], agents: agents?.agents || [], required: agents?.required ?? false,
     mandates: mandates?.mandates || [], verification, consents: consents?.consents || [], consentTotal: consents?.total || 0,
@@ -97,10 +140,43 @@ export async function snapshot(session: { id: string; user: string; csrf: string
   // Session/CSRF values are returned intentionally. Redact only engine-derived data.
   return { ...data, approvals: redact(data.approvals) as Snapshot['approvals'], calls: redact(data.calls) as Snapshot['calls'],
     agents: redact(data.agents) as Snapshot['agents'], mandates: redact(data.mandates) as Snapshot['mandates'],
-    verification: redact(data.verification) as Snapshot['verification'], consents: redact(data.consents) as Snapshot['consents'] };
+    verification: redact(data.verification) as Snapshot['verification'], consents: redact(data.consents) as Snapshot['consents'],
+    operations: redact(data.operations) as Snapshot['operations'] };
+}
+
+/** Decides or settles a gateway operation after re-checking its current state, then checks the gateway's result. */
+async function performOperation(action: Extract<ConsoleAction, { action: 'operation-decide' | 'operation-resolve' }>,
+  session: { id: string; user: string }): Promise<ActionResult> {
+  const current = (await gateway(session.id)).operations.find(op => op.data.id === action.id);
+  if (action.action === 'operation-decide' && (!current || current.data.stage !== 'held' || current.proposal_digest !== action.digest))
+    throw new Error('This payment changed or was already decided. Refresh the inbox before deciding.');
+  if (action.action === 'operation-resolve' && (!current || !['unknown', 'submitting'].includes(current.data.stage)))
+    throw new Error('This payment is no longer waiting to be settled. Refresh the inbox.');
+  const route = action.action === 'operation-resolve' ? 'resolve' : action.decision;
+  const args = [`POST /gateway/v1/operations/${action.id}/${route}`];
+  if (fixtureMode()) {
+    const op = current!;
+    if (route === 'approve') {
+      op.data.stage = 'succeeded'; op.data.approved_by = 'owner';
+      op.data.receipt = { rail_reference: 're_fixture_simulated', succeeded: true };
+    } else if (route === 'reject') op.data.stage = 'rejected';
+    else op.data.stage = 'failed';
+    op.needs_owner = false;
+    return { simulated: true, args, message: 'Simulation only. No gateway call was made and no money moved.' };
+  }
+  const value = validate(gatewayOperationSchema, await gatewayCall('POST', `/operations/${action.id}/${route}`,
+    action.action === 'operation-decide' && route === 'approve' ? { proposal_digest: action.digest } : {}));
+  const stage = value.data.stage;
+  if (value.data.id !== action.id || (route === 'approve' && value.data.approved_by !== 'owner') || (route === 'reject' && stage !== 'rejected'))
+    throw new Error('The gateway result did not match the requested decision. Refresh the record before retrying.');
+  const outcome: Record<string, string> = { succeeded: 'Approved and paid.', failed: 'The payment system refused it; no money moved and the hold was released.',
+    unknown: 'Approved; the payment result is not known yet. It stays held until settled.', submitting: 'Approved; the payment is being submitted.',
+    rejected: 'Rejected. No money moved.' };
+  return { simulated: false, args, message: `Recorded by the Cosigna gateway. ${outcome[stage] || ''}`.trim() };
 }
 export async function perform(action: ConsoleAction, session: { id: string; user: string }): Promise<ActionResult> {
   if (session.user !== process.env.CONSOLE_USER) throw new Error('Console identity changed. Restart and sign in again.');
+  if (action.action === 'operation-decide' || action.action === 'operation-resolve') return performOperation(action, session);
   if (action.action === 'approve') {
     const request = (await approvals(session.id)).requests.find(r => r.id === action.id);
     if (!request || request.status !== 'pending' || request.digest !== action.digest)

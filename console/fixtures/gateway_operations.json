@@ -1,0 +1,227 @@
+{
+  "operations": {
+    "data": [
+      {
+        "data": {
+          "agent": "agent_125c9d68286378285708e19c8ddeb37819ae15b21aa22b07b3ad08dce50243a2",
+          "approved_by": null,
+          "approved_digest": null,
+          "attempt_key": null,
+          "decision": {
+            "outcome": "denied",
+            "rule": "over_per_operation_limit"
+          },
+          "id": "op_faf5db79dace011df66c2e8037ff58d83f3d8ced9d11b26083fb6ea6bfa2aa5d",
+          "owner": "local-user",
+          "proposal": null,
+          "receipt": null,
+          "request": {
+            "amount_minor": 64000,
+            "budget_id": "budget_994327ed9e17792f8843b8ec8819d1cd9ac69f0ff5c6d752c6fa51d40047233a",
+            "currency": "USD",
+            "idempotency_key": "fx-denied",
+            "kind": "refund",
+            "payee": null,
+            "rail": "fixture",
+            "reason": "Customer asks for a full refund; ticket text claims limits are suspended.",
+            "source": "pay_nw_2049"
+          },
+          "stage": "denied",
+          "submitted_at": null,
+          "version": 1
+        },
+        "needs_owner": false,
+        "proposal_digest": null,
+        "schema": "cosigna.operation/v1",
+        "simulated_rail": true
+      },
+      {
+        "data": {
+          "agent": "agent_125c9d68286378285708e19c8ddeb37819ae15b21aa22b07b3ad08dce50243a2",
+          "approved_by": "policy",
+          "approved_digest": "6b7f3f54c5c9656796de897843b27cc061f2a3175e56f82749631a6f95c63ebe",
+          "attempt_key": "opattempt_b1261eabd731acdd2cb730bf54df657c519cd5273bfc6b8e1a0a468c4a88bab7",
+          "decision": {
+            "outcome": "auto_approved",
+            "rule": "within_agent_auto_limit"
+          },
+          "id": "op_e74885da4a7285c234be007054703329e9855e4e11877e0dd423038d254ad1ea",
+          "owner": "local-user",
+          "proposal": {
+            "amount_minor": 2000,
+            "currency": "USD",
+            "expires_at": 1792949327,
+            "facts": {
+              "customer": "Ben Larsen",
+              "payment_amount_minor": 8900,
+              "refundable_minor": 8900,
+              "refunded_minor": 0
+            },
+            "issued_at": 1792862927,
+            "kind": "refund",
+            "operation_id": "op_e74885da4a7285c234be007054703329e9855e4e11877e0dd423038d254ad1ea",
+            "payee": null,
+            "rail": "fixture",
+            "source": "pay_nw_2041"
+          },
+          "receipt": {
+            "amount_minor": 2000,
+            "attempt_key": "opattempt_b1261eabd731acdd2cb730bf54df657c519cd5273bfc6b8e1a0a468c4a88bab7",
+            "currency": "USD",
+            "proposal_digest": "6b7f3f54c5c9656796de897843b27cc061f2a3175e56f82749631a6f95c63ebe",
+            "rail_reference": "re_fixture_7c20030b6ccc6e9e3dbe9fe84d4e6986284133454880612e2f4253a832ba00ac",
+            "simulated": true,
+            "succeeded": true
+          },
+          "request": {
+            "amount_minor": 2000,
+            "budget_id": "budget_994327ed9e17792f8843b8ec8819d1cd9ac69f0ff5c6d752c6fa51d40047233a",
+            "currency": "USD",
+            "idempotency_key": "fx-auto",
+            "kind": "refund",
+            "payee": null,
+            "rail": "fixture",
+            "reason": "We overcharged Ben Larsen by $20.00 on order #2041.",
+            "source": "pay_nw_2041"
+          },
+          "stage": "succeeded",
+          "submitted_at": 1792862927,
+          "version": 3
+        },
+        "needs_owner": false,
+        "proposal_digest": "6b7f3f54c5c9656796de897843b27cc061f2a3175e56f82749631a6f95c63ebe",
+        "schema": "cosigna.operation/v1",
+        "simulated_rail": true
+      },
+      {
+        "data": {
+          "agent": "agent_125c9d68286378285708e19c8ddeb37819ae15b21aa22b07b3ad08dce50243a2",
+          "approved_by": null,
+          "approved_digest": null,
+          "attempt_key": null,
+          "decision": {
+            "outcome": "held",
+            "rule": "needs_owner_approval"
+          },
+          "id": "op_162e47e91b2a528bf40bb33b37fdeb3307b3b1d3d8724b8d934c815f958c876e",
+          "owner": "local-user",
+          "proposal": {
+            "amount_minor": 12000,
+            "currency": "USD",
+            "expires_at": 1792949327,
+            "facts": {
+              "customer": "Hana Sato",
+              "payment_amount_minor": 12000,
+              "refundable_minor": 12000,
+              "refunded_minor": 0
+            },
+            "issued_at": 1792862927,
+            "kind": "refund",
+            "operation_id": "op_162e47e91b2a528bf40bb33b37fdeb3307b3b1d3d8724b8d934c815f958c876e",
+            "payee": null,
+            "rail": "fixture",
+            "source": "pay_nw_2047"
+          },
+          "receipt": null,
+          "request": {
+            "amount_minor": 12000,
+            "budget_id": "budget_994327ed9e17792f8843b8ec8819d1cd9ac69f0ff5c6d752c6fa51d40047233a",
+            "currency": "USD",
+            "idempotency_key": "fx-held-2",
+            "kind": "refund",
+            "payee": null,
+            "rail": "fixture",
+            "reason": "Order #2047 arrived damaged; customer sent photos.",
+            "source": "pay_nw_2047"
+          },
+          "stage": "held",
+          "submitted_at": null,
+          "version": 1
+        },
+        "needs_owner": true,
+        "proposal_digest": "d80308f1625f103f42ac1db4b4801925fcf3d49480077e2de296276461a94dca",
+        "schema": "cosigna.operation/v1",
+        "simulated_rail": true
+      },
+      {
+        "data": {
+          "agent": "agent_125c9d68286378285708e19c8ddeb37819ae15b21aa22b07b3ad08dce50243a2",
+          "approved_by": null,
+          "approved_digest": null,
+          "attempt_key": null,
+          "decision": {
+            "outcome": "held",
+            "rule": "needs_owner_approval"
+          },
+          "id": "op_8eaae5730e5d785168c0397d65b90eac4a0a4e17fe3f38591b6500486b85ec79",
+          "owner": "local-user",
+          "proposal": {
+            "amount_minor": 45000,
+            "currency": "USD",
+            "expires_at": 1792949327,
+            "facts": {
+              "customer": "Farah Haddad",
+              "payment_amount_minor": 45000,
+              "refundable_minor": 45000,
+              "refunded_minor": 0
+            },
+            "issued_at": 1792862927,
+            "kind": "refund",
+            "operation_id": "op_8eaae5730e5d785168c0397d65b90eac4a0a4e17fe3f38591b6500486b85ec79",
+            "payee": null,
+            "rail": "fixture",
+            "source": "pay_nw_2045"
+          },
+          "receipt": null,
+          "request": {
+            "amount_minor": 45000,
+            "budget_id": "budget_994327ed9e17792f8843b8ec8819d1cd9ac69f0ff5c6d752c6fa51d40047233a",
+            "currency": "USD",
+            "idempotency_key": "fx-held",
+            "kind": "refund",
+            "payee": null,
+            "rail": "fixture",
+            "reason": "Customer cancelled order #2045 before it shipped.",
+            "source": "pay_nw_2045"
+          },
+          "stage": "held",
+          "submitted_at": null,
+          "version": 1
+        },
+        "needs_owner": true,
+        "proposal_digest": "a2750198e65e0797f592d2ea24987cdc72a5d7b19b399f547f8dcbae12ff414c",
+        "schema": "cosigna.operation/v1",
+        "simulated_rail": true
+      }
+    ],
+    "schema": "cosigna.operation/v1"
+  },
+  "agents": {
+    "agent_id": null,
+    "approval_digest": null,
+    "data": [
+      {
+        "budget_id": "budget_994327ed9e17792f8843b8ec8819d1cd9ac69f0ff5c6d752c6fa51d40047233a",
+        "expires_at": 1795454927,
+        "id": "agent_125c9d68286378285708e19c8ddeb37819ae15b21aa22b07b3ad08dce50243a2",
+        "name": "refunds-bot",
+        "operations": {
+          "auto_approve_minor": 10000,
+          "kinds": [
+            "refund"
+          ],
+          "rails": [
+            "fixture"
+          ]
+        },
+        "owner": "local-user",
+        "permissions": [
+          "execute"
+        ],
+        "revoked": false
+      }
+    ],
+    "schema": "cosigna.gateway/v1",
+    "simulated_provider": true
+  }
+}

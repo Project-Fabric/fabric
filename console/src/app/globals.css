@@ -20,3 +20,15 @@ input,textarea,select{border-color:#606066}.tab[data-state=active]{box-shadow:in
 :root[data-theme=light] .nav-count{color:#0059b3;background:#e1efff}
 :root[data-theme=light] .text-link{color:#0063ca}
 @media(max-width:640px){.topbar .breadcrumb{display:none}.header-actions{width:100%}.identity{display:flex;margin-left:auto}.identity>span:last-child{display:block;max-width:160px;font-size:10px}.page-heading{flex-wrap:wrap}.page-heading>div:first-child{min-width:190px;flex:1}.heading-actions{padding-top:0}.page-heading .button{font-size:10px;gap:7px;padding:9px 11px}.filters .checkbox-label{min-height:36px}}
+
+/* Cosigna gateway payments in the approval inbox */
+.gateway-panel { margin-bottom: 24px; }
+.gateway-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.gateway-row { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; padding: 14px 16px;
+  border: 1px solid var(--line, #23252B); border-radius: 12px; }
+.gateway-request { display: flex; gap: 12px; min-width: 0; }
+.gateway-request p { margin: 6px 0; }
+.gateway-request small { display: block; margin-top: 2px; }
+.verified-facts { color: var(--muted, #9A9DA6); }
+.gateway-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+@media (max-width: 720px) { .gateway-row { flex-direction: column; } .gateway-actions { flex-direction: row; width: 100%; } }

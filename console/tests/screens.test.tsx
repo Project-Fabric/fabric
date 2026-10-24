@@ -17,6 +17,10 @@ function mount(component: React.ReactNode) {
       const action = JSON.parse(options.body as string); submitted.push(action);
       if (action.action === 'approve') { const request = data.approvals.find(a => a.id === action.id)!;
         request.status = action.decision === 'approve' ? 'approved' : 'rejected'; request.note = action.note; request.approver = data.user; }
+      if (action.action === 'operation-decide' || action.action === 'operation-resolve') {
+        const op = data.operations.find(o => o.data.id === action.id)!;
+        op.data.stage = action.action === 'operation-resolve' ? 'failed' : action.decision === 'approve' ? 'succeeded' : 'rejected';
+      }
       return { ok: true, json: async () => ({ simulated: true, args: ['approve', '1', '--yes'], message: 'Simulation only.' }) };
     }
     return { ok: true, json: async () => structuredClone(data) };
@@ -55,6 +59,51 @@ describe('fixture approval inbox', () => {
     const user = userEvent.setup(); await user.click(screen.getByRole('button', { name: /review approval/i }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     expect(submitted).toHaveLength(0); expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+describe('Cosigna gateway payments in the inbox', () => {
+  it('lists only payments that need a person, with the verified facts and the agent', async () => {
+    mount(<ApprovalInbox />);
+    const section = within(await screen.findByRole('region', { name: 'Agent payments' }));
+    expect(section.getByText('$450.00')).toBeVisible();
+    expect(section.getByText('$120.00')).toBeVisible();
+    expect(section.queryByText('$20.00')).not.toBeInTheDocument();
+    expect(section.queryByText('$640.00')).not.toBeInTheDocument();
+    expect(section.getByText('Customer cancelled order #2045 before it shipped.')).toBeVisible();
+    expect(section.getAllByText(/refunds-bot · Above the agent’s automatic limit/)).toHaveLength(2);
+    expect(section.getByText(/Paid \$450.00 · refunded so far \$0.00 · refundable \$450.00 · customer Farah Haddad/)).toBeVisible();
+  });
+  it.each(['approve', 'reject'] as const)('%s needs a separate confirmation bound to the exact proposal', async decision => {
+    const { data, submitted } = mount(<ApprovalInbox />);
+    const section = within(await screen.findByRole('region', { name: 'Agent payments' }));
+    const user = userEvent.setup();
+    const row = section.getByText('Customer cancelled order #2045 before it shipped.').closest('li')!;
+    await user.click(within(row).getByRole('button', { name: decision === 'approve' ? /review payment/i : 'Reject' }));
+    expect(submitted).toHaveLength(0);
+    const dialog = screen.getByRole('dialog');
+    const op = data.operations.find(o => o.data.request.source === 'pay_nw_2045')!;
+    if (decision === 'approve') expect(within(dialog).getByText(op.proposal_digest!)).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: decision === 'approve' ? 'Approve and pay' : 'Confirm rejection' }));
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted[0]).toEqual({ action: 'operation-decide', id: op.data.id, decision, digest: op.proposal_digest });
+    await waitFor(() => expect(section.getAllByRole('listitem')).toHaveLength(1));
+  });
+  it('an unknown result offers settlement through the payment system, not approval', async () => {
+    const data = sample(), op = data.operations.find(o => o.data.request.source === 'pay_nw_2041')!;
+    op.data.stage = 'unknown';
+    const submitted: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') { submitted.push(JSON.parse(options.body as string)); return { ok: true, json: async () => ({ simulated: true, args: [], message: 'Simulation only.' }) }; }
+      return { ok: true, json: async () => structuredClone(data) };
+    }));
+    render(<ConsoleProvider><ApprovalInbox /></ConsoleProvider>);
+    const section = within(await screen.findByRole('region', { name: 'Agent payments' }));
+    const row = section.getByText(/Result unknown/).closest('li')!;
+    expect(within(row).queryByRole('button', { name: /review payment/i })).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(within(row).getByRole('button', { name: 'Settle' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Settle through the payment system' }));
+    await waitFor(() => expect(submitted).toEqual([{ action: 'operation-resolve', id: op.data.id }]));
   });
 });
 describe('remaining screens with captured engine fixtures', () => {

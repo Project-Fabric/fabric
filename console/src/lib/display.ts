@@ -1,4 +1,4 @@
-import type { Approval, ApprovalView, Declaration } from './contracts';
+import type { Approval, ApprovalView, Declaration, GatewayOperation, OperationView } from './contracts';
 export const field = (input: unknown, path: string): unknown => path.split('.').reduce<unknown>((value, key) =>
   value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, input);
 export function currencyPlaces(currency: string) {
@@ -43,3 +43,11 @@ export function waiting(at: string, now: string) {
   return `${Math.floor(minutes / 1440)}d waiting`;
 }
 export function dateTime(at: string) { return new Date(at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) + ' UTC'; }
+export function minor(amount: number, currency: string) { return money(amount / 10 ** currencyPlaces(currency), currency); }
+export function operationViews(operations: GatewayOperation[], agents: { id: string; name: string }[]): OperationView[] {
+  const names = new Map(agents.map(a => [a.id, a.name]));
+  return operations.map(op => ({ ...op, agentName: op.data.agent ? names.get(op.data.agent) || 'Unknown agent' : 'Owner',
+    amountLabel: minor(op.data.request.amount_minor, op.data.request.currency),
+    counterparty: op.data.request.source || op.data.request.payee || 'Not supplied',
+    kindLabel: op.data.request.kind === 'refund' ? 'Refund' : 'Payout' }));
+}

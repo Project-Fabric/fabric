@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { approvalsSchema, agentsSchema, callsSchema, consentsSchema, declarationsSchema, mandatesSchema, verifySchema, type Snapshot } from '../src/lib/contracts';
-import { approvalView } from '../src/lib/display';
+import { approvalsSchema, agentsSchema, callsSchema, consentsSchema, declarationsSchema, gatewayFixtureSchema, mandatesSchema, verifySchema, type Snapshot } from '../src/lib/contracts';
+import { approvalView, operationViews } from '../src/lib/display';
 export function fixture(name: string) { return JSON.parse(fs.readFileSync(path.join(process.cwd(), 'fixtures', name), 'utf8')); }
 export function sample(): Snapshot {
   const agents = agentsSchema.parse(fixture('agent_list.json')), consents = consentsSchema.parse(fixture('agentauth_consents.json'));
@@ -10,5 +10,10 @@ export function sample(): Snapshot {
     approvals: approvalsSchema.parse(fixture('inbox_approvals.json')).requests.map(r => approvalView(r, declarations.payments, true)),
     calls: callsSchema.parse(fixture('evidence_calls.json')).calls, agents: agents.agents, required: agents.required,
     mandates: mandatesSchema.parse(fixture('inbox_mandates.json')).mandates, consents: consents.consents,
-    consentTotal: consents.total, verification: verifySchema.parse(fixture('evidence_verify.json')), errors: {}, exportEnabled: true };
+    consentTotal: consents.total, verification: verifySchema.parse(fixture('evidence_verify.json')), errors: {}, exportEnabled: true,
+    operations: gateway(), gatewayConfigured: true };
+}
+export function gateway() {
+  const raw = gatewayFixtureSchema.parse(fixture('gateway_operations.json'));
+  return operationViews(raw.operations.data, raw.agents.data);
 }

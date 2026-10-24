@@ -13,6 +13,9 @@ export function buildCommand(action: ConsoleAction, user: string, exportPath?: s
       ...(action.maxPerDay ? ['--max-per-day', action.maxPerDay] : []),
       ...(action.maxCallsPerDay ? ['--max-calls-per-day', String(action.maxCallsPerDay)] : []),
       ...(action.expires ? ['--expires', action.expires] : []), '--json'];
+    case 'operation-decide':
+    case 'operation-resolve':
+      throw new Error('Gateway decisions go to the Cosigna gateway, not the engine CLI.');
     case 'evidence-export':
       if (!exportPath) throw new Error('Configure CONSOLE_EXPORT_DIR before exporting.');
       return ['evidence', 'export', '--out', exportPath, '--json'];

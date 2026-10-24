@@ -117,3 +117,19 @@ All data and outcomes are synthetic, even when the rest of the console is in liv
 The preview uses page memory only and resets on navigation/reload. It does not search the web,
 call the engine, connect providers, verify identity, or issue purchases/tickets. It is a UX
 prototype, not evidence of production authorization or budget enforcement.
+
+## Agent payments from the Cosigna gateway
+
+The approval inbox also shows the gateway's money operations that need a person: refunds or
+payouts held above an agent's automatic limit, and payments whose result is unknown. Approve
+(bound to the exact proposal digest), reject, or settle them through the payment system. Set:
+
+```powershell
+$env:CONSOLE_GATEWAY_URL = 'http://127.0.0.1:3092'   # the running `cosigna-agent serve`
+$env:CONSOLE_GATEWAY_DIR = 'C:\path\to\gateway-profile'  # holds the gateway's credentials.json
+```
+
+The owner credential is read server-side for each call and never sent to the browser. The
+gateway address must be loopback. In fixtures mode the section shows `fixtures/gateway_operations.json`,
+which was captured from a real gateway. Decisions are recorded by the gateway as its owner role. Per-person
+approver identity on the gateway is still planned (G3). Live check: `npm run test:gateway`.

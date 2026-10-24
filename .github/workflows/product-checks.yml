@@ -86,6 +86,8 @@ jobs:
       - run: npm run build
       - run: npm run test:integration
       - run: npm run test:dev
+      - name: Live gateway decisions through the console
+        run: cargo build -p cosigna-agent --locked && npm run test:gateway
       - run: npm run check && npm test
         working-directory: site
 

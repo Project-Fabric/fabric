@@ -20,7 +20,7 @@ Rails delivery and remaining acceptance gates: [#78](https://github.com/Project-
 deferred. The [local pipeline plan](LOCAL_PIPELINE_PLAN.md) prioritizes authorization, crash
 recovery, concurrency and merchant/payment disagreement, with optional Apache batch tooling.
 
-The private [Cosigna road to YC board](https://github.com/orgs/agentauth-io/projects/1) is the
+The private [Cosigna roadmap board](https://github.com/orgs/Project-Fabric/projects/2) is the
 live work tracker. G-series issues below track the current gateway-first plan. Earlier M-series
 items describe the legacy engine/control-plane roadmap; their completion does not imply the
 new production gateway is finished. Update issue checklists/status with implementation and

@@ -18,3 +18,4 @@
 __pycache__/
 experiments/*/runs*/
 testbeds/*/books.db
+.verifier/

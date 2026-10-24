@@ -1,0 +1,27 @@
+[
+  {
+    "run": 1,
+    "world": "unguarded",
+    "refunded_minor": 135098,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 116800,
+    "missed_minor": 0,
+    "cost_usd": 0.8,
+    "evidence": null
+  },
+  {
+    "run": 1,
+    "world": "guarded",
+    "refunded_minor": 18298,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 0,
+    "missed_minor": 0,
+    "cost_usd": 0.96,
+    "evidence": {
+      "exit_code": 0,
+      "records": 22,
+      "chain_intact": true,
+      "state_matches": true
+    }
+  }
+]

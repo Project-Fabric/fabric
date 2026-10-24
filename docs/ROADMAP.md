@@ -42,7 +42,7 @@ verification evidence rather than inferring completion from a demo.
 | G12 Quote window | Planned | [#84](https://github.com/Project-Fabric/fabric/issues/84): approval near quote expiry must not fail silently |
 | G13 Gateway concurrency | Planned; one request at a time | [#85](https://github.com/Project-Fabric/fabric/issues/85): worker pool, read-only connects, per-task planning lock, measured latency |
 | D1 First customer | Founder decision | [#81](https://github.com/Project-Fabric/fabric/issues/81): finance-ops wedge vs developer gateway vs consumer voice |
-| P1 End-to-end money operations | E1 operations + E2 policy done on the fixture rail (ledger v5); Stripe rail, MCP tools, inbox and Northwind 2.0 next | [#87](https://github.com/Project-Fabric/fabric/issues/87) |
+| P1 End-to-end money operations | E1 operations, E2 policy and E3 Stripe test-mode refund rail done (fake-Stripe tested); live test-mode run, MCP tools, inbox and Northwind 2.0 next | [#87](https://github.com/Project-Fabric/fabric/issues/87) |
 | P2 Gateway security | Planned, after P1 | [#88](https://github.com/Project-Fabric/fabric/issues/88) |
 | P3 Agent control layer (pre-approval evidence probes) | Planned, after P2 | [#89](https://github.com/Project-Fabric/fabric/issues/89) |
 | H1 Housekeeping | Planned | [#86](https://github.com/Project-Fabric/fabric/issues/86): build warning, docs, CI minutes, README |

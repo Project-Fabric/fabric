@@ -41,6 +41,10 @@ enum Command {
         model: Option<String>,
         #[arg(long)]
         test_merchant_url: Option<String>,
+        /// Connect Stripe test-mode refunds as the `stripe_test` rail (key from
+        /// COSIGNA_STRIPE_TEST_SECRET_KEY or the engine's stored `stripe-test` credential).
+        #[arg(long)]
+        stripe_test: bool,
     },
     /// Run the opt-in durable scheduler. Only explicitly owner-enrolled tasks are processed.
     Worker {
@@ -55,6 +59,8 @@ enum Command {
         /// Process at most one due job then exit (also useful for scheduler checks).
         #[arg(long)]
         once: bool,
+        #[arg(long)]
+        stripe_test: bool,
     },
     /// Run an isolated, deterministic end-to-end demo; no API key or real purchase.
     Demo,
@@ -123,13 +129,14 @@ fn run() -> Result<std::process::ExitCode> {
             planner,
             model,
             test_merchant_url,
+            stripe_test,
         } => {
             if port == 0 {
                 return Err(Error::Invalid("port must be nonzero".into()));
             }
             let directory = directory(data_dir)?;
             let credentials = Credentials::load(&directory.join("credentials.json"))?;
-            let service = open_service(&directory, test_merchant_url)?;
+            let service = with_rails(open_service(&directory, test_merchant_url)?, stripe_test)?;
             let planner = make_planner(planner, model)?;
             api::serve(&service, planner.as_ref(), &credentials, port)
         }
@@ -139,11 +146,12 @@ fn run() -> Result<std::process::ExitCode> {
             model,
             test_merchant_url,
             once,
+            stripe_test,
         } => {
             let directory = directory(data_dir)?;
             // Refuse an accidental new store: initialize this profile explicitly.
             Credentials::load(&directory.join("credentials.json"))?;
-            let service = open_service(&directory, test_merchant_url)?;
+            let service = with_rails(open_service(&directory, test_merchant_url)?, stripe_test)?;
             let mut worker = cosigna_agent::worker::Worker::open(&service)?;
             let planner = make_planner(planner, model)?;
             eprintln!(
@@ -216,6 +224,34 @@ fn make_planner(mode: PlannerMode, model: Option<String>) -> Result<Box<dyn Plan
             GroqTransport::from_env()?,
         )?),
     })
+}
+
+/// Connects optional live-API rails. The Stripe key is read once and never printed.
+fn with_rails(mut service: Service, stripe_test: bool) -> Result<Service> {
+    if stripe_test {
+        let key = match std::env::var("COSIGNA_STRIPE_TEST_SECRET_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                // The credential stored with `fabric secret set stripe-test`.
+                let home = std::env::var_os("FABRIC_HOME")
+                    .map(PathBuf::from)
+                    .or_else(|| dirs::data_local_dir().map(|d| d.join("fabric")))
+                    .ok_or_else(|| {
+                        Error::Invalid("cannot locate the stored stripe-test credential".into())
+                    })?;
+                std::fs::read_to_string(home.join("secrets").join("stripe-test")).map_err(|_| {
+                    Error::Invalid(
+                        "set COSIGNA_STRIPE_TEST_SECRET_KEY or store stripe-test with `fabric secret set`".into(),
+                    )
+                })?
+            }
+        };
+        let base = std::env::var("COSIGNA_STRIPE_API_BASE").ok();
+        let rail = cosigna_agent::stripe_rail::StripeRail::new(&key, base.as_deref())?;
+        service.rails = service.rails.clone().with_stripe_test(rail);
+        eprintln!("Cosigna rail connected: stripe_test (test mode only; key not shown)");
+    }
+    Ok(service)
 }
 
 fn open_service(directory: &std::path::Path, url: Option<String>) -> Result<Service> {

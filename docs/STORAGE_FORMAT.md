@@ -497,8 +497,30 @@ operation grant only when one exists, so digests recorded before v5 remain valid
 
 The fixture rail lives in `fixture-provider.sqlite` (provider version 3): `fixture_payments`
 (synthetic payments with refunded totals), `fixture_payees`, `money_attempts` (attempt key,
-proposal digest, typed receipt with `simulated: true`) and `money_voids`. No live rail is
-connected in this version.
+proposal digest, typed receipt with `simulated: true`) and `money_voids`.
+
+The `stripe_test` rail (Stripe test-mode refunds; payouts are refused with
+`kind_not_supported_on_rail`) is connected with `serve --stripe-test` or `worker --stripe-test`.
+The key comes from `COSIGNA_STRIPE_TEST_SECRET_KEY` or the engine's stored `stripe-test`
+credential (`<FABRIC_HOME>/secrets/stripe-test`); only `sk_test_`/`rk_test_` keys are
+accepted and the key is never printed or recorded. Requests go only to
+`https://api.stripe.com`; `COSIGNA_STRIPE_API_BASE` may only name a numeric loopback address
+(for tests). The check retrieves the PaymentIntent (`succeeded`, test mode, currency) and its
+refunds (succeeded, pending and requires-action refunds count as already refunded; more than
+one page is refused rather than guessed). Submission creates a refund with idempotency key
+`cosigna:<attempt key>` and metadata `cosigna_attempt`, `cosigna_proposal_digest`,
+`cosigna_operation`, then retrieves the refund and accepts it only if amount, currency,
+PaymentIntent and metadata match the proposal. `succeeded` settles as succeeded; `failed`
+or `canceled` as failed; `pending` stays unknown and held. A Stripe validation refusal
+(`invalid_request_error`, for example more than is refundable) fails the operation and
+releases its hold; rate limits, server errors, idempotency conflicts and network failures
+are unknown. Reconcile lists the PaymentIntent's refunds for the attempt's metadata. Stripe
+cannot void a refund that was never created, so `resolve` first looks the attempt up and, if
+it is absent and the attempt was claimed less than 23 hours ago (Stripe keeps idempotency
+keys for 24 hours), repeats the original request with the same key and parameters: Stripe
+returns the existing refund or completes the approved refund exactly once. After that window
+the operation stays unknown and held. Receipts say `simulated: true` (test mode moves no real
+funds). Operation JSON includes `submitted_at` (Unix seconds of the attempt claim).
 
 Quote digest: lowercase BLAKE3 hex of compact `serde_json` serialization of the `Quote`
 struct in declaration order: `id`, `task_id`, `offer`, `quantity`, `total_minor`, `issued_at`,

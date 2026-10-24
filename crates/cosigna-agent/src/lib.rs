@@ -13,6 +13,7 @@ pub mod provider;
 pub mod rails;
 pub mod service;
 mod storage;
+pub mod stripe_rail;
 pub mod worker;
 
 pub use domain::*;

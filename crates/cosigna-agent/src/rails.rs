@@ -32,45 +32,83 @@ pub enum Check {
 #[derive(Clone)]
 pub struct Rails {
     fixture: Option<FixtureRail>,
+    stripe_test: Option<crate::stripe_rail::StripeRail>,
+}
+
+enum Rail<'a> {
+    Fixture(&'a FixtureRail),
+    StripeTest(&'a crate::stripe_rail::StripeRail),
 }
 
 impl Rails {
     pub(crate) fn fixture(path: &Path) -> Result<Self> {
         Ok(Self {
             fixture: Some(FixtureRail::open(path)?),
+            stripe_test: None,
         })
     }
 
     pub(crate) fn none() -> Self {
-        Self { fixture: None }
+        Self {
+            fixture: None,
+            stripe_test: None,
+        }
     }
 
-    fn get(&self, rail: &str) -> Result<&FixtureRail> {
-        match (rail, &self.fixture) {
-            ("fixture", Some(fixture)) => Ok(fixture),
+    /// Connects Stripe test-mode refunds as the `stripe_test` rail.
+    pub fn with_stripe_test(mut self, rail: crate::stripe_rail::StripeRail) -> Self {
+        self.stripe_test = Some(rail);
+        self
+    }
+
+    fn get(&self, rail: &str) -> Result<Rail<'_>> {
+        match (rail, &self.fixture, &self.stripe_test) {
+            ("fixture", Some(fixture), _) => Ok(Rail::Fixture(fixture)),
+            ("stripe_test", _, Some(stripe)) => Ok(Rail::StripeTest(stripe)),
             _ => Err(Error::Invalid("this rail is not connected".into())),
         }
     }
 
     pub fn check(&self, request: &OperationRequest) -> Result<Check> {
-        self.get(&request.rail)?.check(request)
+        match self.get(&request.rail)? {
+            Rail::Fixture(rail) => rail.check(request),
+            Rail::StripeTest(rail) => rail.check(request),
+        }
     }
 
+    /// `scenario` only affects the synthetic fixture rail.
     pub fn submit(
         &self,
         key: &str,
         proposal: &Proposal,
         scenario: Scenario,
     ) -> Result<RailOutcome> {
-        self.get(&proposal.rail)?.submit(key, proposal, scenario)
+        match self.get(&proposal.rail)? {
+            Rail::Fixture(rail) => rail.submit(key, proposal, scenario),
+            Rail::StripeTest(rail) => rail.submit(key, proposal),
+        }
     }
 
-    pub fn lookup(&self, rail: &str, key: &str) -> Result<Option<OperationReceipt>> {
-        self.get(rail)?.lookup(key)
+    pub fn lookup(&self, key: &str, proposal: &Proposal) -> Result<Option<OperationReceipt>> {
+        match self.get(&proposal.rail)? {
+            Rail::Fixture(rail) => rail.lookup(key),
+            Rail::StripeTest(rail) => rail.lookup(key, proposal),
+        }
     }
 
-    pub fn void(&self, key: &str, proposal: &Proposal) -> Result<RailOutcome> {
-        self.get(&proposal.rail)?.void(key, &proposal.digest()?)
+    /// Settles an unknown attempt through the rail: its result if it has one, otherwise
+    /// whatever the rail can guarantee (a void, or an idempotent completion on Stripe).
+    pub fn settle_unknown(
+        &self,
+        key: &str,
+        proposal: &Proposal,
+        submitted_at: Option<i64>,
+        now: i64,
+    ) -> Result<RailOutcome> {
+        match self.get(&proposal.rail)? {
+            Rail::Fixture(rail) => rail.void(key, &proposal.digest()?),
+            Rail::StripeTest(rail) => rail.settle_unknown(key, proposal, submitted_at, now),
+        }
     }
 
     /// Fixture control for tests: synthetic payments and payees, never exposed to agents.

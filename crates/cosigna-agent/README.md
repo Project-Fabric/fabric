@@ -216,9 +216,17 @@ Policy then denies it (outside the grant, per-operation limit or budget), approv
 automatically up to the agent's `auto_approve_minor`, or holds it for the owner, who approves
 the exact `proposal_digest`. Approved operations execute on the server; agents never hold rail
 credentials. Unknown results stay held until the owner resolves them through the rail. Every
-step, including denials, is evidence. Only the synthetic `fixture` rail exists so far; Stripe
-test mode is next ([#87](https://github.com/Project-Fabric/fabric/issues/87)). Details are in
-[STORAGE_FORMAT.md](../../docs/STORAGE_FORMAT.md).
+step, including denials, is evidence. Rails: the synthetic `fixture` rail, and `stripe_test`
+(Stripe test-mode refunds) when the service starts with `--stripe-test`. The gateway holds the
+Stripe key; agents never see it:
+
+```powershell
+# The key you stored earlier with `fabric secret set stripe-test` is used automatically.
+cargo run -p cosigna-agent -- serve --data-dir <profile> --stripe-test
+```
+
+Every refund uses an idempotency key derived from its single attempt and is confirmed by
+retrieving it from Stripe. Details are in [STORAGE_FORMAT.md](../../docs/STORAGE_FORMAT.md).
 
 ## Evidence
 

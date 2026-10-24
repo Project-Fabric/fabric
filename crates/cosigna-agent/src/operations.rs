@@ -194,6 +194,9 @@ pub struct Operation {
     /// `policy` for an automatic approval, `owner` for a person's.
     pub approved_by: Option<String>,
     pub attempt_key: Option<String>,
+    /// When the attempt was claimed (bounds idempotent retries on some rails).
+    #[serde(default)]
+    pub submitted_at: Option<i64>,
     pub receipt: Option<OperationReceipt>,
 }
 
@@ -376,6 +379,7 @@ impl Service {
             approved_digest: approved_by.as_ref().and(digest),
             approved_by,
             attempt_key: None,
+            submitted_at: None,
             receipt: None,
         };
         let data = serde_json::to_string(&op)?;
@@ -556,6 +560,7 @@ impl Service {
                     return Err(Error::StoreFormat);
                 }
                 op.attempt_key = Some(new_id("opattempt")?);
+                op.submitted_at = Some(at);
                 op.stage = OperationStage::Submitting;
                 save(&tx, &mut op, "submission_started", at, self.by(actor))?;
                 tx.commit()?;
@@ -586,7 +591,8 @@ impl Service {
             return Ok(op);
         }
         let key = op.attempt_key.as_deref().ok_or(Error::StoreFormat)?;
-        let outcome = match self.rails.lookup(&op.request.rail, key) {
+        let proposal = op.proposal.as_ref().ok_or(Error::StoreFormat)?;
+        let outcome = match self.rails.lookup(key, proposal) {
             Ok(Some(receipt)) => RailOutcome::Done(receipt),
             _ => RailOutcome::Unknown,
         };
@@ -608,7 +614,12 @@ impl Service {
         let key = op.attempt_key.as_deref().ok_or(Error::StoreFormat)?;
         let outcome = self
             .rails
-            .void(key, op.proposal.as_ref().ok_or(Error::StoreFormat)?)
+            .settle_unknown(
+                key,
+                op.proposal.as_ref().ok_or(Error::StoreFormat)?,
+                op.submitted_at,
+                at,
+            )
             .unwrap_or(RailOutcome::Unknown);
         self.finish_operation(owner, &op, outcome, at)
     }

@@ -1,0 +1,341 @@
+{
+  "attacks": [
+    {
+      "name": "agent approves its own held refund",
+      "category": "authorization",
+      "blocked": true,
+      "detail": "owner-only route"
+    },
+    {
+      "name": "agent executes a held (unapproved) refund",
+      "category": "authorization",
+      "blocked": true,
+      "detail": "needs approval"
+    },
+    {
+      "name": "agent lists the owner's approval inbox",
+      "category": "authorization",
+      "blocked": true,
+      "detail": "owner-only"
+    },
+    {
+      "name": "agent creates its own budget",
+      "category": "authorization",
+      "blocked": true,
+      "detail": "owner-only"
+    },
+    {
+      "name": "agent registers a more powerful agent",
+      "category": "authorization",
+      "blocked": true,
+      "detail": "owner-only"
+    },
+    {
+      "name": "agent resolves an operation",
+      "category": "authorization",
+      "blocked": true,
+      "detail": "owner-only"
+    },
+    {
+      "name": "forged agent token",
+      "category": "authentication",
+      "blocked": true,
+      "detail": "unknown token"
+    },
+    {
+      "name": "missing / malformed bearer",
+      "category": "authentication",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "other agent reads this agent's operation",
+      "category": "isolation",
+      "blocked": true,
+      "detail": "per-agent scope"
+    },
+    {
+      "name": "agent spends from a budget it is not bound to",
+      "category": "isolation",
+      "blocked": true,
+      "detail": "status 404"
+    },
+    {
+      "name": "plan-only agent requests a refund",
+      "category": "authorization",
+      "blocked": true,
+      "detail": "status 403"
+    },
+    {
+      "name": "payout-only agent requests a refund",
+      "category": "grant",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "owner approval with a tampered digest",
+      "category": "tampering",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "idempotency key reused for a different amount",
+      "category": "replay",
+      "blocked": true,
+      "detail": "status 409"
+    },
+    {
+      "name": "replay of a completed refund moves money again",
+      "category": "replay",
+      "blocked": true,
+      "detail": "refunded 2000"
+    },
+    {
+      "name": "refund more than was paid",
+      "category": "money",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "currency confusion (INR payment refunded as USD)",
+      "category": "money",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "zero, negative, huge, fractional and non-numeric amounts",
+      "category": "input",
+      "blocked": true,
+      "detail": "[0, -1, 10000000000000, 1.5, '100', None]"
+    },
+    {
+      "name": "smuggled fields (approved, auto_approve_minor, stage)",
+      "category": "input",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "oversized body (20 KiB)",
+      "category": "input",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "non-JSON content type",
+      "category": "input",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "DNS-rebinding Host header",
+      "category": "transport",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "browser cross-origin request (CSRF)",
+      "category": "transport",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "path traversal and SQL-injection-like identifiers",
+      "category": "input",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "prompt injection in the request text",
+      "category": "policy",
+      "blocked": true,
+      "detail": "deterministic policy ignores text"
+    },
+    {
+      "name": "payout to an unregistered account",
+      "category": "money",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "20 concurrent executes of one approved refund",
+      "category": "race",
+      "blocked": true,
+      "detail": "exactly one attempt"
+    },
+    {
+      "name": "approve and reject race on one refund",
+      "category": "race",
+      "blocked": true,
+      "detail": "rejected, moved 0"
+    },
+    {
+      "name": "revoked agent keeps spending",
+      "category": "authentication",
+      "blocked": true,
+      "detail": ""
+    },
+    {
+      "name": "agent spends from a revoked budget",
+      "category": "authorization",
+      "blocked": true,
+      "detail": ""
+    }
+  ],
+  "stress": [
+    {
+      "name": "60 concurrent $1 refunds of a payment with $20.00 left",
+      "servers": 3,
+      "outcomes": {
+        "succeeded": 20,
+        "denied/exceeds_refundable": 39,
+        "failed": 1
+      },
+      "moved_minor": 2000,
+      "room_minor": 2000,
+      "spent_holds_minor": 2000,
+      "held_left_minor": 0,
+      "invariant_ok": true,
+      "seconds": 0.914
+    },
+    {
+      "name": "80 concurrent $1 refunds against a $50 budget",
+      "servers": 3,
+      "outcomes": {
+        "within_agent_auto_limit": 50,
+        "budget_exhausted": 30
+      },
+      "spent_holds_minor": 5000,
+      "limit_minor": 5000,
+      "invariant_ok": true,
+      "stages": {
+        "denied": 30,
+        "succeeded": 50
+      }
+    }
+  ],
+  "crash": [
+    {
+      "name": "8 clients refunding while one of 3 servers is hard-killed 3 times",
+      "requests": 188,
+      "connection_errors": 11,
+      "left_unsettled_after_recovery": 0,
+      "stages": {
+        "succeeded": 178
+      },
+      "moved_minor": 17800,
+      "spent_holds_minor": 17800,
+      "held_left_minor": 0,
+      "invariant_ok": true
+    }
+  ],
+  "benchmarks": [
+    {
+      "name": "auto-approved refund, request to settled (sequential)",
+      "requests": 200,
+      "clients": 1,
+      "failures": 0,
+      "failure_reasons": {},
+      "throughput_per_s": 18.0,
+      "p50_ms": 46.44,
+      "p95_ms": 62.16,
+      "p99_ms": 746.53,
+      "mean_ms": 55.61
+    },
+    {
+      "name": "auto-approved refund, 8 concurrent clients",
+      "requests": 400,
+      "clients": 8,
+      "failures": 0,
+      "failure_reasons": {},
+      "throughput_per_s": 22.7,
+      "p50_ms": 283.39,
+      "p95_ms": 973.63,
+      "p99_ms": 1622.02,
+      "mean_ms": 349.98
+    },
+    {
+      "name": "denied request (exceeds refundable), sequential",
+      "requests": 200,
+      "clients": 1,
+      "failures": 0,
+      "failure_reasons": {},
+      "throughput_per_s": 42.2,
+      "p50_ms": 16.23,
+      "p95_ms": 36.04,
+      "p99_ms": 177.29,
+      "mean_ms": 23.68
+    },
+    {
+      "name": "held refund + owner approval + settlement (two calls)",
+      "requests": 50,
+      "clients": 1,
+      "failures": 0,
+      "failure_reasons": {},
+      "throughput_per_s": 16.2,
+      "p50_ms": 61.52,
+      "p95_ms": 82.39,
+      "p99_ms": 86.78,
+      "mean_ms": 61.67
+    },
+    {
+      "name": "evidence verify (whole ledger)",
+      "records": 3057,
+      "seconds": 0.06,
+      "ok": true
+    },
+    {
+      "name": "auto-approved refund, 8 clients across 3 servers on one ledger",
+      "requests": 400,
+      "clients": 8,
+      "failures": 0,
+      "failure_reasons": {},
+      "throughput_per_s": 36.2,
+      "p50_ms": 200.53,
+      "p95_ms": 485.3,
+      "p99_ms": 765.63,
+      "mean_ms": 218.6
+    }
+  ],
+  "evidence": [
+    {
+      "phase": "after attacks",
+      "exit_code": 0,
+      "records": 25,
+      "chain_intact": true,
+      "state_matches": true,
+      "exceptions": []
+    },
+    {
+      "phase": "after stress",
+      "exit_code": 0,
+      "records": 319,
+      "chain_intact": true,
+      "state_matches": true,
+      "exceptions": []
+    },
+    {
+      "phase": "after crashes and recovery",
+      "exit_code": 0,
+      "records": 855,
+      "chain_intact": true,
+      "state_matches": true,
+      "exceptions": []
+    },
+    {
+      "phase": "final",
+      "exit_code": 0,
+      "records": 4259,
+      "chain_intact": true,
+      "state_matches": true,
+      "exceptions": []
+    }
+  ],
+  "errors": [],
+  "summary": {
+    "attacks": 30,
+    "attacks_blocked": 30,
+    "stress_invariants_ok": true,
+    "crash_invariants_ok": true,
+    "evidence_ok": true
+  }
+}

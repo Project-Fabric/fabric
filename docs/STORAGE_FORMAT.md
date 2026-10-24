@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 4, provider version 1)
+## Optional Cosigna agent development stores (ledger version 4, provider version 2)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -314,7 +314,7 @@ and version; foreign databases and unsupported versions are refused.
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
 | `transactions.sqlite` | `0x43535458` | 4 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence` |
-| `fixture-provider.sqlite` | `0x43534658` | 1 | `offers`, `orders` |
+| `fixture-provider.sqlite` | `0x43534658` | 2 | `offers`, `orders`, `voids` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
 timeout. Mutations that need a shared state check use `BEGIN IMMEDIATE`. The service tests
@@ -326,7 +326,8 @@ Ledger version 2 added the three agent tables. Version 3 added `worker_jobs` and
 index. Version 4 adds `evidence` (below). Opening an application-matching v1-v3 ledger
 creates the missing tables and updates `user_version` to 4 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
-historical task is automatically enrolled. The fixture provider remains version 1. Versions
+historical task is automatically enrolled. Provider version 2 adds `voids`; a v1 provider
+store gains it in one transaction, and provider versions above 2 are refused. Versions
 above 4, foreign application IDs and unidentified nonempty databases are refused. Older
 executables refuse v4; do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
@@ -428,6 +429,16 @@ remain privileged development roles; never hand those keys or the credential fil
   seller, features, fulfillment, terms, revision and `simulated: true`.
 - `orders`: stable attempt key primary key, quote digest and typed JSON synthetic receipt.
   Reuse with a different digest fails. No live provider state is present.
+- `voids` (provider version 2): attempt key primary key and quote digest. Written only by an
+  owner's `resolve` for an attempt with no order; a later submission with that key returns
+  `Voided` and creates no order. An attempt that has an order returns its receipt instead.
+
+Owner resolution (`POST /v1/tasks/{id}/resolve`, `POST /gateway/v1/tasks/{id}/resolve`,
+owner only, `{}`) applies only to `submitting`/`unknown` tasks; others are returned
+unchanged. The gateway asks the provider to void the attempt: an observed receipt settles
+the task as usual (`provider_result`); a void or definite rejection makes it `declined` and
+releases the reservation (`provider_voided` / `provider_rejected_quote`); a provider that
+cannot answer leaves the task unknown and held. Lookup alone never releases a hold.
 
 Quote digest: lowercase BLAKE3 hex of compact `serde_json` serialization of the `Quote`
 struct in declaration order: `id`, `task_id`, `offer`, `quantity`, `total_minor`, `issued_at`,

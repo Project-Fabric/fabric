@@ -108,6 +108,25 @@ test('real HTTP response loss retains reservation and lookup reconciles without 
   assert.equal(lab.store.orders().length, count);
 });
 
+test('owner resolve voids a lost attempt at the HTTP merchant and releases the hold exactly once', async () => {
+  const budget = (await raw('owner', 'POST', '/v1/budgets', { currency: 'USD', limit_minor: 2000, per_purchase_minor: 1000, merchants: ['cosigna-test-cafe'], expires_at: Math.floor(Date.now()/1000)+3600 })).value.data;
+  const task = (await raw('planner', 'POST', '/v1/tasks', { budget_id: budget.id, request: 'Order one oat latte', idempotency_key: randomUUID() })).value.data;
+  const plan = (await raw('planner', 'POST', `/v1/tasks/${task.id}/plan`, {})).value;
+  await raw('owner', 'POST', `/v1/tasks/${task.id}/approve`, { quote_digest: plan.approval_digest });
+  const lost = (await raw('executor', 'POST', `/v1/tasks/${task.id}/execute`, { scenario: 'timeout_before_accept' })).value.data;
+  assert.equal(lost.stage, 'unknown');
+  assert.equal((await raw('planner', 'POST', `/v1/tasks/${task.id}/reconcile`, {})).value.data.stage, 'unknown');
+  for (const role of ['planner', 'executor']) assert.equal((await raw(role, 'POST', `/v1/tasks/${task.id}/resolve`, {})).status, 403);
+  const resolved = (await raw('owner', 'POST', `/v1/tasks/${task.id}/resolve`, {})).value.data;
+  assert.equal(resolved.stage, 'declined');
+  assert.equal((await raw('owner', 'GET', `/v1/budgets/${budget.id}`)).value.data.reserved_minor, 0);
+  assert.deepEqual(lab.store.lookup(lost.attempt_key), { status: 'voided' });
+  const orders = lab.store.orders().length;
+  // The lost request arriving late is refused, and nothing is ordered.
+  const late = lab.store.submit({ attempt_key: lost.attempt_key, quote_digest: plan.approval_digest, quote: lost.quote, scenario: 'success' });
+  assert.deepEqual(late, { status: 'voided' }); assert.equal(lab.store.orders().length, orders);
+});
+
 test('a remote ledger cannot silently switch to fixtures or a replaced merchant', async () => {
   const binary = agentBinary;
   const directoryArg = join(directory, 'agent');

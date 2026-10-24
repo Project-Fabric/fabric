@@ -290,6 +290,10 @@ pub(crate) fn dispatch_authenticated(
             empty(body)?;
             serde_json::to_value(service.reconcile(&executor, id, at)?)?
         }
+        ("POST", ["", "gateway", "v1", "tasks", id, "resolve"]) if owner => {
+            empty(body)?;
+            serde_json::to_value(service.resolve(&actor, id, at)?)?
+        }
         ("POST", ["", "gateway", "v1", "tasks", id, "cancel"]) if owner => {
             empty(body)?;
             serde_json::to_value(service.cancel(&actor, id, at)?)?

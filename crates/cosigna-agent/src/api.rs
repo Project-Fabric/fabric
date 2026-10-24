@@ -164,6 +164,10 @@ pub fn dispatch(
             empty(body)?;
             serde_json::to_value(service.reconcile(actor, id, at)?)?
         }
+        ("POST", ["", "v1", "tasks", id, "resolve"]) => {
+            empty(body)?;
+            serde_json::to_value(service.resolve(actor, id, at)?)?
+        }
         ("POST", ["", "v1", "tasks", id, "cancel"]) => {
             empty(body)?;
             serde_json::to_value(service.cancel(actor, id, at)?)?

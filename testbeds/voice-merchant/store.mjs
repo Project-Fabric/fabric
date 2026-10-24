@@ -100,6 +100,7 @@ export class MerchantStore {
     return this.transaction(() => {
       const existing = this.db.prepare('SELECT fingerprint,result FROM attempts WHERE key=?').get(key);
       if (existing) {
+        if (JSON.parse(existing.result).status === 'voided') return JSON.parse(existing.result);
         if (existing.fingerprint !== fingerprint) throw new LabError(409, 'idempotency_conflict', 'This attempt key belongs to a different purchase.');
         return JSON.parse(existing.result);
       }
@@ -125,6 +126,28 @@ export class MerchantStore {
         JSON.stringify(quote), JSON.stringify(receipt), accepted ? 'preparing' : 'declined', at);
       if (accepted) this.db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(quote.quantity, quote.offer.id);
       return observed;
+    });
+  }
+  // Owner resolution of an unknown attempt (the gateway's `resolve`). Returns the attempt's
+  // settled result, or records that it never will succeed so a late submission is refused.
+  void(key, input) {
+    object(input, ['quote_digest']);
+    if (typeof key !== 'string' || !/^[A-Za-z0-9_]{1,128}$/.test(key)
+        || typeof input.quote_digest !== 'string' || !/^[a-f0-9]{64}$/.test(input.quote_digest)) {
+      throw new LabError(400, 'invalid_request', 'Invalid attempt.');
+    }
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT result FROM attempts WHERE key=?').get(key);
+      if (row) {
+        const result = JSON.parse(row.result);
+        if (result.status === 'observed' && result.receipt.quote_digest !== input.quote_digest) {
+          throw new LabError(409, 'idempotency_conflict', 'This attempt key belongs to a different purchase.');
+        }
+        return result;
+      }
+      const voided = { status: 'voided' };
+      this.db.prepare('INSERT INTO attempts VALUES (?,?,?)').run(key, `void:${input.quote_digest}`, JSON.stringify(voided));
+      return voided;
     });
   }
   orders() {

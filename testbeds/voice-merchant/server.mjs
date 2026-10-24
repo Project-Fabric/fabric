@@ -95,6 +95,7 @@ export function createLabServer(config) {
         if (request.method === 'GET' && path === '/merchant/v1/info') data = { instance_id: store.instance, mode: 'test' };
         else if (request.method === 'GET' && path === '/merchant/v1/catalog') data = store.catalog();
         else if (request.method === 'GET' && /^\/merchant\/v1\/attempts\/[A-Za-z0-9_]{1,128}$/.test(path)) data = await store.lookup(path.split('/').at(-1));
+        else if (request.method === 'POST' && /^\/merchant\/v1\/attempts\/[A-Za-z0-9_]{1,128}\/void$/.test(path)) data = await store.void(path.split('/').at(-2), await readJson(request));
         else if (request.method === 'POST' && path === '/merchant/v1/orders') {
           const input = await readJson(request);
           data = await store.submit(input);

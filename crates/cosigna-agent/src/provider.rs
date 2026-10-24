@@ -19,6 +19,9 @@ pub enum Scenario {
 pub enum Outcome {
     Observed(Receipt),
     Rejected,
+    /// The provider has no result for the attempt and has recorded that it never will:
+    /// a late copy of the submission is refused. Only an owner's `resolve` asks for this.
+    Voided,
     Unknown,
 }
 
@@ -128,6 +131,9 @@ impl FixtureProvider {
             }
             return Ok(Outcome::Observed(serde_json::from_str(&data)?));
         }
+        if voided(&tx, key)? {
+            return Ok(Outcome::Voided);
+        }
         let data: Option<String> = tx
             .query_row(
                 "SELECT data FROM offers WHERE id=?1",
@@ -172,6 +178,34 @@ impl FixtureProvider {
         })
     }
 
+    /// Settles an attempt with no known result: returns its receipt if it was accepted,
+    /// otherwise records that it never will be, so a late submission is refused.
+    pub fn void(&self, key: &str, digest: &str) -> Result<Outcome> {
+        let mut db = storage::connect(&self.path, true)?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing: Option<(String, String)> = tx
+            .query_row(
+                "SELECT digest,data FROM orders WHERE attempt_key=?1",
+                [key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((prior_digest, data)) = existing {
+            if prior_digest != digest {
+                return Err(Error::Conflict(
+                    "provider idempotency payload changed".into(),
+                ));
+            }
+            return Ok(Outcome::Observed(serde_json::from_str(&data)?));
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO voids(attempt_key,digest) VALUES (?1,?2)",
+            params![key, digest],
+        )?;
+        tx.commit()?;
+        Ok(Outcome::Voided)
+    }
+
     pub fn lookup(&self, key: &str) -> Result<Option<Receipt>> {
         let db = storage::connect(&self.path, true)?;
         let data: Option<String> = db
@@ -182,8 +216,22 @@ impl FixtureProvider {
         Ok(data.map(|s| serde_json::from_str(&s)).transpose()?)
     }
 
+    pub fn void_count(&self) -> Result<i64> {
+        let db = storage::connect(&self.path, true)?;
+        Ok(db.query_row("SELECT COUNT(*) FROM voids", [], |r| r.get(0))?)
+    }
+
     pub fn order_count(&self) -> Result<i64> {
         let db = storage::connect(&self.path, true)?;
         Ok(db.query_row("SELECT COUNT(*) FROM orders", [], |r| r.get(0))?)
     }
+}
+
+fn voided(db: &rusqlite::Connection, key: &str) -> Result<bool> {
+    Ok(db
+        .query_row("SELECT 1 FROM voids WHERE attempt_key=?1", [key], |r| {
+            r.get::<_, i64>(0)
+        })
+        .optional()?
+        .is_some())
 }

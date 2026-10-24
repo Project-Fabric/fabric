@@ -414,6 +414,22 @@ impl Service {
         self.finish(actor, &task, outcome, at)
     }
 
+    /// Owner-only settlement of an attempt whose result is unknown. The provider either
+    /// reports what happened or records that the attempt can no longer succeed; only then is
+    /// the reservation released. If the provider cannot say, the task stays unknown and held.
+    pub fn resolve(&self, actor: &Actor, id: &str, at: i64) -> Result<Task> {
+        self.require_unscoped()?;
+        actor.require(&[Role::Owner])?;
+        let task = self.task(actor, id)?;
+        if !matches!(task.stage, Stage::Submitting | Stage::Unknown) {
+            return Ok(task);
+        }
+        let key = task.attempt_key.as_deref().ok_or(Error::StoreFormat)?;
+        let digest = task.quote.as_ref().ok_or(Error::StoreFormat)?.digest()?;
+        let outcome = self.provider.void(key, &digest).unwrap_or(Outcome::Unknown);
+        self.finish(actor, &task, outcome, at)
+    }
+
     fn finish(&self, actor: &Actor, submitted: &Task, outcome: Outcome, at: i64) -> Result<Task> {
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -450,6 +466,11 @@ impl Service {
                 task.stage = Stage::Declined;
                 storage::release(&tx, &task.id)?;
                 "provider_rejected_quote"
+            }
+            Outcome::Voided => {
+                task.stage = Stage::Declined;
+                storage::release(&tx, &task.id)?;
+                "provider_voided"
             }
             _ => {
                 task.stage = Stage::Unknown;

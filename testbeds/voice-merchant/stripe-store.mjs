@@ -33,6 +33,7 @@ export class StripeMerchantStore extends MerchantStore {
     return this.transaction(() => {
       const existing = this.db.prepare('SELECT fingerprint,result FROM attempts WHERE key=?').get(key);
       if (existing) {
+        if (JSON.parse(existing.result).status === 'voided') return { fresh: false, result: JSON.parse(existing.result), record: null };
         if (existing.fingerprint !== fingerprint) throw new LabError(409, 'idempotency_conflict', 'This attempt key belongs to a different purchase.');
         return { fresh: false, result: JSON.parse(existing.result), record: this.record(key) };
       }
@@ -141,6 +142,29 @@ export class StripeMerchantStore extends MerchantStore {
       if (!intent) return unknown();
       record = this.bind(record, intent);
       return await this.resolve(record, intent);
+    } catch { return unknown(); }
+  }
+  async void(key, input) {
+    if (this.inflight.has(key)) return unknown();
+    const result = super.void(key, input);
+    if (result.status !== 'unknown') return result;
+    let record = this.record(key);
+    if (!record) return unknown();
+    if (record.input.quote_digest !== input.quote_digest) throw new LabError(409, 'idempotency_conflict', 'This attempt key belongs to a different purchase.');
+    // Take the confirmation claim so no later confirmation of this attempt can start.
+    this.db.prepare('UPDATE stripe_attempts SET confirm_started=COALESCE(confirm_started, ?) WHERE key=?').run(seconds(), key);
+    try {
+      let intent;
+      if (record.payment_intent_id) intent = await this.processor.retrieve(record.payment_intent_id);
+      else {
+        // Stripe keeps idempotency keys for 24 hours. Inside that window, repeating the original
+        // create returns the PaymentIntent if it exists, or creates it unconfirmed so it can be
+        // canceled. After it, absence cannot be established here and the attempt stays held.
+        if (seconds() - record.prepared_at > 23 * 3600) return unknown();
+        intent = await this.processor.create(record, this.instance);
+      }
+      record = this.bind(record, intent);
+      return await this.resolve(record, intent, true);
     } catch { return unknown(); }
   }
   orders() {

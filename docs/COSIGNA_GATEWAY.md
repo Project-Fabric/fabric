@@ -72,6 +72,7 @@ original phone lab on its existing profile and ports.
 | `POST /tasks/{id}/approve` | Owner | `{quote_digest}`; exact quote and atomic budget hold |
 | `POST /tasks/{id}/execute` | Owner or agent with `execute` | `{}`; current approval/scope checked before one submission claim |
 | `POST /tasks/{id}/reconcile` | Owner or originating active agent | `{}`; authoritative lookup, no replacement purchase |
+| `POST /tasks/{id}/resolve` | Owner | `{}`; void an unknown attempt at the provider, then settle or keep holding |
 | `POST /tasks/{id}/cancel` | Owner | `{}`; only before submission |
 
 All owner operations remain scoped to their authenticated owner. Gateway agents cannot choose

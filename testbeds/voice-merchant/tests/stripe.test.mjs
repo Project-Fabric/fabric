@@ -109,3 +109,42 @@ test('signed webhooks are fresh, test-only, deduplicated and revalidated against
   const liveSignature = `t=${timestamp},v1=${createHmac('sha256', secret).update(`${timestamp}.`).update(live).digest('hex')}`;
   assert.throws(() => verifyStripeEvent(live, liveSignature, secret), error => error.code === 'invalid_event');
 });
+
+test('void after a lost creation response repeats the idempotent create and cancels; no money moves', async t => {
+  const { store, fake, input } = setup(t); fake.loseNextCreate();
+  assert.equal((await store.submit(input)).status, 'unknown');
+  const result = await store.void(input.attempt_key, { quote_digest: input.quote_digest });
+  assert.equal(result.status, 'observed'); assert.equal(result.receipt.accepted, false);
+  assert.equal(fake.intents.size, 1, 'the repeated create returned the original PaymentIntent');
+  assert.equal([...fake.intents.values()][0].status, 'canceled');
+  assert.equal(fake.requests.filter(request => request.path.endsWith('/confirm')).length, 0);
+  assert.equal(store.record(input.attempt_key).stock_state, 'released');
+  assert.deepEqual(await store.submit(input), result, 'a late replay gets the settled decline');
+});
+
+test('void after a lost confirmation response confirms the payment that succeeded', async t => {
+  const { store, fake, input } = setup(t); fake.loseNextConfirm();
+  assert.equal((await store.submit(input)).status, 'unknown');
+  const result = await store.void(input.attempt_key, { quote_digest: input.quote_digest });
+  assert.equal(result.receipt.accepted, true);
+  assert.equal(fake.requests.filter(request => request.path.endsWith('/cancel')).length, 0);
+  assert.equal(store.orders().length, 1);
+});
+
+test('void of an attempt that never reached Stripe records a tombstone; void cannot change a decline or a payment', async t => {
+  const { store, fake, input } = setup(t);
+  assert.deepEqual(await store.void('never_sent', { quote_digest: input.quote_digest }), { status: 'voided' });
+  assert.equal(fake.requests.length, 0);
+  input.scenario = 'decline'; const declined = await store.submit(input);
+  assert.deepEqual(await store.void(input.attempt_key, { quote_digest: input.quote_digest }), declined);
+  const paid = { ...input, attempt_key: 'paid_attempt', scenario: 'success' }; const observed = await store.submit(paid);
+  assert.deepEqual(await store.void('paid_attempt', { quote_digest: paid.quote_digest }), observed);
+  await assert.rejects(store.void('paid_attempt', { quote_digest: 'b'.repeat(64) }), error => error.code === 'idempotency_conflict');
+});
+
+test('void while Stripe is processing keeps the purchase held', async t => {
+  const { store, fake, input } = setup(t); fake.setConfirmationStatus('processing');
+  assert.equal((await store.submit(input)).status, 'unknown');
+  assert.equal((await store.void(input.attempt_key, { quote_digest: input.quote_digest })).status, 'unknown');
+  assert.equal(store.record(input.attempt_key).stock_state, 'held'); assert.equal(store.orders().length, 0);
+});

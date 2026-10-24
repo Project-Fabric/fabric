@@ -75,3 +75,21 @@ test('fulfillment advances independently and never claims payment from a ready f
   assert.equal(store.orders()[0].state, 'collected');
   assert.throws(() => store.fulfill(id, 'preparing'), error => error.code === 'fulfillment_conflict');
 });
+
+test('voiding an unaccepted attempt refuses its late arrival; accepted attempts return their receipt', t => {
+  const { store } = setup(t);
+  const lost = purchase(store, 'lost_attempt'); lost.scenario = 'timeout_before_accept';
+  assert.equal(store.submit(lost).status, 'unknown');
+  assert.deepEqual(store.void('lost_attempt', { quote_digest: lost.quote_digest }), { status: 'voided' });
+  assert.deepEqual(store.void('lost_attempt', { quote_digest: lost.quote_digest }), { status: 'voided' });
+  lost.scenario = 'success';
+  assert.deepEqual(store.submit(lost), { status: 'voided' });
+  assert.equal(store.orders().length, 0);
+  assert.equal(store.products().find(product => product.offer.id === 'oat-latte').stock, 12);
+
+  const accepted = purchase(store, 'accepted_attempt'); const result = store.submit(accepted);
+  assert.deepEqual(store.void('accepted_attempt', { quote_digest: accepted.quote_digest }), result);
+  assert.throws(() => store.void('accepted_attempt', { quote_digest: 'b'.repeat(64) }), error => error.code === 'idempotency_conflict');
+  assert.throws(() => store.void('bad key', { quote_digest: 'a'.repeat(64) }), error => error.code === 'invalid_request');
+  assert.throws(() => store.void('k', { quote_digest: 'a'.repeat(64), extra: 1 }), error => error.code === 'invalid_request');
+});

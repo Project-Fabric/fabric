@@ -94,6 +94,10 @@ approval and executes; there is no second execute click. Budgets alone never aut
 - Unresolved outcomes back off 10, 20, 40, 80, 160, then 300 seconds (capped). After twelve
   unresolved steps the job pauses for operator review. Holds remain reserved; missing lookup
   results, elapsed time and retry exhaustion are not proof of failure.
+- To settle a paused unknown attempt, the owner calls `POST /v1/tasks/{id}/resolve` (or the
+  gateway route). The provider either reports the real outcome or voids the attempt so it can
+  never succeed; only a void or rejection releases the hold. An `unknown` answer means retry
+  later. Then resume the job (or leave it) so the worker records it as done.
 - Model failures pause without automatic paid retries. A restart with a running draft
   pauses as `planning_interrupted`; a committed quote or existing attempt can resume.
   A separate planner lock bounds concurrent inference across API/worker processes on the
@@ -108,7 +112,8 @@ approval and executes; there is no second execute click. Budgets alone never aut
 Stop with Ctrl+C locally or `systemctl stop` on Linux. Termination can interrupt an operation;
 there is no graceful-drain implementation yet. Restart uses the durable boundaries above.
 Do not clear a ledger/queue, remove a live lock file, create replacement idempotency keys or
-release unknown holds as a repair. Stop both services before upgrading or restoring storage.
+release unknown holds by editing storage; use `resolve`, which goes through the provider and
+is recorded as evidence (`evidence verify` reports direct edits). Stop both services before upgrading or restoring storage.
 
 ## Oracle pilot provisioning
 

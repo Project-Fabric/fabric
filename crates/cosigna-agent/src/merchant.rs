@@ -30,6 +30,12 @@ impl Provider {
             Self::TestMerchant(provider) => provider.submit(key, quote, scenario),
         }
     }
+    pub fn void(&self, key: &str, digest: &str) -> Result<Outcome> {
+        match self {
+            Self::Fixture(provider) => provider.void(key, digest),
+            Self::TestMerchant(provider) => provider.void(key, digest),
+        }
+    }
     pub fn lookup(&self, key: &str) -> Result<Option<Receipt>> {
         match self {
             Self::Fixture(provider) => provider.lookup(key),
@@ -45,6 +51,12 @@ impl Provider {
     pub fn order_count(&self) -> Result<i64> {
         match self {
             Self::Fixture(provider) => provider.order_count(),
+            _ => Err(Error::Forbidden),
+        }
+    }
+    pub fn void_count(&self) -> Result<i64> {
+        match self {
+            Self::Fixture(provider) => provider.void_count(),
             _ => Err(Error::Forbidden),
         }
     }
@@ -194,6 +206,29 @@ impl HttpTestMerchant {
             Some("rejected") => Ok(Outcome::Rejected),
             _ => Ok(Outcome::Unknown),
         }
+    }
+
+    fn void(&self, key: &str, digest: &str) -> Result<Outcome> {
+        if !key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
+            return Err(Error::Merchant);
+        }
+        let mut response = self
+            .client()
+            .post(format!("{}/merchant/v1/attempts/{key}/void", self.url))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("X-Cosigna-Merchant-Instance", &self.instance)
+            .send_json(json!({"quote_digest": digest}))
+            .map_err(|_| Error::Merchant)?;
+        let value = self.read(&mut response)?;
+        Ok(match value["data"]["status"].as_str() {
+            Some("observed") => Outcome::Observed(
+                serde_json::from_value(value["data"]["receipt"].clone())
+                    .map_err(|_| Error::Merchant)?,
+            ),
+            Some("rejected") => Outcome::Rejected,
+            Some("voided") => Outcome::Voided,
+            _ => Outcome::Unknown,
+        })
     }
 
     fn lookup(&self, key: &str) -> Result<Option<Receipt>> {

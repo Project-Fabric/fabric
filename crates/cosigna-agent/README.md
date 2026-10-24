@@ -162,6 +162,7 @@ conversion or implicit currency conversion occurs. Quotes expire after at most f
 | `POST /v1/tasks/{id}/approve` | Owner; `{ "quote_digest": "..." }` |
 | `POST /v1/tasks/{id}/execute` | Executor; `{}` or a fixture scenario |
 | `POST /v1/tasks/{id}/reconcile` | Any role belonging to the owner; `{}` |
+| `POST /v1/tasks/{id}/resolve` | Owner; `{}`; settles an unknown attempt by voiding it at the provider |
 | `POST /v1/tasks/{id}/cancel` | Owner, before submission; `{}` |
 
 Unknown JSON request fields are rejected. Fixture execution scenarios are `success`,
@@ -191,9 +192,14 @@ The ledger uses SQLite immediate transactions to serialize approval/reservation 
 claims across service instances. The independent fixture-provider database records one result
 per stable attempt key. A task has one submission attempt. A crash or unknown result requires
 lookup; execution replay never resubmits. A missing result is not considered proof of failure.
-Unresolved tasks can therefore retain reservations indefinitely in this increment. No manual
-force-release API is provided. A production connector needs provider-specific authoritative
-failure, reconciliation and recovery semantics before retries or release are enabled.
+An unknown result stays held until the owner resolves it. `resolve` asks the provider to void
+the attempt: if the provider accepted it, its receipt confirms the purchase; otherwise the
+provider records that the attempt can never succeed (a late copy of the request is refused)
+and only then is the reservation released. If the provider cannot answer, the task stays
+unknown and held. The Stripe test merchant answers by retrieving the PaymentIntent or, when
+its ID was never received, repeating the original create with the same idempotency key
+(within Stripe's 24-hour key window) and canceling it unless it succeeded. There is no
+force-release that skips the provider.
 
 Replanning clears prior approval and releases its pending reservation. Reapproval is required.
 Library versions prevent a delayed model result overwriting newer approval/state. Revocation

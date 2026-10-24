@@ -271,6 +271,7 @@ the pinned instance ID. Browser origins are rejected on these endpoints.
 | `GET /merchant/v1/catalog` | In-stock typed offers with all-in unit prices |
 | `POST /merchant/v1/orders` | `{attempt_key, quote_digest, quote, scenario}`; validate and submit |
 | `GET /merchant/v1/attempts/{key}` | Observed receipt, rejected result or absent result |
+| `POST /merchant/v1/attempts/{key}/void` | `{quote_digest}`; the settled result, or a `voided` tombstone that refuses a late submission. Stripe mode retrieves or re-creates (same idempotency key, within 24 h) and cancels unless paid; otherwise `unknown` |
 
 The endpoint is fixed by operator configuration, not by model output. Rust permits only a
 numeric `http://127.0.0.1:<port>` test merchant, disallows redirects, and checks instance identity

@@ -35,7 +35,7 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
                 CREATE TABLE reservations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), budget_id TEXT NOT NULL REFERENCES budgets(id), amount INTEGER NOT NULL CHECK(amount>0), state TEXT NOT NULL CHECK(state IN ('held','spent','released')));
                 CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, at INTEGER NOT NULL);")?;
         }
-    } else if app != expected || !(version == 1 || (!provider && (2..=4).contains(&version))) {
+    } else if app != expected || !(1..=if provider { 2 } else { 4 }).contains(&version) {
         return Err(Error::StoreFormat);
     }
     // Additive, transactional upgrade; existing task JSON and provider format stay v1.
@@ -60,6 +60,13 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
             CREATE INDEX worker_due ON worker_jobs(state,next_at,task_id);",
         )?;
         tx.pragma_update(None, "user_version", 3)?;
+    }
+    // Provider version 2 adds attempt tombstones for owner resolution of unknown results.
+    if provider && version < 2 {
+        tx.execute_batch(
+            "CREATE TABLE voids (attempt_key TEXT PRIMARY KEY, digest TEXT NOT NULL);",
+        )?;
+        tx.pragma_update(None, "user_version", 2)?;
     }
     // Version 4 adds the evidence chain. State that predates it is listed, not reconstructed.
     if !provider && version < 4 {

@@ -88,3 +88,26 @@ or customer statistic was copied. The blue gateway SVG and all Cosigna UI exampl
 
 Browser connectivity was unavailable during implementation; functional DOM, route and motion
 checks are recorded separately from any future browser visual review.
+
+## Decision, 24 October 2026: rebuild, then retire the Python service
+
+Cosigna was built as a new codebase. The engine (`crates/fabric-*`) and the transaction gateway
+(`crates/cosigna-agent`) contain no AgentAuth application code. The engine reaches the existing
+AgentAuth service only through its HTTP API (`crates/fabric-cli/src/agentauth.rs`). AgentAuth
+(`agentauth-io/agentauth`, Python/FastAPI) remains a separate repository. Its fixes are on the
+unpushed branch `fix/authorization-integrity`, because pushing its `main` deploys to Koyeb.
+
+Agreed direction (Harsha): do not copy the Python code into this repository. Rebuild what is worth
+keeping inside the Rust gateway, then retire the Python service:
+
+1. Inventory AgentAuth's concepts and data: users, API keys, consents and their limits, the
+   authorize decision (allow, deny, step-up), and the consent audit trail.
+2. Map each one to the gateway: owner identity, agent grants, budgets, money operations and
+   evidence. Rebuild only what is missing (consent receipts, step-up) with tests. This is part of G3 / P2 (#72, #88).
+3. Point the engine's payment checks (`fabric payments`, `mcp-proxy`) at the gateway instead of
+   `/v1/authorize`, so that one authority decides. Keep the AgentAuth connector until then.
+4. Retire api.agentauth.in after any real users are notified. Export and keep its records; don't
+   delete them. Archive the repository after rotating the keys leaked in its history.
+
+Until step 3 ships, three permission systems still exist (engine mandates, AgentAuth consents,
+gateway budgets), and none of them should be described as the single authority.

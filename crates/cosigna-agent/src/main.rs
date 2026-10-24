@@ -68,6 +68,12 @@ enum Command {
     GatewayDemo,
     /// Run a restartable transaction pipeline with synthetic owner approval and no real payment.
     PipelineDemo,
+    /// Serve the gateway's money operations as MCP tools over stdio, for one agent.
+    /// Reads the agent's own token from COSIGNA_AGENT_TOKEN.
+    Mcp {
+        #[arg(long)]
+        gateway_url: String,
+    },
     /// Check or export the ledger's tamper-evident record of decisions.
     Evidence {
         #[command(subcommand)]
@@ -109,6 +115,12 @@ fn directory(path: Option<PathBuf>) -> Result<PathBuf> {
 fn run() -> Result<std::process::ExitCode> {
     let outcome: Result<()> = match Cli::parse().command {
         Command::Evidence { action } => return evidence(action),
+        Command::Mcp { gateway_url } => {
+            let token = std::env::var("COSIGNA_AGENT_TOKEN").map_err(|_| {
+                Error::Invalid("set COSIGNA_AGENT_TOKEN to the agent's token".into())
+            })?;
+            cosigna_agent::mcp::serve(&cosigna_agent::mcp::Gateway::new(&gateway_url, &token)?)
+        }
         Command::Init {
             data_dir,
             test_merchant_url,

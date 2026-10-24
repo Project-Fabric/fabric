@@ -5,6 +5,7 @@ pub mod api;
 pub mod domain;
 pub mod evidence;
 pub mod gateway;
+pub mod mcp;
 pub mod merchant;
 pub mod operations;
 pub mod pipeline;

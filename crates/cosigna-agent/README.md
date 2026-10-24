@@ -228,6 +228,21 @@ cargo run -p cosigna-agent -- serve --data-dir <profile> --stripe-test
 Every refund uses an idempotency key derived from its single attempt and is confirmed by
 retrieving it from Stripe. Details are in [STORAGE_FORMAT.md](../../docs/STORAGE_FORMAT.md).
 
+## Agent tools (MCP)
+
+`cosigna-agent mcp --gateway-url http://127.0.0.1:<port>` serves the money operations as MCP
+tools for one agent: `cosigna_request_refund`, `cosigna_request_payout`,
+`cosigna_operation_status` and `cosigna_budget`. It reads only that agent's token from
+`COSIGNA_AGENT_TOKEN`. It holds no owner or rail credential and no ledger access, and it refuses
+unknown arguments. Replies tell the agent the outcome and what to do next (paid, waiting for a
+person, denied and why). They never include approval digests. Example Claude Code config:
+
+```json
+{"mcpServers": {"cosigna": {"command": "cosigna-agent",
+  "args": ["mcp", "--gateway-url", "http://127.0.0.1:3092"],
+  "env": {"COSIGNA_AGENT_TOKEN": "agentkey_..."}}}}
+```
+
 ## Evidence
 
 Every budget, agent grant, task step and scheduler delegation is appended to a hash-chained

@@ -2,7 +2,10 @@
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{Actor, Error, Result, Role, Service, Task, evidence, new_id, storage};
+use crate::{
+    Actor, Error, Result, Role, Service, Task, evidence, new_id, operations::OperationGrant,
+    storage,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -18,6 +21,9 @@ pub struct Registration {
     pub budget_id: String,
     pub permissions: Vec<Permission>,
     pub expires_at: i64,
+    /// Money-operation rights (refunds/payouts). Absent: none. Requires `execute`.
+    #[serde(default)]
+    pub operations: Option<OperationGrant>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -29,6 +35,8 @@ pub struct RegisteredAgent {
     pub permissions: Vec<Permission>,
     pub expires_at: i64,
     pub revoked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operations: Option<OperationGrant>,
 }
 
 // Intentionally no Debug: the credential is returned once to the owner, never listed.
@@ -39,9 +47,9 @@ pub struct IssuedAgent {
 }
 
 fn load(db: &Connection, id: &str) -> Result<RegisteredAgent> {
-    let row: (String, String, String, String, i64, bool) = db
+    let row: (String, String, String, String, i64, bool, Option<String>) = db
         .query_row(
-            "SELECT owner,name,budget_id,permissions,expires_at,revoked FROM agents WHERE id=?1",
+            "SELECT owner,name,budget_id,permissions,expires_at,revoked,operation_grant FROM agents WHERE id=?1",
             [id],
             |r| {
                 Ok((
@@ -51,6 +59,7 @@ fn load(db: &Connection, id: &str) -> Result<RegisteredAgent> {
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
+                    r.get(6)?,
                 ))
             },
         )
@@ -64,7 +73,13 @@ fn load(db: &Connection, id: &str) -> Result<RegisteredAgent> {
         permissions: serde_json::from_str(&row.3)?,
         expires_at: row.4,
         revoked: row.5,
+        operations: row.6.map(|g| serde_json::from_str(&g)).transpose()?,
     })
+}
+
+/// An agent's money-operation grant, if it has one.
+pub(crate) fn grant(db: &Connection, id: &str) -> Result<Option<OperationGrant>> {
+    Ok(load(db, id)?.operations)
 }
 
 fn active(agent: &RegisteredAgent, at: i64) -> Result<()> {
@@ -98,11 +113,15 @@ impl Service {
             || input.permissions.is_empty()
             || input.permissions.len() > 2
             || (input.permissions.len() == 2 && input.permissions[0] == input.permissions[1])
+            || (input.operations.is_some() && !input.permissions.contains(&Permission::Execute))
         {
             return Err(Error::Invalid("invalid agent registration".into()));
         }
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(grant) = &input.operations {
+            grant.validate()?;
+        }
         let budget = storage::budget(&tx, &input.budget_id)?;
         owner.owns(&budget.owner)?;
         if budget.revoked || input.expires_at > budget.terms.expires_at {
@@ -118,11 +137,13 @@ impl Service {
             permissions: input.permissions,
             expires_at: input.expires_at,
             revoked: false,
+            operations: input.operations,
         };
         let token = new_id("agentkey")?;
-        tx.execute("INSERT INTO agents(id,owner,name,budget_id,permissions,expires_at,token_hash) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        tx.execute("INSERT INTO agents(id,owner,name,budget_id,permissions,expires_at,token_hash,operation_grant) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
             params![agent.id, agent.owner, agent.name, agent.budget_id, serde_json::to_string(&agent.permissions)?, agent.expires_at,
-                blake3::hash(token.as_bytes()).to_hex().to_string()])?;
+                blake3::hash(token.as_bytes()).to_hex().to_string(),
+                agent.operations.as_ref().map(serde_json::to_string).transpose()?])?;
         tx.execute(
             "INSERT INTO agent_events(agent_id,kind,at) VALUES (?1,'registered',?2)",
             params![agent.id, at],

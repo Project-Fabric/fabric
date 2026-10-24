@@ -17,6 +17,7 @@ pub struct Service {
     pub(crate) ledger: PathBuf,
     pub(crate) agent_scope: Option<String>,
     pub provider: Provider,
+    pub rails: crate::rails::Rails,
 }
 
 impl Service {
@@ -29,12 +30,12 @@ impl Service {
         std::fs::create_dir_all(directory)?;
         let ledger = directory.join("transactions.sqlite");
         storage::connect(&ledger, false)?;
+        let fixture = directory.join("fixture-provider.sqlite");
         Ok(Self {
             ledger,
             agent_scope: None,
-            provider: Provider::Fixture(FixtureProvider::open(
-                &directory.join("fixture-provider.sqlite"),
-            )?),
+            provider: Provider::Fixture(FixtureProvider::open(&fixture)?),
+            rails: crate::rails::Rails::fixture(&fixture)?,
         })
     }
 
@@ -46,6 +47,7 @@ impl Service {
             ledger,
             agent_scope: None,
             provider: Provider::TestMerchant(provider),
+            rails: crate::rails::Rails::none(),
         })
     }
 

@@ -58,6 +58,7 @@ impl Setup {
                     budget_id: budget.clone(),
                     permissions,
                     expires_at: at + 1800,
+                    operations: None,
                 },
                 at,
             )
@@ -330,6 +331,7 @@ fn pipeline_never_escalates_plan_only_credentials_or_uses_another_agents_task() 
                 budget_id: s.budget.clone(),
                 permissions: vec![Permission::Plan, Permission::Execute],
                 expires_at: s.at + 1800,
+                operations: None,
             },
             s.at,
         )

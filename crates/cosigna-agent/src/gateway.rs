@@ -143,6 +143,26 @@ struct Empty {}
 struct Approval {
     quote_digest: String,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OperationApproval {
+    proposal_digest: String,
+}
+
+/// The operation envelope: the operation, the digest an approver signs off, and whether a
+/// person still has to decide.
+fn operation_view(op: &crate::operations::Operation) -> Result<Value> {
+    let digest = op
+        .proposal
+        .as_ref()
+        .map(crate::operations::Proposal::digest)
+        .transpose()?;
+    Ok(
+        json!({"schema": crate::operations::API_VERSION, "simulated_rail": op.request.rail == "fixture",
+        "proposal_digest": digest,
+        "needs_owner": op.stage == crate::operations::OperationStage::Held, "data": op}),
+    )
+}
 fn empty(body: &[u8]) -> Result<()> {
     decode::<Empty>(body)?;
     Ok(())
@@ -195,8 +215,65 @@ pub(crate) fn dispatch_authenticated(
         owner: actor.owner.clone(),
         role: Role::Executor,
     };
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
     let parts: Vec<_> = path.split('/').collect();
     let data = match (method, parts.as_slice()) {
+        // Money operations. Execution after an approval happens here, on the server, with
+        // credentials the agent never holds.
+        ("POST", ["", "gateway", "v1", "operations"]) => {
+            let op = service.request_operation(&actor, decode(body)?, at)?;
+            let op = if op.stage == crate::operations::OperationStage::Approved {
+                service.execute_operation(&actor, &op.id, Scenario::Success, at)?
+            } else {
+                op
+            };
+            return operation_view(&op);
+        }
+        ("GET", ["", "gateway", "v1", "operations"]) if owner => {
+            let stage = match query {
+                "" => None,
+                "stage=held" => Some(crate::operations::OperationStage::Held),
+                "stage=unknown" => Some(crate::operations::OperationStage::Unknown),
+                _ => return Err(Error::Invalid("unsupported operation filter".into())),
+            };
+            let ops = service.operations(&actor, stage)?;
+            return Ok(json!({"schema": crate::operations::API_VERSION,
+                "data": ops.iter().map(operation_view).collect::<Result<Vec<_>>>()?}));
+        }
+        ("GET", ["", "gateway", "v1", "operations", id]) => {
+            return operation_view(&service.operation(&actor, id)?);
+        }
+        ("POST", ["", "gateway", "v1", "operations", id, "approve"]) if owner => {
+            let input: OperationApproval = decode(body)?;
+            service.approve_operation(&actor, id, &input.proposal_digest, at)?;
+            return operation_view(&service.execute_operation(
+                &actor,
+                id,
+                Scenario::Success,
+                at,
+            )?);
+        }
+        ("POST", ["", "gateway", "v1", "operations", id, "reject"]) if owner => {
+            empty(body)?;
+            return operation_view(&service.reject_operation(&actor, id, at)?);
+        }
+        ("POST", ["", "gateway", "v1", "operations", id, "execute"]) => {
+            empty(body)?;
+            return operation_view(&service.execute_operation(
+                &actor,
+                id,
+                Scenario::Success,
+                at,
+            )?);
+        }
+        ("POST", ["", "gateway", "v1", "operations", id, "reconcile"]) => {
+            empty(body)?;
+            return operation_view(&service.reconcile_operation(&actor, id, at)?);
+        }
+        ("POST", ["", "gateway", "v1", "operations", id, "resolve"]) if owner => {
+            empty(body)?;
+            return operation_view(&service.resolve_operation(&actor, id, at)?);
+        }
         ("GET", ["", "gateway", "v1", "pipelines", id, "worker"]) if owner => {
             return Ok(
                 json!({"schema":crate::worker::API_VERSION,"simulated_provider":true,

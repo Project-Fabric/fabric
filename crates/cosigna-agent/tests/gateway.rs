@@ -233,7 +233,8 @@ fn agents_cannot_escalate_ownership_or_manage_authority() {
                     name: "spoofed".into(),
                     budget_id: s.budget.clone(),
                     permissions: vec![Permission::Plan],
-                    expires_at: s.at + 60
+                    expires_at: s.at + 60,
+                    operations: None,
                 },
                 s.at
             )
@@ -492,7 +493,7 @@ fn ledger_v1_upgrade_preserves_approved_tasks_and_reservations_and_refuses_futur
         .unwrap();
     // Reproduce the old schema only in this synthetic store; never downgrade user data.
     let db = rusqlite::Connection::open(s.directory.path().join("transactions.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE evidence; DROP TABLE worker_jobs; DROP TABLE task_agents; DROP TABLE agent_events; DROP TABLE agents; PRAGMA user_version=1;").unwrap();
+    db.execute_batch("DROP TABLE operation_holds; DROP TABLE operations; DROP TABLE evidence; DROP TABLE worker_jobs; DROP TABLE task_agents; DROP TABLE agent_events; DROP TABLE agents; PRAGMA user_version=1;").unwrap();
     drop(db);
     let upgraded = Service::open(s.directory.path()).unwrap();
     assert_eq!(
@@ -514,14 +515,14 @@ fn ledger_v1_upgrade_preserves_approved_tasks_and_reservations_and_refuses_futur
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
     assert_eq!(
         db.query_row("SELECT COUNT(*) FROM agents", [], |r| r.get::<_, i64>(0))
             .unwrap(),
         0
     );
-    db.pragma_update(None, "user_version", 5).unwrap();
+    db.pragma_update(None, "user_version", 6).unwrap();
     drop(db);
     assert!(matches!(
         Service::open(s.directory.path()),

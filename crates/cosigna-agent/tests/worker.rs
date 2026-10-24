@@ -146,6 +146,7 @@ fn control_is_owner_only_strict_and_enrollment_replay_cannot_resume() {
                 budget_id: s.budget.clone(),
                 permissions: vec![Permission::Plan, Permission::Execute],
                 expires_at: s.at + 1800,
+                operations: None,
             },
             s.at,
         )
@@ -218,6 +219,7 @@ fn worker_preserves_agent_execute_permission_and_rechecks_revocation() {
                         vec![Permission::Plan]
                     },
                     expires_at: s.at + 1800,
+                    operations: None,
                 },
                 s.at,
             )
@@ -456,7 +458,7 @@ fn v2_migration_preserves_approval_and_hold_and_does_not_enroll_historical_tasks
     let before = serde_json::to_value(s.service.task(&s.owner, &id).unwrap()).unwrap();
     // Exact old schema in an isolated fixture only.
     s.db()
-        .execute_batch("DROP TABLE evidence; DROP TABLE worker_jobs; PRAGMA user_version=2;")
+        .execute_batch("DROP TABLE operation_holds; DROP TABLE operations; ALTER TABLE agents DROP COLUMN operation_grant; DROP TABLE evidence; DROP TABLE worker_jobs; PRAGMA user_version=2;")
         .unwrap();
     let reopened = Service::open(s.dir.path()).unwrap();
     assert_eq!(
@@ -474,7 +476,7 @@ fn v2_migration_preserves_approval_and_hold_and_does_not_enroll_historical_tasks
         s.db()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
     assert!(
         Worker::open(&reopened)

@@ -4,11 +4,13 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use serde_json::Value;
 
-use crate::{Budget, Error, Event, Result, Task, evidence};
+use crate::{Budget, Error, Event, Result, Task, evidence, rails};
 
 // Separate stores from Fabric; versions are documented in docs/STORAGE_FORMAT.md.
 const LEDGER_APP: i64 = 0x43535458;
 const PROVIDER_APP: i64 = 0x43534658;
+/// Current ledger version, as recorded when an evidence chain starts.
+pub(crate) const LEDGER_VERSION: i64 = 5;
 
 pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     let mut db = Connection::open(path)?;
@@ -35,7 +37,7 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
                 CREATE TABLE reservations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), budget_id TEXT NOT NULL REFERENCES budgets(id), amount INTEGER NOT NULL CHECK(amount>0), state TEXT NOT NULL CHECK(state IN ('held','spent','released')));
                 CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, at INTEGER NOT NULL);")?;
         }
-    } else if app != expected || !(1..=if provider { 2 } else { 4 }).contains(&version) {
+    } else if app != expected || !(1..=if provider { 3 } else { 5 }).contains(&version) {
         return Err(Error::StoreFormat);
     }
     // Additive, transactional upgrade; existing task JSON and provider format stay v1.
@@ -68,11 +70,31 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
         )?;
         tx.pragma_update(None, "user_version", 2)?;
     }
+    // Provider version 3 adds the synthetic money rail (payments, payees, attempts, voids).
+    if provider && version < 3 {
+        tx.execute_batch(rails::FIXTURE_SCHEMA)?;
+        tx.pragma_update(None, "user_version", 3)?;
+    }
     // Version 4 adds the evidence chain. State that predates it is listed, not reconstructed.
     if !provider && version < 4 {
         tx.execute_batch(evidence::SCHEMA)?;
         evidence::start(&tx, version, crate::now())?;
         tx.pragma_update(None, "user_version", 4)?;
+    }
+    // Version 5 adds money operations, their budget holds and agent operation grants.
+    if !provider && version < 5 {
+        tx.execute_batch(
+            "ALTER TABLE agents ADD COLUMN operation_grant TEXT;
+            CREATE TABLE operations (
+                id TEXT PRIMARY KEY, owner TEXT NOT NULL, budget_id TEXT NOT NULL REFERENCES budgets(id),
+                agent_id TEXT REFERENCES agents(id), idem TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                data TEXT NOT NULL, UNIQUE(owner, idem));
+            CREATE TABLE operation_holds (
+                operation_id TEXT PRIMARY KEY REFERENCES operations(id),
+                budget_id TEXT NOT NULL REFERENCES budgets(id), amount INTEGER NOT NULL CHECK(amount>0),
+                state TEXT NOT NULL CHECK(state IN ('held','spent','released')));",
+        )?;
+        tx.pragma_update(None, "user_version", 5)?;
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL;")?;
@@ -112,7 +134,15 @@ pub fn save(tx: &Transaction<'_>, task: &mut Task, kind: &str, at: i64, by: Valu
 }
 
 pub fn totals(db: &Connection, id: &str) -> Result<(i64, i64)> {
-    Ok(db.query_row("SELECT COALESCE(SUM(CASE WHEN state='held' THEN amount ELSE 0 END),0), COALESCE(SUM(CASE WHEN state='spent' THEN amount ELSE 0 END),0) FROM reservations WHERE budget_id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?)
+    // Purchases and money operations draw on the same budget.
+    Ok(db.query_row(
+        "SELECT COALESCE(SUM(CASE WHEN state='held' THEN amount ELSE 0 END),0),
+            COALESCE(SUM(CASE WHEN state='spent' THEN amount ELSE 0 END),0)
+        FROM (SELECT amount,state FROM reservations WHERE budget_id=?1
+            UNION ALL SELECT amount,state FROM operation_holds WHERE budget_id=?1)",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?)
 }
 
 pub fn release(tx: &Transaction<'_>, task: &str) -> Result<()> {

@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 4, provider version 2)
+## Optional Cosigna agent development stores (ledger version 5, provider version 3)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,8 +313,8 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 4 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence` |
-| `fixture-provider.sqlite` | `0x43534658` | 2 | `offers`, `orders`, `voids` |
+| `transactions.sqlite` | `0x43535458` | 5 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds` |
+| `fixture-provider.sqlite` | `0x43534658` | 3 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
 timeout. Mutations that need a shared state check use `BEGIN IMMEDIATE`. The service tests
@@ -323,13 +323,14 @@ fixture planning/claim/acceptance/confirmation boundaries. Physical power-loss/f
 and arbitrary process-kill durability across live providers have not been established.
 
 Ledger version 2 added the three agent tables. Version 3 added `worker_jobs` and its due-job
-index. Version 4 adds `evidence` (below). Opening an application-matching v1-v3 ledger
-creates the missing tables and updates `user_version` to 4 in one transaction. Existing
+index. Version 4 added `evidence` (below). Version 5 adds money operations, their holds and
+agent operation grants. Opening an application-matching v1-v4 ledger creates the missing
+tables and columns and updates `user_version` to 5 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
-historical task is automatically enrolled. Provider version 2 adds `voids`; a v1 provider
-store gains it in one transaction, and provider versions above 2 are refused. Versions
-above 4, foreign application IDs and unidentified nonempty databases are refused. Older
-executables refuse v4; do not downgrade
+historical task is automatically enrolled. Provider version 2 added `voids` and version 3
+adds the synthetic money rail; older provider stores gain them in one transaction, and
+provider versions above 3 are refused. Versions above 5, foreign application IDs and
+unidentified nonempty databases are refused. Older executables refuse v5; do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
 
@@ -439,6 +440,65 @@ unchanged. The gateway asks the provider to void the attempt: an observed receip
 the task as usual (`provider_result`); a void or definite rejection makes it `declined` and
 releases the reservation (`provider_voided` / `provider_rejected_quote`); a provider that
 cannot answer leaves the task unknown and held. Lookup alone never releases a hold.
+
+### Money operations (ledger version 5)
+
+Refunds and payouts requested by registered agents or the owner, through
+`POST /gateway/v1/operations` (envelope schema `cosigna.operation/v1`). Tables:
+
+- `operations`: `id` (`op_` + 64 hex) primary key, owner, budget FK, nullable agent FK,
+  `idem`, request fingerprint (BLAKE3 of the typed request), JSON operation; `(owner, idem)`
+  unique. A replay with the same key and fingerprint returns the stored operation; a different
+  request under the same key is a conflict.
+- `operation_holds`: operation primary key/FK, budget FK, positive amount, state `held`,
+  `spent` or `released`. Budget totals add these holds to purchase reservations: purchases and
+  operations draw on one budget.
+- `agents.operation_grant`: nullable JSON `{kinds, rails, auto_approve_minor}`. Absent grants
+  no operation rights; a grant requires the `execute` permission and is immutable like other
+  permissions. Agents registered before v5 have none.
+
+Request fields (unknown fields rejected): `budget_id`, `kind` (`refund` with `source`, or
+`payout` with `payee`), `rail`, `amount_minor`, `currency`, `reason` (at most 500 characters),
+`idempotency_key`. The rail checks the request against its own records before any decision
+(the payment exists and has that much left to refund; the payee is registered; the currency
+matches). A failed check is recorded as `denied` with the rail's reason (`source_not_found`,
+`exceeds_refundable`, `currency_mismatch`, `payee_unknown`). Otherwise policy decides, in order:
+`not_granted` (agent without a grant covering kind and rail), `currency_not_in_budget`,
+`over_per_operation_limit` (budget `per_purchase_minor`), `budget_exhausted`; then
+`within_agent_auto_limit` approves automatically and anything else is held
+(`needs_owner_approval`; owner-initiated requests are always held). The decision is stored as
+`{"outcome": "auto_approved"|"held"|"denied", "rule": ...}`.
+
+The proposal is the exact operation (`operation_id`, `kind`, `rail`, `source`, `payee`,
+`amount_minor`, `currency`, the rail's verified `facts`, `issued_at`, `expires_at` at most 24
+hours later and never past the budget). Its digest is lowercase BLAKE3 hex of its compact
+serialization in that field order; owner approval (`POST .../approve {"proposal_digest"}`) must
+match it. Approval (automatic or by the owner) places the hold in the same transaction. The
+gateway then claims one attempt (`opattempt_` key) and submits to the rail with server-held
+credentials; the rail re-checks its records and may still reject. Stages: `held`, `approved`,
+`submitting`, `unknown`, `succeeded`, `failed` (rail declined, rejected or voided; no money
+moved), `denied`, `rejected` (by the owner before submission). Unknown results stay held;
+`reconcile` only looks up, and only the owner's `resolve` can settle one, through the rail's
+void as for purchases. Revoking the agent or the budget prevents new requests and new
+submission claims.
+
+Owner routes: `GET /gateway/v1/operations[?stage=held|unknown]`, `POST .../{id}/approve`,
+`.../reject`, `.../resolve`. Owner or originating agent: `GET .../{id}`, `.../execute`,
+`.../reconcile`. Other agents cannot see an operation.
+
+Evidence kinds `gateway.operation.{auto_approved,held,denied,owner_approved,owner_rejected,
+submission_started,rail_result,rail_rejected,rail_voided,submission_unknown}` record `by`,
+`operation`, `budget`, `agent`, `version`, `stage`, `decision`, `request` (with
+`reason_digest` instead of the reason text), `proposal` (`digest`, `facts`, `expires_at`),
+`approved_digest`, `approved_by` (`policy` or `owner`), `attempt_key`, `receipt`, `hold` and
+`operation_digest` (BLAKE3 of the stored operation JSON). `evidence verify` checks each
+operation and its hold against its latest record. An agent's `agent_digest` includes its
+operation grant only when one exists, so digests recorded before v5 remain valid.
+
+The fixture rail lives in `fixture-provider.sqlite` (provider version 3): `fixture_payments`
+(synthetic payments with refunded totals), `fixture_payees`, `money_attempts` (attempt key,
+proposal digest, typed receipt with `simulated: true`) and `money_voids`. No live rail is
+connected in this version.
 
 Quote digest: lowercase BLAKE3 hex of compact `serde_json` serialization of the `Quote`
 struct in declaration order: `id`, `task_id`, `offer`, `quantity`, `total_minor`, `issued_at`,

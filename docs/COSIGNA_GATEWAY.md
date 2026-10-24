@@ -73,6 +73,10 @@ original phone lab on its existing profile and ports.
 | `POST /tasks/{id}/execute` | Owner or agent with `execute` | `{}`; current approval/scope checked before one submission claim |
 | `POST /tasks/{id}/reconcile` | Owner or originating active agent | `{}`; authoritative lookup, no replacement purchase |
 | `POST /tasks/{id}/resolve` | Owner | `{}`; void an unknown attempt at the provider, then settle or keep holding |
+| `POST /operations` | Owner or agent with `execute` and an operations grant | Refund/payout request; the rail checks it, policy denies, auto-approves (then executes) or holds |
+| `GET /operations[?stage=held]`, `GET /operations/{id}` | Owner; originating agent for one | The approval inbox and an operation's state |
+| `POST /operations/{id}/approve` · `reject` · `resolve` | Owner | Exact `proposal_digest` approval (then executes), refusal before submission, unknown-result settlement |
+| `POST /operations/{id}/execute` · `reconcile` | Owner or originating agent | Retry the single claimed attempt; lookup only |
 | `POST /tasks/{id}/cancel` | Owner | `{}`; only before submission |
 
 All owner operations remain scoped to their authenticated owner. Gateway agents cannot choose

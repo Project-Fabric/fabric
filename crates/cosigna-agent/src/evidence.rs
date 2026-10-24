@@ -89,9 +89,9 @@ pub(crate) fn start(db: &Connection, from_version: i64, at: i64) -> Result<()> {
     };
     let (budgets, tasks, agents) = (ids("budgets")?, ids("tasks")?, ids("agents")?);
     let event = if budgets.is_empty() && tasks.is_empty() && agents.is_empty() {
-        json!({"kind": "gateway.ledger.created", "ledger_version": 4})
+        json!({"kind": "gateway.ledger.created", "ledger_version": storage::LEDGER_VERSION})
     } else {
-        json!({"kind": "gateway.ledger.upgraded", "from_version": from_version, "ledger_version": 4,
+        json!({"kind": "gateway.ledger.upgraded", "from_version": from_version, "ledger_version": storage::LEDGER_VERSION,
             "unevidenced": {"budgets": budgets, "tasks": tasks, "agents": agents}})
     };
     append(db, at, event)
@@ -176,17 +176,22 @@ pub(crate) fn budget(
 fn agent_state(db: &Connection, id: &str) -> Result<Option<(Value, String)>> {
     Ok(db
         .query_row(
-            "SELECT owner,name,budget_id,permissions,expires_at,revoked,token_hash FROM agents WHERE id=?1",
+            "SELECT owner,name,budget_id,permissions,expires_at,revoked,token_hash,operation_grant FROM agents WHERE id=?1",
             [id],
             |r| {
                 let (owner, name, budget, permissions, expires, revoked, token): (
                     String, String, String, String, i64, bool, String,
                 ) = (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?);
-                let row = json!([owner, name, budget, permissions, expires, revoked, token]);
+                let grant: Option<String> = r.get(7)?;
+                let mut row = json!([owner, name, budget, permissions, expires, revoked, token]);
+                if let (Some(grant), Some(items)) = (&grant, row.as_array_mut()) {
+                    items.push(json!(grant));
+                }
                 Ok((
                     json!({"owner": owner, "name": name, "budget": budget,
                         "permissions": serde_json::from_str::<Value>(&permissions).unwrap_or(Value::Null),
-                        "expires_at": rfc3339(expires), "revoked": revoked}),
+                        "expires_at": rfc3339(expires), "revoked": revoked,
+                        "operations": grant.as_deref().map(serde_json::from_str::<Value>).transpose().unwrap_or(None)}),
                     digest(&row.to_string()),
                 ))
             },
@@ -201,6 +206,50 @@ pub(crate) fn agent(db: &Connection, kind: &str, id: &str, at: i64, by: Value) -
         at,
         json!({"kind": format!("gateway.agent.{kind}"), "by": by, "agent": id,
             "grant": state, "agent_digest": agent_digest}),
+    )
+}
+
+fn operation_hold(db: &Connection, id: &str) -> Result<Value> {
+    Ok(db
+        .query_row(
+            "SELECT amount,state FROM operation_holds WHERE operation_id=?1",
+            [id],
+            |r| Ok(json!({"amount_minor": r.get::<_, i64>(0)?, "state": r.get::<_, String>(1)?})),
+        )
+        .optional()?
+        .unwrap_or(Value::Null))
+}
+
+/// Records a money operation's state as just written (`data` is the exact stored JSON).
+pub(crate) fn operation(
+    db: &Connection,
+    step: &str,
+    op: &crate::operations::Operation,
+    data: &str,
+    at: i64,
+    by: Value,
+) -> Result<()> {
+    let proposal = match &op.proposal {
+        Some(p) => json!({"digest": p.digest()?, "facts": p.facts,
+            "expires_at": rfc3339(p.expires_at)}),
+        None => Value::Null,
+    };
+    let request = &op.request;
+    append(
+        db,
+        at,
+        json!({"kind": format!("gateway.operation.{step}"), "by": by, "operation": op.id,
+            "budget": request.budget_id, "agent": op.agent, "version": op.version,
+            "stage": op.stage, "decision": op.decision,
+            "request": {"kind": request.kind, "rail": request.rail, "source": request.source,
+                "payee": request.payee, "amount_minor": request.amount_minor,
+                "currency": request.currency, "idempotency_key": request.idempotency_key,
+                // The reason may hold personal details; the record binds it without repeating it.
+                "reason_digest": digest(&request.reason)},
+            "proposal": proposal, "approved_digest": op.approved_digest,
+            "approved_by": op.approved_by, "attempt_key": op.attempt_key,
+            "receipt": op.receipt, "hold": operation_hold(db, &op.id)?,
+            "operation_digest": digest(data)}),
     )
 }
 
@@ -340,6 +389,7 @@ fn verify_db(db: &Connection) -> Result<Report> {
                 ("task", "task", "task_digest"),
                 ("budget", "budget", "budget_digest"),
                 ("agent", "agent", "agent_digest"),
+                ("operation", "operation", "operation_digest"),
             ] {
                 if event.get(digest_field).is_some()
                     && let Some(id) = event[field].as_str()
@@ -373,6 +423,11 @@ fn verify_db(db: &Connection) -> Result<Report> {
             "SELECT id,data FROM tasks ORDER BY id",
             "task_digest",
         ),
+        (
+            "operation",
+            "SELECT id,data FROM operations ORDER BY id",
+            "operation_digest",
+        ),
     ] {
         for (id, data) in rows(sql)? {
             let key = (kind, id.clone());
@@ -383,6 +438,13 @@ fn verify_db(db: &Connection) -> Result<Report> {
                             &mut check,
                             format!("{kind} {id}"),
                             "changed without a record",
+                        );
+                    }
+                    if kind == "operation" && event["hold"] != operation_hold(db, &id)? {
+                        mismatch(
+                            &mut check,
+                            format!("operation {id}"),
+                            "budget hold changed without a record",
                         );
                     }
                     if kind == "task" {
@@ -448,6 +510,7 @@ fn verify_db(db: &Connection) -> Result<Report> {
         let table = match *kind {
             "task" => "tasks",
             "budget" => "budgets",
+            "operation" => "operations",
             _ => "agents",
         };
         let exists: Option<i64> = db

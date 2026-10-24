@@ -157,6 +157,7 @@ pub fn demo() -> Result<serde_json::Value> {
             budget_id: budget.id.clone(),
             permissions: vec![Permission::Plan, Permission::Execute],
             expires_at: at + 1800,
+            operations: None,
         },
         at,
     )?;

@@ -140,6 +140,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("evidence")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--require-hashes", action="store_true", help="fail if hashes cannot be checked (blake3 missing)")
     args = parser.parse_args()
     problems = []
     records, hashes_checked = read_chain(args.evidence, problems)
@@ -148,6 +149,8 @@ def main():
     elif records[0].get("event", {}).get("kind") not in ("gateway.ledger.created", "gateway.ledger.upgraded", "genesis"):
         problems.append("record 1: the chain does not start with a ledger or genesis record")
     stats = replay(records, problems)
+    if args.require_hashes and records and hashes_checked != len(records):
+        problems.append("hashes could not be checked: install the blake3 package")
     report = {"schema": "cosigna.independent-verify/v1", "records": len(records),
               "hashes_checked": hashes_checked if hashes_checked else "not checked (pip install blake3)",
               "rules": stats, "ok": not problems, "problems": problems[:100]}

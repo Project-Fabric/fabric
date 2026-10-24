@@ -290,7 +290,7 @@ def evidence_check(gw, phase):
     # The independent Python verifier replays the rules from an export of the same chain.
     out = os.path.join(gw.data_dir, f"export-{time.time_ns()}.jsonl")
     subprocess.run([gw.binary, "evidence", "export", "--data-dir", gw.data_dir, "--out", out], check=True, capture_output=True)
-    independent = subprocess.run([sys.executable, "-I", VERIFIER, out, "--json"], capture_output=True, text=True)
+    independent = subprocess.run([sys.executable, "-I", VERIFIER, out, "--json", "--require-hashes"], capture_output=True, text=True)
     ind = json.loads(independent.stdout) if independent.stdout.strip() else {}
     RESULTS["evidence"].append({"phase": phase, "exit_code": code, "records": report.get("records"),
                                 "chain_intact": report.get("chain_intact"), "state_matches": report.get("state_matches"),

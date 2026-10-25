@@ -8,12 +8,12 @@ publish.workspace = true
 
 [[bin]]
 name = "fabric"
-path = "src/main.rs"
+path = "src/bin/fabric.rs"
 
 # The product's name; the same program as `fabric`, which stays for existing scripts.
 [[bin]]
 name = "cosigna"
-path = "src/main.rs"
+path = "src/bin/cosigna.rs"
 
 [dependencies]
 clap.workspace = true

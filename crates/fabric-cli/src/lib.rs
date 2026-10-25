@@ -1,4 +1,5 @@
-//! `fabric`: a flight recorder for AI coding agents.
+//! `fabric`: a flight recorder for AI coding agents. Built as two programs, `cosigna` (the
+//! product name) and `fabric` (kept for existing scripts), each a thin call to [`run`].
 //!
 //! Every command accepts `--json` for versioned machine-readable output and uses the exit
 //! codes in [`error::exit`]. See `docs/CLI.md`.
@@ -588,7 +589,8 @@ enum Agent {
     Codex,
 }
 
-fn main() -> ExitCode {
+/// The whole command line program.
+pub fn run() -> ExitCode {
     let cli = Cli::parse();
     let json = cli.json;
     let home = match Home::locate() {

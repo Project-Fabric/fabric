@@ -1,41 +1,83 @@
 # Cosigna
 
-**One product, staged code consolidation (23 October 2026).** Cosigna brings agent permissions,
-approval, controlled execution and transaction recovery under one identity. Fabric and AgentAuth
-are legacy implementation names. Existing commands, API contracts and data stay compatible
-while their code paths are consolidated. See [the unification plan](docs/COSIGNA_UNIFICATION.md).
+**The control layer between a company's AI agents and its money.** Agents ask Cosigna to make
+refunds and payouts instead of holding payment keys. Cosigna checks each request against the
+payment system's own records and the business's case records, applies per-agent limits, has a
+person sign the exact payment when it is above them, pays it at most once, and records every
+step as tamper-evident evidence.
 
-Cosigna Gateway controls agent-initiated transactions through explicit permissions, exact
-approval, budget reservations and execution recovery. Cosigna Assistant is the voice product
-being developed above that foundation. This repository also preserves the existing Fabric
-project recording/recovery engine; its command is `cosigna` (or the compatible `fabric` alias).
+Status: working end to end on a synthetic payment rail, with a Stripe test-mode refund rail.
+Not production software yet; see [what is missing](#not-yet-built).
 
-**Current product direction (23 October 2026):** build **Cosigna Gateway**, the authorization
-and execution layer for AI-initiated transactions, first. **Cosigna Assistant** will use it
-for voice-driven ordering and pickup. The unified landing page is active; further assistant
-capabilities remain behind the gateway acceptance gates. See [the product rebuild brief](docs/COSIGNA_REBUILD.md)
-for existing capabilities, gaps and delivery order. Current commerce integrations remain test-only.
+## What it does
 
-Gateway development: [registered agent API and build plan](docs/COSIGNA_GATEWAY.md).
-Application backend: [Rails foundation and local Docker commands](backend/README.md).
-Rails will host customer-facing business workflows; the existing Rust engine retains
-transaction authority. This first increment exposes application/sandbox-health metadata only.
-Run `cargo run -p cosigna-agent -- gateway-demo` for an isolated permission/approval/execution
-example without voice, model credentials or real payments.
+- **Agents never hold the payment key.** They call Cosigna's MCP tools or HTTP API with their
+  own revocable token; the gateway holds the payment credentials.
+- **Checks against real records first.** The payment exists, has that much left to refund, the
+  payee is registered, and (when the agent names a case) the refund matches what the customer
+  is actually owed, even inside the agent's own limit.
+- **Limits per agent.** Small payments go through on their own; larger ones wait for a person;
+  anything outside the agent's grant or budget is denied.
+- **Exact approval.** A person approves one exact payment (a digest of it); any change voids it.
+- **Exactly once.** Retries, lost responses and crashes never pay twice; an unclear result stays
+  held until the payment system says what happened.
+- **Worst-case exposure.** The most the agents can still move with nobody signing, and what sets
+  each agent's limit.
+- **Evidence.** A hash-chained record of every decision, checkable by an
+  [independent verifier](tools/evidence-verifier/README.md) that shares no code with the gateway.
 
-Transaction pipeline: [API and recovery behavior](docs/TRANSACTION_PIPELINES.md).
-Run `cargo run -p cosigna-agent -- pipeline-demo` for a restartable, approval-gated flow.
-Delivery status and remaining production gates: [roadmap](docs/ROADMAP.md).
+## Results so far
 
-Consumer agent development: [intelligence and transaction service](crates/cosigna-agent/README.md).
-Run `cargo run -p cosigna-agent -- demo` for an isolated budget/approval/reconciliation demo.
-An optional hosted planner is available; all merchant transactions remain simulated.
-For voice input and a separate merchant API with stock and a staff counter, run the
-[voice commerce lab](testbeds/voice-merchant/README.md).
-Its optional `npm run dev:stripe` mode now creates verified Stripe sandbox payments with
-PaymentIntent IDs; no OpenAI key is needed for its typed fixture purchase flow.
+- **Real agents, with and without Cosigna** ([Northwind 2.0](docs/EXPERIMENT_NORTHWIND_2.md)):
+  Claude Code agents handling ten support tickets refunded **$1,168 / $1,168 / $528** wrongly
+  across three runs without Cosigna (a prompt injection, an agent with no authority, a refund
+  beyond budget) and **$0** with it, while making the same five correct refunds. Three runs, one
+  model, a synthetic payment ledger.
+- **Attack, race and crash lab** ([benchmark](docs/GATEWAY_ATTACK_BENCHMARK.md)): 30 of 30
+  attacks blocked in every run; 60 concurrent refunds against $20 moved exactly $20; servers
+  killed mid-payment left every cent accounted for. One laptop, synthetic rail.
 
-## Existing project engine
+## Try it
+
+No keys or accounts are needed; nothing here moves real money.
+
+```sh
+cargo run -p cosigna-agent -- gateway-demo      # permissions, exact approval, revocation
+cd console && npm ci && npm run dev             # owner console with captured sample data
+node site/server.mjs                            # landing page at http://127.0.0.1:3091/next
+```
+
+Then read the [gateway API](docs/COSIGNA_GATEWAY.md), the
+[agent tools](crates/cosigna-agent/README.md) and the [storage and API formats](docs/STORAGE_FORMAT.md).
+
+## Not yet built
+
+- Production identity: named approvers, sign-in and per-person signatures (one owner key today).
+- A production server: the gateway is a loopback development server (eight concurrent requests).
+- Live connectors beyond Stripe test mode, and a real case source (help desk or store).
+- Replay of a proposed policy over past payments, and alerts.
+
+Progress and order: the [roadmap board](https://github.com/orgs/Project-Fabric/projects/2).
+
+## Where things are
+
+```
+crates/cosigna-agent        The gateway: policy, rails, case binding, exposure, evidence, MCP tools
+console/                    Owner console: approval inbox, exposure, evidence
+site/                       Landing pages
+tools/evidence-verifier     Independent Python verifier of the evidence chain
+testbeds/gateway-attack-lab Attack, race and crash harness against the real binary
+experiments/northwind2      Real-agent experiment harness and raw results
+backend/                    Rails application foundation (early)
+```
+
+Other work kept in this repository: the [voice commerce lab](testbeds/voice-merchant/README.md)
+and the legacy AgentAuth integration ([consolidation plan](docs/COSIGNA_UNIFICATION.md)).
+
+## The Fabric engine (also in this repository)
+
+The project recording and recovery engine Cosigna grew from; its command is `cosigna` (or
+the compatible `fabric` alias).
 
 **A flight recorder for AI coding agents.** Fabric records what every coding agent actually
 did to your project — step by step, across Claude Code, Codex, Cursor and others — lets any
@@ -47,7 +89,7 @@ agent query that history, and lets you undo any single step with a verified resu
 > Status: early development. Works end to end with Claude Code; not yet tuned for large
 > repositories. Not ready for production use.
 
-## Try it
+### Try the engine
 
 ```sh
 # macOS / Linux
@@ -109,7 +151,7 @@ and the testbed in [testbeds/ledgerly](testbeds/ledgerly).
 
 See [docs/CLI.md](docs/CLI.md) for every command, JSON output and exit codes.
 
-## Why
+### Why
 
 Agents make hundreds of edits nobody explicitly chose. Today you see only the end state, each
 agent's checkpoints live inside that agent, and handing work from one agent to another means
@@ -123,7 +165,7 @@ pasting chat logs. Fabric is the vendor-neutral record underneath:
 
 See [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) for the full direction and roadmap.
 
-## Repository layout
+### Engine layout
 
 ```
 crates/fabric-store     Content-addressed object store (BLAKE3 + zstd, verified reads)

@@ -1,97 +1,119 @@
-/* Cosigna landing: the lit strip, the stage slider, the panel row, and the motion layer.
-   Everything works without this script; it only adds lighting, the slider and motion. */
-(function () {
-  const doc = document;
-  doc.documentElement.classList.add('js');
-  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const tabs = [...document.querySelectorAll('[data-workflow]')];
+const panel = document.querySelector('#workflow-panel');
+const workflows = {
+  refunds: { role: 'REFUNDS AGENT', title: 'A refund that needs a second look.', description: 'A $450 request reaches an agent with a $100 per-action boundary.',
+    steps: [['Read the transaction', 'Find the original payment and the customer’s request.'], ['Check the authority', 'The amount is above the agent’s delegated limit.'], ['Ask a person to decide', 'Review the reason and the exact amount before authorizing a retry.']],
+    outcome: 'NEEDS REVIEW', note: 'This example does not execute a refund.' },
+  collections: { role: 'COLLECTIONS ASSISTANT', title: 'A thoughtful follow-up, ready for review.', description: 'Two overdue invoices become two proposed follow-up drafts.',
+    steps: [['Read the invoice context', 'Gather the balance, due date and recorded customer context.'], ['Prepare the follow-up', 'Draft a reminder for your team to review.'], ['Keep the person in the loop', 'The draft waits for a person; the agent sends no messages.']],
+    outcome: 'DRAFT ONLY', note: 'This example sends no emails or customer messages.' },
+  reconciliation: { role: 'RECONCILIATION AGENT', title: 'Find the difference before it becomes a distraction.', description: 'A sample payout differs from the expected transaction total by $25.',
+    steps: [['Compare the records', 'Read the transaction and payout data.'], ['Flag the difference', 'Surface the $25 discrepancy with the relevant context.'], ['Prepare a review', 'A person investigates; no balancing entry is posted.']],
+    outcome: 'FLAGGED FOR REVIEW', note: 'This example changes no accounting or payment records.' },
+};
+function selectWorkflow(id, focus = false) {
+  const workflow = workflows[id]; if (!workflow) return;
+  for (const tab of tabs) { const selected = tab.dataset.workflow === id; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; if (focus && selected) tab.focus(); }
+  panel.setAttribute('aria-labelledby', `tab-${id}`);
+  for (const [key, value] of [['role', workflow.role], ['title', workflow.title], ['description', workflow.description], ['outcome', workflow.outcome], ['note', workflow.note]]) document.querySelector(`#workflow-${key}`).textContent = value;
+  for (const [i, name] of ['one', 'two', 'three'].entries()) { document.querySelector(`#step-${name}-title`).textContent = workflow.steps[i][0]; document.querySelector(`#step-${name}-body`).textContent = workflow.steps[i][1]; }
+}
+for (const [index, tab] of tabs.entries()) {
+  tab.addEventListener('click', () => selectWorkflow(tab.dataset.workflow));
+  tab.addEventListener('keydown', event => {
+    const offsets = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+    if (event.key in offsets) { event.preventDefault(); selectWorkflow(tabs[(index + offsets[event.key] + tabs.length) % tabs.length].dataset.workflow, true); }
+    if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); selectWorkflow(tabs[event.key === 'Home' ? 0 : tabs.length - 1].dataset.workflow, true); }
+  });
+}
+for (const button of document.querySelectorAll('[data-show-workflow]')) button.addEventListener('click', () => { selectWorkflow(button.dataset.showWorkflow); document.querySelector('#workspace').scrollIntoView({ behavior: reducedMotion.matches ? 'instant' : 'smooth' }); });
 
-  /** Lights whichever child of `row` sits nearest its centre; calls `onLit` when it changes. */
-  function lightCentre(row, items, onLit) {
-    if (!row || !items.length) return;
-    let current = null;
-    const update = () => {
-      const box = row.getBoundingClientRect(), mid = box.left + box.width / 2;
-      let best = items[0], distance = Infinity;
-      for (const item of items) {
-        const r = item.getBoundingClientRect(), d = Math.abs(r.left + r.width / 2 - mid);
-        if (d < distance) { distance = d; best = item; }
-      }
-      if (best !== current) {
-        items.forEach(item => item.classList.toggle('lit', item === best));
-        current = best;
-        if (onLit) onLit(best);
-      }
-    };
-    let pending = false;
-    row.addEventListener('scroll', () => { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; update(); }); } }, { passive: true });
-    window.addEventListener('resize', update);
-    update();
-  }
-  function centre(row, item) {
-    if (row && item) row.scrollLeft = item.offsetLeft - (row.clientWidth - item.offsetWidth) / 2;
-  }
+const dialog = document.querySelector('#dashboard-dialog');
+for (const button of document.querySelectorAll('[data-open-dashboard]')) button.addEventListener('click', () => dialog.showModal());
+dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
+dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } });
+document.querySelector('#copy-command').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(document.querySelector('#dashboard-command').textContent); document.querySelector('#copy-status').textContent = 'Commands copied. Run them in your terminal.'; }
+  catch { document.querySelector('#copy-status').textContent = 'Select and copy the commands above.'; }
+});
 
-  // Hero: start on the prompt-injection record, light the centred record.
-  const strip = doc.getElementById('strip'), caption = doc.getElementById('strip-caption');
-  if (strip) {
-    const ops = Array.from(strip.querySelectorAll('.op'));
-    centre(strip, doc.getElementById('injection'));
-    lightCentre(strip, ops, lit => { if (caption) caption.hidden = lit.id !== 'injection'; });
-  }
+if (!reducedMotion.matches && 'IntersectionObserver' in window) {
+  document.body.classList.add('has-motion');
+  const observer = new IntersectionObserver(entries => { for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add('is-visible'); observer.unobserve(entry.target); } }, { threshold: 0.07 });
+  for (const element of document.querySelectorAll('.reveal')) observer.observe(element);
+}
 
-  // How it works: one slider drives the clause and the fragment.
-  const range = doc.getElementById('stage-range'), clause = doc.getElementById('clause');
-  const stages = Array.from(doc.querySelectorAll('.stage')), names = Array.from(doc.querySelectorAll('.stage-names li'));
-  function showStage(index) {
-    stages.forEach((stage, i) => stage.classList.toggle('active', i === index));
-    names.forEach((name, i) => name.classList.toggle('current', i === index));
-    if (clause && stages[index]) clause.textContent = stages[index].dataset.clause;
-    const active = stages[index];
-    if (active && window.gsap && !reduced) window.gsap.fromTo(active, { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.2, ease: 'power2.out' });
+// Original interlocking-ring surface. Mathematical wireframes keep the artwork
+// local, responsive and lightweight; no imagery or code is copied from Glasswing.
+const canvas = document.querySelector('#authority-field');
+const context = canvas.getContext('2d');
+const motionToggle = document.querySelector('#motion-toggle');
+if (context) {
+  let width = 0, height = 0, phase = 0, lastTime = 0, frame = 0;
+  let paused = reducedMotion.matches;
+  const ringPoints = [];
+  for (let ring = 0; ring < 2; ring++) {
+    const paths = [];
+    for (let meridian = 0; meridian < 19; meridian++) {
+      const path = []; const v = meridian / 19 * Math.PI * 2;
+      for (let step = 0; step <= 96; step++) path.push(surface(step / 96 * Math.PI * 2, v, ring));
+      paths.push(path);
+    }
+    for (let step = 0; step < 50; step++) {
+      const path = []; const u = step / 50 * Math.PI * 2;
+      for (let meridian = 0; meridian <= 28; meridian++) path.push(surface(u, meridian / 28 * Math.PI * 2, ring));
+      paths.push(path);
+    }
+    ringPoints.push(paths);
   }
-  if (range && stages.length) {
-    range.addEventListener('input', () => showStage(Number(range.value)));
-    names.forEach((name, i) => { name.addEventListener('click', () => { range.value = String(i); showStage(i); }); });
-    showStage(Number(range.value) || 0);
+  function surface(u, v, ring) {
+    const radius = 1.72 + .36 * Math.cos(v);
+    let x = radius * Math.cos(u), y = radius * Math.sin(u) * 1.13, z = .36 * Math.sin(v);
+    const tilt = ring === 0 ? -.7 : .7;
+    [x, z] = [x * Math.cos(tilt) + z * Math.sin(tilt), -x * Math.sin(tilt) + z * Math.cos(tilt)];
+    x += ring === 0 ? -.72 : .72;
+    return [x, y, z];
   }
-
-  // Showcase: the centred panel is lit; its name and two lines follow it.
-  const row = doc.getElementById('row'), panelName = doc.getElementById('panel-name'), panelCopy = doc.getElementById('panel-copy');
-  if (row) {
-    const panels = Array.from(row.querySelectorAll('.panel'));
-    centre(row, row.querySelector('.panel.lit'));
-    lightCentre(row, panels, lit => {
-      if (panelName) panelName.textContent = lit.dataset.name || '';
-      if (panelCopy) panelCopy.textContent = lit.dataset.text || '';
-    });
+  function project(point) {
+    let [x, y, z] = point;
+    const a = .68 + Math.sin(phase * .18) * .12, b = -.46 + Math.sin(phase * .12) * .1;
+    [y, z] = [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
+    [x, y] = [x * Math.cos(b) - y * Math.sin(b), x * Math.sin(b) + y * Math.cos(b)];
+    const perspective = 7 / (7 + z), scale = Math.min(width * .16, height * .26);
+    return [width * .53 + x * scale * perspective, height * .51 + y * scale * perspective, z];
   }
-
-  // Motion layer: GSAP + ScrollTrigger, transform and opacity only. Without GSAP, or with
-  // reduced motion, nothing is hidden and nothing moves.
-  const gsap = window.gsap, ScrollTrigger = window.ScrollTrigger;
-  if (!gsap || reduced) return;
-  if (ScrollTrigger) gsap.registerPlugin(ScrollTrigger);
-
-  // The signature move: the strip slides in from the right and settles on the lit record.
-  gsap.from('.op', { x: 120, autoAlpha: 0, duration: 0.9, ease: 'power3.out', stagger: 0.05 });
-  gsap.from(['.hero-copy h1', '.hero-copy p', '.hero .button', '.corner.tl', '.corner.tr', '.caption'],
-    { y: 18, autoAlpha: 0, duration: 0.7, ease: 'power2.out', stagger: 0.07, delay: 0.35 });
-
-  if (!ScrollTrigger) return;
-  // One entrance per section: heading, then text, then the picture, once.
-  const groups = [
-    ['.proof h2', '.proof .statement', '.proof .note'],
-    ['.how h2', '.how .clause', '.how-ui', '.how-control'],
-    ['.showcase h2', '.showcase .row', '.panel-text'],
-    ['.figures h2', '.figures > dl', '.figures-panel'],
-    ['.cta p', '.cta .button'],
-  ];
-  for (const parts of groups) {
-    const trigger = doc.querySelector(parts[0]);
-    if (!trigger) continue;
-    gsap.from(parts, { y: 20, autoAlpha: 0, duration: 0.45, ease: 'power2.out', stagger: 0.07,
-      scrollTrigger: { trigger, start: 'top 85%', once: true } });
+  function draw() {
+    context.clearRect(0, 0, width, height); context.lineWidth = .65;
+    for (const [ring, paths] of ringPoints.entries()) for (const path of paths) {
+      const projected = path.map(project), depth = projected.reduce((sum, p) => sum + p[2], 0) / projected.length;
+      context.strokeStyle = `rgba(${ring === 0 ? '192,177,151' : '215,224,207'},${Math.max(.07, .17 - depth * .028)})`;
+      context.beginPath(); for (const [index, point] of projected.entries()) { if (index === 0) context.moveTo(point[0], point[1]); else context.lineTo(point[0], point[1]); } context.stroke();
+    }
+    for (let ring = 0; ring < 2; ring++) {
+      const p = project(surface(phase * .13 + ring * Math.PI, .35, ring));
+      context.beginPath(); context.arc(p[0], p[1], 2.6, 0, Math.PI * 2); context.fillStyle = '#dfcfb3'; context.fill();
+    }
   }
-  // One moving picture: the lit record drifts as the hero leaves.
-  gsap.to('#strip', { y: -60, ease: 'none', scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true } });
-})();
+  function resize() {
+    const rect = canvas.getBoundingClientRect(); width = rect.width; height = rect.height;
+    const ratio = Math.min(window.devicePixelRatio || 1, 1.75); canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); context.setTransform(ratio, 0, 0, ratio, 0, 0); draw();
+  }
+  function tick(time) {
+    frame = 0; if (paused || document.hidden) return;
+    if (!lastTime || time - lastTime >= 1000 / 30) { phase += Math.min((time - (lastTime || time)) / 1000, .06); lastTime = time; draw(); }
+    frame = requestAnimationFrame(tick);
+  }
+  function updateMotion() {
+    cancelAnimationFrame(frame); frame = 0; lastTime = 0;
+    motionToggle.setAttribute('aria-pressed', String(paused));
+    motionToggle.setAttribute('aria-label', paused ? 'Resume background animation' : 'Pause background animation');
+    motionToggle.querySelector('span').textContent = paused ? 'Resume motion' : 'Pause motion';
+    if (!paused && !document.hidden) frame = requestAnimationFrame(tick); else draw();
+  }
+  motionToggle.addEventListener('click', () => { paused = !paused; updateMotion(); });
+  reducedMotion.addEventListener('change', event => { paused = event.matches; updateMotion(); });
+  document.addEventListener('visibilitychange', updateMotion);
+  if ('ResizeObserver' in window) new ResizeObserver(resize).observe(canvas); else window.addEventListener('resize', resize);
+  resize(); updateMotion();
+} else { motionToggle.hidden = true; }

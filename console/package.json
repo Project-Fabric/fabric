@@ -9,7 +9,7 @@
     "start:fixtures": "node server.mjs --fixtures",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
-    "test": "node --test tests/security.test.mjs tests/accessibility.test.mjs tests/landing.test.mjs && node scripts/test.mjs",
+    "test": "node --test tests/security.test.mjs tests/accessibility.test.mjs tests/landing.test.mjs tests/ledger.test.mjs && node scripts/test.mjs",
     "test:bundle": "node scripts/check-client-secrets.mjs",
     "test:integration": "node scripts/check-fixture-flow.mjs",
     "test:dev": "node scripts/check-dev-startup.mjs",

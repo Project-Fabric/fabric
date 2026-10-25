@@ -362,6 +362,7 @@ fn money_cannot_be_refunded_twice_even_when_two_approvals_race() {
         currency: "USD".into(),
         reason: "Damaged in transit".into(),
         idempotency_key: key.into(),
+        case_id: None,
     };
     let first = lab
         .service
@@ -415,6 +416,7 @@ fn an_unknown_result_is_held_until_resolved_through_the_rail() {
         currency: "USD".into(),
         reason: "r".into(),
         idempotency_key: key.into(),
+        case_id: None,
     };
     for (source, scenario, settled, refunded) in [
         (
@@ -599,6 +601,7 @@ fn owner_rejection_revocation_and_shared_budgets_are_enforced() {
                 currency: "USD".into(),
                 reason: "r".into(),
                 idempotency_key: "pre-revoke".into(),
+                case_id: None,
             },
             AT,
         )

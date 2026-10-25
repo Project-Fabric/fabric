@@ -150,10 +150,16 @@ fn tools() -> Value {
                 "idempotency_key": {"type": "string", "maxLength": 128,
                     "description": "A unique key for this request. Reuse it when retrying the same request."}}})
     };
+    let mut refund = money(
+        "source",
+        "The payment to refund (e.g. a Stripe PaymentIntent ID, pi_...).",
+    );
+    refund["properties"]["case_id"] = json!({"type": "string", "maxLength": 100,
+        "description": "The support case or order this refund settles. Cosigna checks the refund against what the case says is owed."});
     json!([
         {"name": "cosigna_request_refund",
          "description": "Request a refund of a customer payment. Returns whether it was paid, is waiting for a person, or was denied, and why.",
-         "inputSchema": money("source", "The payment to refund (e.g. a Stripe PaymentIntent ID, pi_...).")},
+         "inputSchema": refund},
         {"name": "cosigna_request_payout",
          "description": "Request a payout to a registered payee. Returns whether it was paid, is waiting for a person, or was denied, and why.",
          "inputSchema": money("payee", "The registered payee to pay.")},
@@ -191,6 +197,9 @@ fn summary(envelope: &Value) -> Value {
         "approved" | "submitting" | "unknown" => {
             "Being settled. Check status later; do not request it again."
         }
+        "denied" if rule == Some("case_required") => {
+            "Denied: name the case this refund settles (case_id) and request again."
+        }
         "denied" => {
             "Denied. Do not try to achieve this another way; explain the reason to the user."
         }
@@ -207,6 +216,7 @@ fn summary(envelope: &Value) -> Value {
 fn call(gateway: &Gateway, params: &Value) -> Value {
     let args = &params["arguments"];
     let request = |kind: &str, reference: &str| -> Value {
+        let optional = if kind == "refund" { "case_id" } else { "" };
         let allowed = [
             "budget_id",
             "rail",
@@ -215,6 +225,7 @@ fn call(gateway: &Gateway, params: &Value) -> Value {
             "currency",
             "reason",
             "idempotency_key",
+            optional,
         ];
         // Same rule as the gateway: unknown fields are refused, never silently dropped.
         if args
@@ -238,6 +249,9 @@ fn call(gateway: &Gateway, params: &Value) -> Value {
             "idempotency_key",
         ] {
             body[field] = args[field].clone();
+        }
+        if !optional.is_empty() && !args[optional].is_null() {
+            body[optional] = args[optional].clone();
         }
         let (status, value) = gateway.call("/operations", Some(&body));
         reply(status, &value, true)

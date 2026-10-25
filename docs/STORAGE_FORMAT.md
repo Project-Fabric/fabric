@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 5, provider version 3)
+## Optional Cosigna agent development stores (ledger version 6, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,8 +313,8 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 5 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds` |
-| `fixture-provider.sqlite` | `0x43534658` | 3 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids` |
+| `transactions.sqlite` | `0x43535458` | 6 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds` |
+| `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
 timeout. Mutations that need a shared state check use `BEGIN IMMEDIATE`. The service tests
@@ -323,14 +323,17 @@ fixture planning/claim/acceptance/confirmation boundaries. Physical power-loss/f
 and arbitrary process-kill durability across live providers have not been established.
 
 Ledger version 2 added the three agent tables. Version 3 added `worker_jobs` and its due-job
-index. Version 4 added `evidence` (below). Version 5 adds money operations, their holds and
-agent operation grants. Opening an application-matching v1-v4 ledger creates the missing
-tables and columns and updates `user_version` to 5 in one transaction. Existing
+index. Version 4 added `evidence` (below). Version 5 added money operations, their holds and
+agent operation grants. Version 6 adds case binding: the nullable `operations.case_id` column
+with index `operations_case(owner, case_id)`, and the optional `case_id` request field and
+`require_case` grant field (below). Opening an application-matching v1-v5 ledger creates the
+missing tables and columns and updates `user_version` to 6 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
-historical task is automatically enrolled. Provider version 2 added `voids` and version 3
-adds the synthetic money rail; older provider stores gain them in one transaction, and
-provider versions above 3 are refused. Versions above 5, foreign application IDs and
-unidentified nonempty databases are refused. Older executables refuse v5; do not downgrade
+historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
+the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
+one transaction, and provider versions above 4 are refused. Versions above 6, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v6
+(and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
 
@@ -453,13 +456,15 @@ Refunds and payouts requested by registered agents or the owner, through
 - `operation_holds`: operation primary key/FK, budget FK, positive amount, state `held`,
   `spent` or `released`. Budget totals add these holds to purchase reservations: purchases and
   operations draw on one budget.
-- `agents.operation_grant`: nullable JSON `{kinds, rails, auto_approve_minor}`. Absent grants
-  no operation rights; a grant requires the `execute` permission and is immutable like other
-  permissions. Agents registered before v5 have none.
+- `agents.operation_grant`: nullable JSON `{kinds, rails, auto_approve_minor, require_case?}`.
+  Absent grants no operation rights; a grant requires the `execute` permission and is immutable
+  like other permissions. Agents registered before v5 have none. `require_case` (v6) is written
+  only when true; absent means false, so grants written before v6 serialize identically.
 
 Request fields (unknown fields rejected): `budget_id`, `kind` (`refund` with `source`, or
 `payout` with `payee`), `rail`, `amount_minor`, `currency`, `reason` (at most 500 characters),
-`idempotency_key`. The rail checks the request against its own records before any decision
+`idempotency_key`, and optionally `case_id` (v6; refunds only; written only when present, so
+earlier requests keep their fingerprints). The rail checks the request against its own records before any decision
 (the payment exists and has that much left to refund; the payee is registered; the currency
 matches). A failed check is recorded as `denied` with the rail's reason (`source_not_found`,
 `exceeds_refundable`, `currency_mismatch`, `payee_unknown`). Otherwise policy decides, in order:
@@ -468,6 +473,21 @@ matches). A failed check is recorded as `denied` with the rail's reason (`source
 `within_agent_auto_limit` approves automatically and anything else is held
 (`needs_owner_approval`; owner-initiated requests are always held). The decision is stored as
 `{"outcome": "auto_approved"|"held"|"denied", "rule": ...}`.
+
+Case binding (v6) is then applied, and can only tighten that decision. A case is the
+business's own record of what a customer is owed: `id`, `customer`, `source` (the payment),
+`currency`, `owed_minor`. Today cases come from the synthetic `fixture_cases` table (provider
+version 4); a help-desk or store connector is the intended source. In order: a refund with no
+`case_id` from an agent whose grant has `require_case` is denied (`case_required`); a `case_id`
+with no case record is denied (`case_not_found`); a refund whose `source`, `currency` or the
+rail's verified `customer` differs from the case is held (`case_mismatch`); a refund larger
+than the case's `owed_minor` minus what earlier operations of this owner already hold or spent
+against the case (`committed_minor`) is held (`exceeds_case_owed`). A matching refund keeps the
+earlier decision, so the agent's limits and the budget still apply. When a case is named, the
+proposal's `facts.case` records `{id, customer, source, owed_minor, currency, committed_minor}`,
+so the owner signs what the case said. Case binding narrows, but does not remove, the class of
+mistakes within an agent's limit: it catches a wrong payment or an amount above what is owed,
+not an amount below it, and it is only as correct as the case records.
 
 The proposal is the exact operation (`operation_id`, `kind`, `rail`, `source`, `payee`,
 `amount_minor`, `currency`, the rail's verified `facts`, `issued_at`, `expires_at` at most 24
@@ -489,15 +509,16 @@ Owner routes: `GET /gateway/v1/operations[?stage=held|unknown]`, `POST .../{id}/
 Evidence kinds `gateway.operation.{auto_approved,held,denied,owner_approved,owner_rejected,
 submission_started,rail_result,rail_rejected,rail_voided,submission_unknown}` record `by`,
 `operation`, `budget`, `agent`, `version`, `stage`, `decision`, `request` (with
-`reason_digest` instead of the reason text), `proposal` (`digest`, `facts`, `expires_at`),
+`reason_digest` instead of the reason text, and `case_id` from v6), `proposal` (`digest`, `facts`, `expires_at`),
 `approved_digest`, `approved_by` (`policy` or `owner`), `attempt_key`, `receipt`, `hold` and
 `operation_digest` (BLAKE3 of the stored operation JSON). `evidence verify` checks each
 operation and its hold against its latest record. An agent's `agent_digest` includes its
 operation grant only when one exists, so digests recorded before v5 remain valid.
 
-The fixture rail lives in `fixture-provider.sqlite` (provider version 3): `fixture_payments`
+The fixture rail lives in `fixture-provider.sqlite` (provider version 4): `fixture_payments`
 (synthetic payments with refunded totals), `fixture_payees`, `money_attempts` (attempt key,
-proposal digest, typed receipt with `simulated: true`) and `money_voids`.
+proposal digest, typed receipt with `simulated: true`), `money_voids` and `fixture_cases`
+(synthetic case records: `id`, `customer`, `source`, `currency`, `owed_minor > 0`).
 
 The `stripe_test` rail (Stripe test-mode refunds; payouts are refused with
 `kind_not_supported_on_rail`) is connected with `serve --stripe-test` or `worker --stripe-test`.

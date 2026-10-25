@@ -54,7 +54,9 @@ class Verifier(unittest.TestCase):
         subprocess.run([BIN, "init", "--data-dir", cls.dir], check=True, capture_output=True)
         db = sqlite3.connect(os.path.join(cls.dir, "fixture-provider.sqlite"))
         db.executemany("INSERT INTO fixture_payments(id,currency,amount_minor,customer) VALUES (?,?,?,?)",
-                       [("pay_v_1", "USD", 2000, "a"), ("pay_v_2", "USD", 45000, "b"), ("pay_v_3", "USD", 30000, "c")])
+                       [("pay_v_1", "USD", 2000, "a"), ("pay_v_2", "USD", 45000, "b"), ("pay_v_3", "USD", 30000, "c"),
+                        ("pay_v_4", "USD", 3000, "d")])
+        db.execute("INSERT INTO fixture_cases(id,customer,source,currency,owed_minor) VALUES ('case_v_4','d','pay_v_4','USD',1000)")
         db.commit(); db.close()
         owner = "Bearer " + json.load(open(os.path.join(cls.dir, "credentials.json")))["owner"]
         with socket.socket() as s:
@@ -81,6 +83,15 @@ class Verifier(unittest.TestCase):
             rejected = refund("pay_v_3", 30000, "reject")         # held, then owner rejects
             http(port, owner, "POST", f"/operations/{rejected['data']['id']}/reject", {})
             refund("pay_v_1", 100, "too-much")                     # denied: nothing left to refund
+            strict = "Bearer " + http(port, owner, "POST", "/agents", {"name": "strict", "budget_id": budget, "permissions": ["execute"],
+                                      "expires_at": now + 1800, "operations": {"kinds": ["refund"], "rails": ["fixture"],
+                                      "auto_approve_minor": 5000, "require_case": True}})["data"]["token"]
+            bound = lambda src, amount, case, key: http(port, strict, "POST", "/operations", dict({"budget_id": budget, "kind": "refund",
+                "rail": "fixture", "source": src, "amount_minor": amount, "currency": "USD", "reason": "r", "idempotency_key": key},
+                **({"case_id": case} if case else {})))
+            bound("pay_v_4", 1000, "case_v_4", "case-ok")         # auto-approved: matches its case
+            bound("pay_v_4", 1500, "case_v_4", "case-over")       # held: more than the case still owes
+            bound("pay_v_4", 500, None, "case-missing")           # denied: the grant requires a case
         finally:
             server.kill(); server.wait()
         cls.genuine = os.path.join(cls.dir, "evidence.jsonl")
@@ -106,8 +117,9 @@ class Verifier(unittest.TestCase):
         code, report = self.verify()
         self.assertEqual(code, 0, report["problems"])
         self.assertEqual(report["hashes_checked"], report["records"])
-        self.assertEqual(report["rules"]["operations"], 4)
-        self.assertEqual(report["rules"]["auto_approved"], 1)
+        self.assertEqual(report["rules"]["operations"], 7)
+        self.assertEqual(report["rules"]["auto_approved"], 2)
+        self.assertEqual(report["rules"]["case_bound"], 2)
         self.assertEqual(report["rules"]["owner_decisions"], 2)
         self.assertEqual(subprocess.run([BIN, "evidence", "verify", "--data-dir", self.dir], capture_output=True).returncode, 0)
 
@@ -121,8 +133,23 @@ class Verifier(unittest.TestCase):
         def auto_over_grant(records):
             for r in records:
                 e = r["event"]
-                if e["kind"] == "gateway.operation.auto_approved":
+                if e["kind"] == "gateway.operation.auto_approved" and not e["request"].get("case_id"):
                     e["request"]["amount_minor"] = 9000
+        def case_rewritten(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.operation.auto_approved" and e["request"].get("case_id"):
+                    e["proposal"]["facts"]["case"]["owed_minor"] = 500
+        def case_dropped(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.operation.auto_approved" and e["request"].get("case_id"):
+                    del e["request"]["case_id"]
+        def committed_forged(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.operation.held" and e["request"].get("case_id"):
+                    e["proposal"]["facts"]["case"]["committed_minor"] = 0
         def agent_approves(records):
             for r in records:
                 if r["event"]["kind"] == "gateway.operation.owner_approved":
@@ -147,7 +174,9 @@ class Verifier(unittest.TestCase):
                     r["event"]["approved_digest"] = "f" * 64
         for change, expected in ((auto_over_grant, "outside the agent's grant"), (agent_approves, "not made by the owner"),
                                  (overspend, "exceeds its limit"), (inflated_hold, "hold differs from the requested amount"), (paid_without_receipt, "without a matching receipt"),
-                                 (wrong_digest, "does not name the proposal's digest")):
+                                 (wrong_digest, "does not name the proposal's digest"),
+                                 (case_rewritten, "does not match its case"), (case_dropped, "without the case its grant requires"),
+                                 (committed_forged, "committed amount differs")):
             code, report = self.verify(self.forged(change))
             self.assertEqual(code, 5, change.__name__)
             self.assertEqual(report["hashes_checked"], report["records"], "the forged chain is internally consistent")

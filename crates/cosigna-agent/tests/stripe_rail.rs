@@ -343,6 +343,7 @@ impl Lab {
                     currency: "USD".into(),
                     reason: "r".into(),
                     idempotency_key: key.into(),
+                    case_id: None,
                 },
                 AT,
             )

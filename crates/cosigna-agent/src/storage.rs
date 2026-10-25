@@ -10,7 +10,7 @@ use crate::{Budget, Error, Event, Result, Task, evidence, rails};
 const LEDGER_APP: i64 = 0x43535458;
 const PROVIDER_APP: i64 = 0x43534658;
 /// Current ledger version, as recorded when an evidence chain starts.
-pub(crate) const LEDGER_VERSION: i64 = 5;
+pub(crate) const LEDGER_VERSION: i64 = 6;
 
 pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     let mut db = Connection::open(path)?;
@@ -37,7 +37,7 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
                 CREATE TABLE reservations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), budget_id TEXT NOT NULL REFERENCES budgets(id), amount INTEGER NOT NULL CHECK(amount>0), state TEXT NOT NULL CHECK(state IN ('held','spent','released')));
                 CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, at INTEGER NOT NULL);")?;
         }
-    } else if app != expected || !(1..=if provider { 3 } else { 5 }).contains(&version) {
+    } else if app != expected || !(1..=if provider { 4 } else { 6 }).contains(&version) {
         return Err(Error::StoreFormat);
     }
     // Additive, transactional upgrade; existing task JSON and provider format stay v1.
@@ -75,6 +75,11 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
         tx.execute_batch(rails::FIXTURE_SCHEMA)?;
         tx.pragma_update(None, "user_version", 3)?;
     }
+    // Provider version 4 adds the synthetic case records (what each customer is owed).
+    if provider && version < 4 {
+        tx.execute_batch(rails::CASE_SCHEMA)?;
+        tx.pragma_update(None, "user_version", 4)?;
+    }
     // Version 4 adds the evidence chain. State that predates it is listed, not reconstructed.
     if !provider && version < 4 {
         tx.execute_batch(evidence::SCHEMA)?;
@@ -95,6 +100,15 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
                 state TEXT NOT NULL CHECK(state IN ('held','spent','released')));",
         )?;
         tx.pragma_update(None, "user_version", 5)?;
+    }
+    // Version 6 records which case each operation settles, so a case's committed refunds can be
+    // summed; operation and grant JSON may now carry `case_id` and `require_case`.
+    if !provider && version < 6 {
+        tx.execute_batch(
+            "ALTER TABLE operations ADD COLUMN case_id TEXT;
+            CREATE INDEX operations_case ON operations(owner, case_id);",
+        )?;
+        tx.pragma_update(None, "user_version", 6)?;
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL;")?;

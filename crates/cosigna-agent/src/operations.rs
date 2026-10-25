@@ -37,6 +37,10 @@ pub struct OperationGrant {
     pub rails: Vec<String>,
     /// Operations up to this amount are approved without the owner; above it they are held.
     pub auto_approve_minor: i64,
+    /// Refunds must name a case (what the customer is owed, from the business's records).
+    /// Absent in grants written before ledger version 6, which means false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub require_case: bool,
 }
 
 impl OperationGrant {
@@ -74,6 +78,10 @@ pub struct OperationRequest {
     pub currency: String,
     pub reason: String,
     pub idempotency_key: String,
+    /// The case this refund settles: the business's own record of what the customer is owed.
+    /// When present, the refund must match it (payment, customer, currency, amount still owed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub case_id: Option<String>,
 }
 
 impl OperationRequest {
@@ -86,7 +94,13 @@ impl OperationRequest {
                 self.payee.as_deref().is_some_and(|s| identifier(s, 100)) && self.source.is_none()
             }
         };
+        let case_ok = match (&self.case_id, self.kind) {
+            (None, _) => true,
+            (Some(case), OperationKind::Refund) => identifier(case, 100),
+            (Some(_), OperationKind::Payout) => false,
+        };
         if !reference_ok
+            || !case_ok
             || !identifier(&self.rail, 40)
             || !(1..=MAX_MINOR).contains(&self.amount_minor)
             || self.currency.len() != 3
@@ -232,6 +246,52 @@ pub fn decide(
     }
 }
 
+/// A case from the business's system of record: who is owed how much, on which payment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Case {
+    pub id: String,
+    pub customer: String,
+    pub source: String,
+    pub owed_minor: i64,
+    pub currency: String,
+}
+
+/// Pure case policy, applied after `decide`. It only ever tightens a decision: a refund that
+/// does not match the case it names is held for the owner even within the agent's limit, and
+/// a missing or unknown case is denied. `committed_minor` is what this case has already
+/// approved or spent; `facts` are the rail's verified facts about the payment.
+pub fn apply_case(
+    decision: Decision,
+    request: &OperationRequest,
+    agent_grant: Option<Option<&OperationGrant>>,
+    case: Option<&Case>,
+    committed_minor: i64,
+    facts: &Value,
+) -> Decision {
+    if matches!(decision, Decision::Denied(_)) || request.kind != OperationKind::Refund {
+        return decision;
+    }
+    let required = matches!(agent_grant, Some(Some(grant)) if grant.require_case);
+    match (&request.case_id, case) {
+        (None, _) if required => Decision::Denied("case_required".into()),
+        (None, _) => decision,
+        (Some(_), None) => Decision::Denied("case_not_found".into()),
+        (Some(_), Some(case)) => {
+            let customer = facts.get("customer").and_then(Value::as_str);
+            if request.source.as_deref() != Some(case.source.as_str())
+                || request.currency != case.currency
+                || customer.is_some_and(|c| c != case.customer)
+            {
+                Decision::Held("case_mismatch".into())
+            } else if request.amount_minor > case.owed_minor - committed_minor {
+                Decision::Held("exceeds_case_owed".into())
+            } else {
+                decision
+            }
+        }
+    }
+}
+
 fn load(db: &Connection, id: &str) -> Result<Operation> {
     let data: String = db
         .query_row("SELECT data FROM operations WHERE id=?1", [id], |r| {
@@ -250,6 +310,16 @@ fn save(db: &Connection, op: &mut Operation, step: &str, at: i64, by: Value) -> 
         params![data, op.id],
     )?;
     evidence::operation(db, step, op, &data, at, by)
+}
+
+/// Money already approved or spent against a case by earlier operations of this owner.
+fn committed_to_case(db: &Connection, owner: &str, case_id: &str) -> Result<i64> {
+    Ok(db.query_row(
+        "SELECT COALESCE(SUM(h.amount),0) FROM operation_holds h JOIN operations o ON o.id=h.operation_id
+        WHERE o.owner=?1 AND o.case_id=?2 AND h.state IN ('held','spent')",
+        params![owner, case_id],
+        |r| r.get(0),
+    )?)
 }
 
 fn hold(db: &Connection, op: &Operation, budget: &str, amount: i64) -> Result<()> {
@@ -294,8 +364,13 @@ impl Service {
         let fingerprint = blake3::hash(&serde_json::to_vec(&request)?)
             .to_hex()
             .to_string();
-        // Rail check outside the ledger lock: it reads the rail's own records only.
+        // Rail and case checks outside the ledger lock: they read the rail's own records and
+        // the business's case records only.
         let check = self.rails.check(&request)?;
+        let case = match &request.case_id {
+            Some(id) => self.rails.case(id)?,
+            None => None,
+        };
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_agent_budget(
@@ -337,13 +412,33 @@ impl Service {
         let id = new_id("op")?;
         let (decision, proposal) = match check {
             Check::Invalid(reason) => (Decision::Denied(reason.into()), None),
-            Check::Valid(facts) => {
-                let decision = decide(
+            Check::Valid(mut facts) => {
+                let committed = match &request.case_id {
+                    Some(case_id) => committed_to_case(&tx, &actor.owner, case_id)?,
+                    None => 0,
+                };
+                let decision = apply_case(
+                    decide(
+                        &request,
+                        &budget,
+                        available,
+                        grant.as_ref().map(Option::as_ref),
+                    ),
                     &request,
-                    &budget,
-                    available,
                     grant.as_ref().map(Option::as_ref),
+                    case.as_ref(),
+                    committed,
+                    &facts,
                 );
+                // The owner signs what the case said, alongside what the rail verified.
+                if let (Some(case), Some(map)) = (&case, facts.as_object_mut()) {
+                    map.insert(
+                        "case".into(),
+                        serde_json::json!({"id": case.id, "customer": case.customer,
+                            "source": case.source, "owed_minor": case.owed_minor,
+                            "currency": case.currency, "committed_minor": committed}),
+                    );
+                }
                 let proposal = (!matches!(decision, Decision::Denied(_))).then(|| Proposal {
                     operation_id: id.clone(),
                     kind: request.kind,
@@ -384,8 +479,8 @@ impl Service {
         };
         let data = serde_json::to_string(&op)?;
         tx.execute(
-            "INSERT INTO operations(id,owner,budget_id,agent_id,idem,fingerprint,data) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-            params![op.id, op.owner, budget.id, op.agent, op.request.idempotency_key, fingerprint, data],
+            "INSERT INTO operations(id,owner,budget_id,agent_id,idem,fingerprint,data,case_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![op.id, op.owner, budget.id, op.agent, op.request.idempotency_key, fingerprint, data, op.request.case_id],
         )?;
         if op.stage == OperationStage::Approved {
             hold(&tx, &op, &budget.id, op.request.amount_minor)?;

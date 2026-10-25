@@ -14,7 +14,12 @@ both produce and accept a bad record. Short enough for an auditor to read.
    - only the owner role approves, rejects or resolves; agents without a grant never get money;
    - a succeeded operation has a receipt matching its proposal amount and currency, and its hold
      is spent; failed, denied and rejected operations never end with spent money;
-   - an approval names the digest of the proposal it approved.
+   - an approval names the digest of the proposal it approved;
+   - case binding (ledger version 6): a refund that names a case records that case in its proposal;
+     an automatic approval matches the case's payment, currency and customer and stays within
+     what the case still owes, where "already committed" is recomputed here from earlier
+     operations' holds rather than trusted; a grant that requires a case never gets money
+     without one.
 
 Usage: python -I verify_evidence.py evidence.jsonl [--json]
 Exit code 0: all checks passed. 5: a problem was found (same code as the Rust verifiers).
@@ -61,6 +66,33 @@ def read_chain(path, problems):
     return records, hashes_checked
 
 
+def check_case(seq, step, event, request, ops, grant, problems, stats):
+    """Case binding, from the first record of an operation. `ops` holds the latest record of every
+    earlier operation, so the committed total is recomputed independently."""
+    case_id = request.get("case_id")
+    if step != "denied" and request.get("kind") == "refund" and not case_id and (grant or {}).get("require_case"):
+        problems.append(f"record {seq}: refund without the case its grant requires")
+    if not case_id or step == "denied":
+        return
+    stats["case_bound"] = stats.get("case_bound", 0) + 1
+    facts = (event.get("proposal") or {}).get("facts") or {}
+    case = facts.get("case")
+    if not case or case.get("id") != case_id:
+        problems.append(f"record {seq}: the proposal does not record the case the refund names")
+        return
+    committed = sum((e.get("hold") or {}).get("amount_minor", 0) for op_id, e in ops.items()
+                    if op_id != event["operation"] and e["request"].get("case_id") == case_id
+                    and e.get("budget") is not None and (e.get("hold") or {}).get("state") in ("held", "spent"))
+    if case.get("committed_minor") != committed:
+        problems.append(f"record {seq}: the case's committed amount differs from earlier operations")
+    if step == "auto_approved":
+        customer = facts.get("customer")
+        if (case.get("source") != request.get("source") or case.get("currency") != request.get("currency")
+                or (customer is not None and customer != case.get("customer"))
+                or request["amount_minor"] > case.get("owed_minor", 0) - committed):
+            problems.append(f"record {seq}: automatic approval that does not match its case")
+
+
 def replay(records, problems):
     budgets, agents, ops, tasks = {}, {}, {}, {}
     stats = {"operations": 0, "auto_approved": 0, "owner_decisions": 0, "denied": 0}
@@ -85,6 +117,7 @@ def replay(records, problems):
                 continue
             terms = budget["terms"]
             if first:
+                check_case(seq, step, event, request, ops, (agents.get(event.get("agent")) or {}).get("operations"), problems, stats)
                 stats["operations"] += 1
                 agent_id = event.get("agent")
                 grant = (agents.get(agent_id) or {}).get("operations") if agent_id else None

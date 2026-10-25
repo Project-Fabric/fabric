@@ -212,7 +212,7 @@ fn provider_store_upgrades_from_version_1_and_refuses_later_versions() {
     let path = s.directory.path().join("fixture-provider.sqlite");
     // Reproduce a version 1 provider store in this synthetic profile only.
     let db = rusqlite::Connection::open(&path).unwrap();
-    db.execute_batch("DROP TABLE voids; DROP TABLE fixture_payments; DROP TABLE fixture_payees; DROP TABLE money_attempts; DROP TABLE money_voids; PRAGMA user_version=1;")
+    db.execute_batch("DROP TABLE voids; DROP TABLE fixture_cases; DROP TABLE fixture_payments; DROP TABLE fixture_payees; DROP TABLE money_attempts; DROP TABLE money_voids; PRAGMA user_version=1;")
         .unwrap();
     drop(db);
     let reopened = Service::open(s.directory.path()).unwrap();
@@ -227,9 +227,9 @@ fn provider_store_upgrades_from_version_1_and_refuses_later_versions() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
-    db.pragma_update(None, "user_version", 4).unwrap();
+    db.pragma_update(None, "user_version", 5).unwrap();
     drop(db);
     assert!(matches!(
         Service::open(s.directory.path()),

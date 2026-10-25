@@ -244,6 +244,7 @@ pub(crate) fn operation(
             "request": {"kind": request.kind, "rail": request.rail, "source": request.source,
                 "payee": request.payee, "amount_minor": request.amount_minor,
                 "currency": request.currency, "idempotency_key": request.idempotency_key,
+                "case_id": request.case_id,
                 // The reason may hold personal details; the record binds it without repeating it.
                 "reason_digest": digest(&request.reason)},
             "proposal": proposal, "approved_digest": op.approved_digest,

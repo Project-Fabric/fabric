@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use crate::{
     Error, Result, new_id,
-    operations::{OperationKind, OperationReceipt, OperationRequest, Proposal},
+    operations::{Case, OperationKind, OperationReceipt, OperationRequest, Proposal},
     provider::Scenario,
     storage,
 };
@@ -111,6 +111,15 @@ impl Rails {
         }
     }
 
+    /// The case a refund names, from the connected system of record. Today that is the
+    /// synthetic case book next to the fixture rail; a help-desk or store connector replaces it.
+    pub fn case(&self, id: &str) -> Result<Option<Case>> {
+        match &self.fixture {
+            Some(fixture) => fixture.case(id),
+            None => Err(Error::Invalid("no case records are connected".into())),
+        }
+    }
+
     /// Fixture control for tests: synthetic payments and payees, never exposed to agents.
     pub fn fixture_rail(&self) -> Option<&FixtureRail> {
         self.fixture.as_ref()
@@ -121,6 +130,11 @@ impl Rails {
 pub struct FixtureRail {
     path: PathBuf,
 }
+
+/// Synthetic case records (provider version 4): what each customer is owed, on which payment.
+pub(crate) const CASE_SCHEMA: &str = "CREATE TABLE fixture_cases (
+    id TEXT PRIMARY KEY, customer TEXT NOT NULL, source TEXT NOT NULL, currency TEXT NOT NULL,
+    owed_minor INTEGER NOT NULL CHECK(owed_minor>0));";
 
 pub(crate) const FIXTURE_SCHEMA: &str = "CREATE TABLE fixture_payments (
     id TEXT PRIMARY KEY, currency TEXT NOT NULL, amount_minor INTEGER NOT NULL CHECK(amount_minor>0),
@@ -144,6 +158,42 @@ impl FixtureRail {
             tx.execute(
                 "INSERT OR IGNORE INTO fixture_payments(id,currency,amount_minor,customer) VALUES (?1,?2,?3,?4)",
                 params![id, currency, amount, customer],
+            )?;
+        }
+        // Each case is what the business's records say the customer is owed.
+        for (id, customer, source, currency, owed) in [
+            (
+                "case_fixture_2041",
+                "cus_fixture_ana",
+                "pay_fixture_2041",
+                "USD",
+                2000,
+            ),
+            (
+                "case_fixture_2045",
+                "cus_fixture_ben",
+                "pay_fixture_2045",
+                "USD",
+                45000,
+            ),
+            (
+                "case_fixture_2047",
+                "cus_fixture_chloe",
+                "pay_fixture_2047",
+                "USD",
+                500,
+            ),
+            (
+                "case_fixture_2051",
+                "cus_fixture_eli",
+                "pay_fixture_2051",
+                "USD",
+                2500,
+            ),
+        ] {
+            tx.execute(
+                "INSERT OR IGNORE INTO fixture_cases(id,customer,source,currency,owed_minor) VALUES (?1,?2,?3,?4,?5)",
+                params![id, customer, source, currency, owed],
             )?;
         }
         for (id, currency) in [
@@ -312,6 +362,34 @@ impl FixtureRail {
     }
 
     /// Test control: the refunded total of a synthetic payment.
+    fn case(&self, id: &str) -> Result<Option<Case>> {
+        let db = storage::connect(&self.path, true)?;
+        Ok(db
+            .query_row(
+                "SELECT id,customer,source,currency,owed_minor FROM fixture_cases WHERE id=?1",
+                [id],
+                |r| {
+                    Ok(Case {
+                        id: r.get(0)?,
+                        customer: r.get(1)?,
+                        source: r.get(2)?,
+                        currency: r.get(3)?,
+                        owed_minor: r.get(4)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Test control: adds a synthetic case record.
+    pub fn add_case(&self, case: &Case) -> Result<()> {
+        storage::connect(&self.path, true)?.execute(
+            "INSERT INTO fixture_cases(id,customer,source,currency,owed_minor) VALUES (?1,?2,?3,?4,?5)",
+            params![case.id, case.customer, case.source, case.currency, case.owed_minor],
+        )?;
+        Ok(())
+    }
+
     pub fn refunded_minor(&self, payment: &str) -> Result<i64> {
         let db = storage::connect(&self.path, true)?;
         db.query_row(

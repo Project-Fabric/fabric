@@ -673,3 +673,42 @@ fn a_v4_ledger_upgrades_with_its_agents_evidence_intact_and_no_new_rights() {
     assert_eq!(denied["data"]["decision"]["rule"], "not_granted");
     assert!(lab.service.verify_evidence().unwrap().ok());
 }
+
+#[test]
+fn a_repeated_owner_approval_after_payment_returns_the_paid_operation_and_pays_nothing_more() {
+    let lab = Lab::new();
+    let (bot, _) = lab.refunds_bot();
+    // Two clicks on "approve": the second arrives after the first has already paid.
+    let held = lab
+        .refund(&bot, "pay_fixture_2045", 45000, "double-click")
+        .unwrap();
+    let id = held["data"]["id"].as_str().unwrap().to_string();
+    let digest = held["proposal_digest"].as_str().unwrap().to_string();
+    let approve = |digest: &str| {
+        lab.call(
+            &lab.owner,
+            "POST",
+            &format!("/operations/{id}/approve"),
+            json!({"proposal_digest":digest}),
+        )
+    };
+    assert_eq!(approve(&digest).unwrap()["data"]["stage"], "succeeded");
+    let again = approve(&digest).unwrap();
+    assert_eq!(again["data"]["stage"], "succeeded");
+    assert_eq!(lab.refunded("pay_fixture_2045"), 45000, "paid once");
+    // Any other digest is still refused once the operation is decided.
+    assert!(matches!(approve(&"0".repeat(64)), Err(Error::Conflict(_))));
+    // An automatic approval is not the owner's: approving its digest afterwards is refused.
+    let auto = lab.refund(&bot, "pay_fixture_2041", 2000, "auto").unwrap();
+    assert_eq!(auto["data"]["stage"], "succeeded");
+    let auto_id = auto["data"]["id"].as_str().unwrap();
+    assert!(matches!(
+        lab.call(
+            &lab.owner,
+            "POST",
+            &format!("/operations/{auto_id}/approve"),
+            json!({"proposal_digest":auto["proposal_digest"]}),
+        ),
+        Err(Error::Conflict(_))
+    ));
+}

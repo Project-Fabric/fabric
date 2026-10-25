@@ -321,6 +321,11 @@ impl Service {
             Some(crate::agents::Permission::Execute),
             at,
         )?;
+        // A repeat of the approval already recorded (two clicks, a retried request) returns
+        // the task as it is, even once payment has started. It changes nothing.
+        if task.stage.has_attempt() && task.approved_digest.as_deref() == Some(digest) {
+            return Ok(task);
+        }
         if !matches!(task.stage, Stage::Quoted | Stage::Approved) {
             return Err(Error::Conflict("task has no approvable quote".into()));
         }

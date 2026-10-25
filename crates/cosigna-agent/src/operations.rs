@@ -546,7 +546,12 @@ impl Service {
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut op = load(&tx, id)?;
         owner.owns(&op.owner)?;
-        if op.stage == OperationStage::Approved && op.approved_digest.as_deref() == Some(digest) {
+        // A repeat of the owner's recorded approval returns the operation as it is, even once
+        // payment has started; it changes nothing. An automatic approval is not the owner's.
+        let repeat = op.approved_digest.as_deref() == Some(digest)
+            && (op.stage == OperationStage::Approved
+                || (op.stage.has_attempt() && op.approved_by.as_deref() == Some("owner")));
+        if repeat {
             return Ok(op);
         }
         if op.stage != OperationStage::Held {

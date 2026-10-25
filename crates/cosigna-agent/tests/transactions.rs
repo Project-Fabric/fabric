@@ -513,6 +513,30 @@ fn an_approved_quote_that_expires_before_payment_is_held_back_and_can_be_requote
 }
 
 #[test]
+fn a_repeated_exact_approval_after_payment_started_is_not_a_conflict() {
+    // Two owner clicks race: the second approval arrives after the first one's payment began.
+    let s = Setup::new(1000);
+    let approved = s.approve("double-click");
+    let digest = approved.quote.as_ref().unwrap().digest().unwrap();
+    let paid = s
+        .service
+        .execute(&actor(Role::Executor), &approved.id, Scenario::Success, AT)
+        .unwrap();
+    assert_eq!(paid.stage, Stage::Confirmed);
+    let again = s
+        .service
+        .approve(&actor(Role::Owner), &approved.id, &digest, AT)
+        .unwrap();
+    assert_eq!(again.stage, Stage::Confirmed);
+    assert_eq!(s.service.provider.order_count().unwrap(), 1);
+    assert!(matches!(
+        s.service
+            .approve(&actor(Role::Owner), &approved.id, &"0".repeat(64), AT),
+        Err(Error::Conflict(_))
+    ));
+}
+
+#[test]
 fn replanning_releases_old_reservation_and_requires_fresh_owner_approval() {
     let s = Setup::new(1000);
     let old = s.approve("requote");

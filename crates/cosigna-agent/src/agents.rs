@@ -77,6 +77,15 @@ fn load(db: &Connection, id: &str) -> Result<RegisteredAgent> {
     })
 }
 
+/// Every agent registered by this owner, in id order.
+pub(crate) fn owned(db: &Connection, owner: &str) -> Result<Vec<RegisteredAgent>> {
+    let mut statement = db.prepare("SELECT id FROM agents WHERE owner=?1 ORDER BY id")?;
+    let ids = statement
+        .query_map([owner], |r| r.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    ids.iter().map(|id| load(db, id)).collect()
+}
+
 /// An agent's money-operation grant, if it has one.
 pub(crate) fn grant(db: &Connection, id: &str) -> Result<Option<OperationGrant>> {
     Ok(load(db, id)?.operations)
@@ -164,12 +173,7 @@ impl Service {
     pub fn registered_agents(&self, owner: &Actor) -> Result<Vec<RegisteredAgent>> {
         self.require_unscoped()?;
         owner.require(&[Role::Owner])?;
-        let db = storage::connect(&self.ledger, false)?;
-        let mut statement = db.prepare("SELECT id FROM agents WHERE owner=?1 ORDER BY id")?;
-        let ids = statement
-            .query_map([&owner.owner], |r| r.get::<_, String>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        ids.iter().map(|id| load(&db, id)).collect()
+        owned(&storage::connect(&self.ledger, false)?, &owner.owner)
     }
 
     pub fn revoke_agent(&self, owner: &Actor, id: &str, at: i64) -> Result<RegisteredAgent> {

@@ -313,7 +313,7 @@ fn save(db: &Connection, op: &mut Operation, step: &str, at: i64, by: Value) -> 
 }
 
 /// Money already approved or spent against a case by earlier operations of this owner.
-fn committed_to_case(db: &Connection, owner: &str, case_id: &str) -> Result<i64> {
+pub(crate) fn committed_to_case(db: &Connection, owner: &str, case_id: &str) -> Result<i64> {
     Ok(db.query_row(
         "SELECT COALESCE(SUM(h.amount),0) FROM operation_holds h JOIN operations o ON o.id=h.operation_id
         WHERE o.owner=?1 AND o.case_id=?2 AND h.state IN ('held','spent')",

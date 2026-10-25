@@ -120,6 +120,14 @@ impl Rails {
         }
     }
 
+    /// Every case in the connected system of record. None connected: no case can be paid.
+    pub fn cases(&self) -> Result<Vec<Case>> {
+        match &self.fixture {
+            Some(fixture) => fixture.cases(),
+            None => Ok(Vec::new()),
+        }
+    }
+
     /// Fixture control for tests: synthetic payments and payees, never exposed to agents.
     pub fn fixture_rail(&self) -> Option<&FixtureRail> {
         self.fixture.as_ref()
@@ -361,7 +369,6 @@ impl FixtureRail {
         Ok(RailOutcome::Voided)
     }
 
-    /// Test control: the refunded total of a synthetic payment.
     fn case(&self, id: &str) -> Result<Option<Case>> {
         let db = storage::connect(&self.path, true)?;
         Ok(db
@@ -381,6 +388,24 @@ impl FixtureRail {
             .optional()?)
     }
 
+    fn cases(&self) -> Result<Vec<Case>> {
+        let db = storage::connect(&self.path, true)?;
+        let mut statement = db.prepare(
+            "SELECT id,customer,source,currency,owed_minor FROM fixture_cases ORDER BY id",
+        )?;
+        Ok(statement
+            .query_map([], |r| {
+                Ok(Case {
+                    id: r.get(0)?,
+                    customer: r.get(1)?,
+                    source: r.get(2)?,
+                    currency: r.get(3)?,
+                    owed_minor: r.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+
     /// Test control: adds a synthetic case record.
     pub fn add_case(&self, case: &Case) -> Result<()> {
         storage::connect(&self.path, true)?.execute(
@@ -390,6 +415,7 @@ impl FixtureRail {
         Ok(())
     }
 
+    /// Test control: the refunded total of a synthetic payment.
     pub fn refunded_minor(&self, payment: &str) -> Result<i64> {
         let db = storage::connect(&self.path, true)?;
         db.query_row(

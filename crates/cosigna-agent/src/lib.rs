@@ -4,6 +4,7 @@ mod agents;
 pub mod api;
 pub mod domain;
 pub mod evidence;
+pub mod exposure;
 pub mod gateway;
 pub mod mcp;
 pub mod merchant;

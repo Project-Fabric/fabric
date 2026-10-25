@@ -562,6 +562,41 @@ Public health has `schema`, `simulated_provider: true` and `status`. Error envel
 `schema` and `error: {code, message}`. Input schemas reject unknown fields; purchase plan
 fields are only `offer_id`, `quantity`, `clarification`. No plan can contain spending authority.
 
+### Worst-case exposure (`cosigna.exposure/v1`; no database migration)
+
+`GET /gateway/v1/exposure` (owner only; agents get not found) reports the most money the
+owner's agents can still move without a person, from one read transaction over budgets, holds,
+agents and case commitments. It is derived from the operation rules above, so no sequence of
+agent requests can move more while grants, budgets and case records stay as they are: owner
+requests are always held; an agent draws only on its own budget; a budget never pays past its
+limit; an agent whose grant is refunds-only with `require_case` can pay only what open cases
+still owe. It is an upper bound, not a forecast: rails refuse more than it counts (a refund
+needs a payment with that much left), and new budgets, agents or cases can raise it. Purchases
+(tasks) always need the owner's signature and add nothing.
+
+Envelope `{"schema":"cosigna.exposure/v1","data":{...}}`; `data` has `at`, `notes` (three
+fixed sentences stating these limits), and:
+
+- `agents[]`: `agent_id`, `name`, `budget_id`, `currency`, `exposure_minor` (this agent alone;
+  agents on one budget share it), `largest_single_minor` (`min(auto_approve_minor,
+  per_purchase_minor, exposure_minor)`), `limited_by`, `must_name_case`, optional
+  `if_case_required_minor` (refunds-only agents that need not name a case: their exposure if
+  they had to) and `until` (earlier of agent and budget expiry, present when exposure > 0).
+- `budgets[]`: `budget_id`, `currency`, `available_minor` (limit less held and spent),
+  `approved_minor` (operation holds still `held`: approved, not settled), `exposure_minor` (the
+  largest of its agents'), `limited_by`, `agents` (ids with exposure > 0), optional `until`.
+- `currencies[]`: `currency`, `without_a_person_minor`, `approved_minor`, `open_cases_minor`
+  (sum over cases in that currency of `owed_minor` less this owner's committed amount, floored
+  at 0). `without_a_person_minor` is the sum over budgets any non-case-bound agent can reach,
+  plus the sum over budgets only case-bound agents can reach capped at `open_cases_minor`
+  (all case-bound agents share one case book).
+
+`limited_by` is one of `budget`, `cases`, `no_grant`, `agent_inactive` (revoked, expired or
+without `execute`), `budget_inactive` (revoked or expired), `no_automatic_room` (nothing fits
+under the automatic limit, or nothing is left). Amounts are integer minor units, never summed
+across currencies. With no case book connected, `open_cases_minor` is 0 and case-bound agents
+can move nothing (their requests are refused).
+
 ### Transaction pipeline API version 1
 
 The pipeline adds no database tables, task fields, stored stages or ledger migration. Its ID

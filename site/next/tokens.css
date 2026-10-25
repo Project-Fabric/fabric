@@ -1,0 +1,77 @@
+/* Cosigna design tokens (landing, /next).
+   Philosophy: Swiss/editorial minimalism with product-as-illustration (.design/landing/DESIGN_BRIEF.md).
+   Light page; the product's dark screens are the only pictures. Colour is reserved for decisions.
+   Every text pair below was measured at 4.5:1 or more (see .design/landing/DESIGN_TOKENS.md).
+   Deviation from the token skill: no page-level dark mode (out of scope in the brief); the dark
+   "screen" tokens cover the dark surfaces the page does have. */
+@font-face { font-family: Geist; src: url(/assets/fonts/geist/Geist-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: Geist; src: url(/assets/fonts/geist/Geist-Medium.woff2) format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url(/assets/fonts/geist/GeistMono-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url(/assets/fonts/geist/GeistMono-Medium.woff2) format("woff2"); font-weight: 500; font-display: swap; }
+
+:root {
+  /* Surfaces */
+  --color-bg: #f1f1ef;            /* page */
+  --color-surface: #fafaf8;       /* raised light surface: chips, console */
+  --color-surface-2: #e8e8e5;     /* quiet card */
+  --color-border: #dcdcd7;
+  --color-border-strong: #c9c9c3;
+
+  /* Text */
+  --color-text: #151515;          /* 16.2:1 on bg */
+  --color-text-muted: #62625b;    /* 5.4:1 on bg, 5.0:1 on surface-2 */
+  --color-text-faint: #8d8d86;    /* decoration and large numerals only, never body text */
+  --color-text-inverse: #ffffff;
+
+  /* Dark product screens */
+  --color-screen: #18191a;
+  --color-screen-2: #212224;
+  --color-screen-border: #2e3032;
+  --color-screen-text: #e9e9e7;   /* 14.5:1 */
+  --color-screen-muted: #9a9a96;  /* 6.2:1 */
+
+  /* Decisions: the only colour on the page. Light (on paper) and screen (on dark) variants. */
+  --color-pay: #23714a;      --color-pay-bg: #e3f1e8;      --color-pay-screen: #7fd3a0;
+  --color-wait: #865a00;     --color-wait-bg: #f7ecd6;     --color-wait-screen: #f0c46d;
+  --color-deny: #a8382a;     --color-deny-bg: #f6e1dc;     --color-deny-screen: #f19583;
+  --color-focus: #151515;
+
+  /* Type */
+  --font-sans: Geist, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --text-label: 400 12px/1.4 var(--font-mono);          /* uppercase, +0.08em */
+  --text-caption: 400 13px/1.5 var(--font-sans);
+  --text-small: 400 14px/1.5 var(--font-sans);
+  --text-body: 400 16px/1.55 var(--font-sans);
+  --text-lead: 400 17px/1.45 var(--font-sans);
+  --text-h3: 400 26px/1.15 var(--font-sans);
+  --text-h2: 400 clamp(28px, 3.2vw, 46px)/1.08 var(--font-sans);
+  --text-h1: 400 clamp(36px, 4.6vw, 66px)/1.04 var(--font-sans);
+  --text-display: 500 clamp(40px, 5.4vw, 78px)/0.92 var(--font-sans);  /* section heads, uppercase */
+  --text-numeral: 300 clamp(40px, 4.4vw, 64px)/1 var(--font-sans);
+  --tracking-tight: -0.035em;
+  --tracking-label: 0.08em;
+
+  /* Spacing: 4px base */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px; --space-5: 20px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px;
+  --space-24: 96px; --space-32: 128px;
+  --gutter: clamp(16px, 2.8vw, 40px);
+  --section: clamp(96px, 10vw, 128px);
+  --content: 1440px;
+
+  /* Shape and depth */
+  --radius-sm: 3px; --radius: 4px; --radius-lg: 8px; --radius-pill: 999px;
+  --shadow-float: 0 10px 30px rgba(0, 0, 0, .12);
+  --shadow-card: 0 30px 60px rgba(0, 0, 0, .28);
+
+  /* Motion: cause and effect only */
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
+  --duration-fast: 150ms;    /* press, hover */
+  --duration: 300ms;         /* reveal, tag change */
+  --duration-slow: 450ms;    /* dock, list expand */
+  --press-scale: .97;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-fast: 0ms; --duration: 0ms; --duration-slow: 0ms; }
+}

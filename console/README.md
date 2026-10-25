@@ -133,3 +133,9 @@ The owner credential is read server-side for each call and never sent to the bro
 gateway address must be loopback. In fixtures mode the section shows `fixtures/gateway_operations.json`,
 which was captured from a real gateway. Decisions are recorded by the gateway as its owner role. Per-person
 approver identity on the gateway is still planned (G3). Live check: `npm run test:gateway`.
+
+Below it, **What agents can pay without you** shows the gateway's worst-case exposure
+(`GET /gateway/v1/exposure`, `cosigna.exposure/v1`): the most agents can still move with nobody
+signing, what limits each agent (its budget or what open cases owe), and what requiring a case
+would cut a refunds agent to. It is an upper bound under the current grants, not a forecast. In
+fixtures mode it shows `fixtures/gateway_exposure.json`, captured from a real gateway.

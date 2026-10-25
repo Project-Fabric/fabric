@@ -6,8 +6,8 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { approvalSchema, approvalsSchema, agentsSchema, callsSchema, consentsSchema, declarationsSchema,
-  gatewayAgentsSchema, gatewayFixtureSchema, gatewayOperationSchema, gatewayOperationsSchema,
-  mandatesSchema, verifySchema, type ConsoleAction, type Snapshot, type ActionResult, type GatewayOperation } from './contracts';
+  gatewayAgentsSchema, gatewayExposureSchema, gatewayFixtureSchema, gatewayOperationSchema, gatewayOperationsSchema,
+  mandatesSchema, verifySchema, type ConsoleAction, type Snapshot, type ActionResult, type Exposure, type GatewayOperation } from './contracts';
 import { buildCommand } from './commands';
 import { approvalView, operationViews } from './display';
 import { redact, redactText } from './redact';
@@ -107,6 +107,13 @@ async function gateway(session: string): Promise<GatewayData> {
   const [operations, agents] = await Promise.all([gatewayCall('GET', '/operations'), gatewayCall('GET', '/agents')]);
   return { operations: validate(gatewayOperationsSchema, operations).data, agents: validate(gatewayAgentsSchema, agents).data };
 }
+/** What the owner's agents can move without a person. Read-only; fixtures use a report captured from the gateway. */
+async function exposure(): Promise<Exposure> {
+  const value = fixtureMode()
+    ? JSON.parse(await readFile(path.join(process.cwd(), 'fixtures', 'gateway_exposure.json'), 'utf8')) as unknown
+    : await gatewayCall('GET', '/exposure');
+  return validate(gatewayExposureSchema, value).data;
+}
 const shared = globalThis as typeof globalThis & { consoleFixtures?: Map<string, FixtureState> };
 const states: Map<string, FixtureState> = shared.consoleFixtures ??= new Map<string, FixtureState>();
 function state(session: string): FixtureState { let value = states.get(session); if (!value) { value = {}; states.set(session, value); } return value; }
@@ -126,13 +133,15 @@ export async function snapshot(session: { id: string; user: string; csrf: string
     load('approvals', approvalsSchema), load('calls', callsSchema), load('agents', agentsSchema),
     load('mandates', mandatesSchema), load('verification', verifySchema), load('consents', consentsSchema), load('declarations', declarationsSchema),
   ]);
-  let operations: Snapshot['operations'] = [];
+  let operations: Snapshot['operations'] = [], exposed: Exposure | null = null;
   if (gatewayConfigured()) {
     try { const value = await gateway(session.id); operations = operationViews(value.operations, value.agents); }
     catch (error) { errors.operations = safeMessage(error instanceof Error ? error.message : 'Could not load gateway operations.'); }
+    try { exposed = await exposure(); }
+    catch (error) { errors.exposure = safeMessage(error instanceof Error ? error.message : 'Could not load what agents can pay without you.'); }
   }
   const data: Snapshot = { user: session.user, csrf: session.csrf, fixtures: fixtureMode(), now: new Date().toISOString(),
-    operations, gatewayConfigured: gatewayConfigured(),
+    operations, gatewayConfigured: gatewayConfigured(), exposure: exposed,
     approvals: (inbox?.requests || []).map(r => approvalView(r, declarations?.payments || [], fixtureMode())),
     calls: activity?.calls || [], agents: agents?.agents || [], required: agents?.required ?? false,
     mandates: mandates?.mandates || [], verification, consents: consents?.consents || [], consentTotal: consents?.total || 0,
@@ -141,7 +150,7 @@ export async function snapshot(session: { id: string; user: string; csrf: string
   return { ...data, approvals: redact(data.approvals) as Snapshot['approvals'], calls: redact(data.calls) as Snapshot['calls'],
     agents: redact(data.agents) as Snapshot['agents'], mandates: redact(data.mandates) as Snapshot['mandates'],
     verification: redact(data.verification) as Snapshot['verification'], consents: redact(data.consents) as Snapshot['consents'],
-    operations: redact(data.operations) as Snapshot['operations'] };
+    operations: redact(data.operations) as Snapshot['operations'], exposure: redact(data.exposure) as Snapshot['exposure'] };
 }
 
 /** Decides or settles a gateway operation after re-checking its current state, then checks the gateway's result. */

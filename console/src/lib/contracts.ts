@@ -60,6 +60,18 @@ export const gatewayOperationSchema = z.object({
 });
 export const gatewayOperationsSchema = z.object({ schema: z.literal('cosigna.operation/v1'), data: z.array(gatewayOperationSchema) });
 export const gatewayAgentsSchema = z.object({ data: z.array(z.object({ id: string, name: string }).passthrough()) }).passthrough();
+// Worst-case exposure (GET /gateway/v1/exposure, schema cosigna.exposure/v1): the most agents can move without a person.
+const minorAmount = z.number().int().nonnegative();
+const limit = z.enum(['budget', 'cases', 'no_grant', 'agent_inactive', 'budget_inactive', 'no_automatic_room']);
+export const gatewayExposureSchema = z.object({ schema: z.literal('cosigna.exposure/v1'), data: z.object({
+  at: z.number().int(), notes: z.array(string),
+  currencies: z.array(z.object({ currency: string, without_a_person_minor: minorAmount, approved_minor: minorAmount, open_cases_minor: minorAmount })),
+  budgets: z.array(z.object({ budget_id: string, currency: string, available_minor: z.number().int(), approved_minor: minorAmount,
+    exposure_minor: minorAmount, limited_by: limit, agents: z.array(string), until: z.number().int().optional() }).passthrough()),
+  agents: z.array(z.object({ agent_id: string, name: string, budget_id: string, currency: string, exposure_minor: minorAmount,
+    largest_single_minor: minorAmount, limited_by: limit, must_name_case: z.boolean(),
+    if_case_required_minor: minorAmount.optional(), until: z.number().int().optional() }).passthrough()),
+}) });
 export const gatewayFixtureSchema = z.object({ operations: gatewayOperationsSchema, agents: gatewayAgentsSchema });
 const id = z.number().int().positive().safe();
 const text = z.string().trim().min(1).max(200).refine(value => !value.startsWith('-'), 'Values cannot begin with an option prefix.');
@@ -86,12 +98,13 @@ export type Verification = z.infer<typeof verifySchema>;
 export type Declaration = z.infer<typeof declarationsSchema>['payments'][number];
 export type ConsoleAction = z.infer<typeof actionSchema>;
 export type GatewayOperation = z.infer<typeof gatewayOperationSchema>;
+export type Exposure = z.infer<typeof gatewayExposureSchema>['data'];
 export type OperationView = GatewayOperation & { agentName: string; amountLabel: string; counterparty: string; kindLabel: string };
 export type ApprovalView = Approval & { amountLabel: string; operation: string; counterparty: string };
 export type Snapshot = { user: string; fixtures: boolean; now: string; csrf: string;
   approvals: ApprovalView[]; calls: Call[]; agents: Agent[]; required: boolean;
   mandates: Mandate[]; consents: Consent[]; consentTotal: number; verification: Verification | null;
   errors: Record<string, string>; exportEnabled: boolean;
-  operations: OperationView[]; gatewayConfigured: boolean };
+  operations: OperationView[]; gatewayConfigured: boolean; exposure: Exposure | null };
 export type ActionResult = { simulated: boolean; args: string[]; message: string; token?: string;
   fingerprint?: string; out?: string; verifyCommand?: string };

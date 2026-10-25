@@ -64,6 +64,11 @@ try {
   assert.ok(!raw.includes(ownerToken), 'The owner credential must never reach the browser.');
   const data = JSON.parse(raw);
   assert.equal(data.gatewayConfigured, true); assert.equal(data.errors.operations, undefined);
+  // The real gateway's exposure report passes the console contract: held refunds commit nothing yet.
+  assert.equal(data.errors.exposure, undefined);
+  assert.equal(data.exposure.currencies[0].without_a_person_minor, 200000);
+  assert.equal(data.exposure.agents[0].name, 'refunds-bot'); assert.equal(data.exposure.agents[0].limited_by, 'budget');
+  assert.equal(data.exposure.agents[0].if_case_required_minor, 50000);
   const held = data.operations.filter(op => op.data.stage === 'held');
   assert.equal(held.length, 2);
   const target = held.find(op => op.data.id === toApprove.id);
@@ -85,11 +90,12 @@ try {
   assert.equal(after.find(op => op.data.id === toApprove.id).data.approved_by, 'owner');
   assert.equal(after.find(op => op.data.id === toReject.id).data.stage, 'rejected');
   assert.equal((await snapshot()).operations.filter(op => op.data.stage === 'held').length, 0);
+  assert.equal((await snapshot()).exposure.currencies[0].without_a_person_minor, 200000 - 45000, 'Paid money leaves the bound.');
   lines.close();
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));
   execFileSync(binary, ['evidence', 'verify', '--data-dir', dir], { stdio: 'ignore' });
-  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, evidence intact.');
+  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, exposure reported, evidence intact.');
 } finally {
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));

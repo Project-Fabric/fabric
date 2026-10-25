@@ -106,6 +106,29 @@ describe('Cosigna gateway payments in the inbox', () => {
     await waitFor(() => expect(submitted).toEqual([{ action: 'operation-resolve', id: op.data.id }]));
   });
 });
+describe('what agents can pay without the owner', () => {
+  it('shows the worst case from the captured gateway report, what sets each limit, and the case what-if', async () => {
+    mount(<ApprovalInbox />);
+    const section = within(await screen.findByRole('region', { name: 'What agents can pay without you' }));
+    expect(section.getByText('$1,980.00', { selector: 'strong' })).toBeVisible();
+    expect(section.getByText(/open cases owe \$500.00/)).toBeVisible();
+    const bot = section.getByText('refunds-bot').closest('li')!;
+    expect(within(bot).getByText(/Up to \$100.00 each · limited by its budget/)).toBeVisible();
+    expect(within(bot).getByText('If it had to name a case for each refund: $500.00')).toBeVisible();
+    const desk = section.getByText('returns-desk').closest('li')!;
+    expect(within(desk).getByText(/limited by what open cases owe/)).toBeVisible();
+    expect(within(desk).queryByText(/If it had to name a case/)).not.toBeInTheDocument();
+    expect(section.getByText(/An upper bound/)).toBeVisible();
+  });
+  it('says so when the report cannot be loaded, without inventing a figure', async () => {
+    const data = sample(); data.exposure = null; data.errors.exposure = 'The gateway refused this (HTTP 500).';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => structuredClone(data) })));
+    render(<ConsoleProvider><ApprovalInbox /></ConsoleProvider>);
+    const section = within(await screen.findByRole('region', { name: 'What agents can pay without you' }));
+    expect(section.getByText(/HTTP 500/)).toBeVisible();
+    expect(section.queryByText(/\$/)).not.toBeInTheDocument();
+  });
+});
 describe('remaining screens with captured engine fixtures', () => {
   it('activity isolates the three blocked payments', async () => {
     mount(<ActivityScreen />); await screen.findByRole('heading', { name: 'Agent activity' });

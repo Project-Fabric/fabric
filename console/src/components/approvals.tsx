@@ -4,7 +4,7 @@ import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { ArrowLeft, ArrowUpRight, Clock3, ConfirmDialog, DetailField, Empty, JsonBlock, Notice, OperationIcon,
   PageTitle, Badge, RefreshButton, SectionError, useConsole } from './console';
-import type { ActionResult, OperationView } from '@/lib/contracts';
+import type { ActionResult, Exposure, OperationView } from '@/lib/contracts';
 import { dateTime, minor, waiting } from '@/lib/display';
 
 export function ApprovalInbox() {
@@ -17,6 +17,7 @@ export function ApprovalInbox() {
   return <>
     <PageTitle eyebrow="HUMAN DECISIONS. CLEAR AUTHORITY." title="Approval inbox" description="A clear decision for every exception. Review the request, then decide."><RefreshButton /></PageTitle>
     <GatewayPayments />
+    <ExposurePanel />
     <SectionError name="approvals" />
     <div className="inbox-summary"><span className="summary-icon"><Clock3 size={21} /></span><div><strong>{pending.length} {pending.length === 1 ? 'request needs' : 'requests need'} your decision</strong><p>{oldest ? `Oldest request · ${waiting(oldest.requested_at, data.now)}` : 'You’re all caught up. New requests will appear here.'}</p></div><span className="summary-tag">{data.fixtures ? 'Sample workspace' : 'This project'}</span></div>
     <Tabs.Root value={tab} onValueChange={setTab}>
@@ -131,5 +132,39 @@ export function GatewayPayments() {
         {target.decision === 'resolve' && <DetailField label="What happens">The payment system reports what happened, or guarantees it can no longer go through, before any held money is released.</DetailField>}
       </dl>
     </ConfirmDialog>}
+  </section>;
+}
+
+const limits: Record<Exposure['agents'][number]['limited_by'], string> = {
+  budget: 'limited by its budget', cases: 'limited by what open cases owe', no_grant: 'no payment rights',
+  agent_inactive: 'revoked or expired', budget_inactive: 'budget revoked or expired', no_automatic_room: 'every payment waits for you',
+};
+const day = (unix: number) => new Date(unix * 1000).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' });
+
+/** The most the owner's agents can still pay with nobody signing, and what sets each agent's limit. */
+export function ExposurePanel() {
+  const { data } = useConsole();
+  if (!data || !data.gatewayConfigured) return null;
+  const exposure = data.exposure;
+  return <section className="panel exposure-panel" aria-labelledby="exposure-heading">
+    <div className="section-heading"><h2 id="exposure-heading">What agents can pay without you</h2><span className="small muted">Worst case, from current grants</span></div>
+    <SectionError name="exposure" />
+    {exposure && <>
+      <div className="exposure-totals">{exposure.currencies.map(c => <div key={c.currency} className="exposure-total">
+        <strong>{minor(c.without_a_person_minor, c.currency)}</strong>
+        <span>At most, with nobody signing · {c.currency}</span>
+        <small className="muted">Approved, not yet settled: {minor(c.approved_minor, c.currency)} · open cases owe {minor(c.open_cases_minor, c.currency)}</small>
+      </div>)}</div>
+      <ul className="exposure-list">{exposure.agents.map(agent => <li key={agent.agent_id} className="exposure-row">
+        <div><strong>{agent.name}</strong><small className="muted">{agent.exposure_minor > 0
+          ? `Up to ${minor(agent.largest_single_minor, agent.currency)} each · ${limits[agent.limited_by]}${agent.until ? ` · until ${day(agent.until)}` : ''}`
+          : limits[agent.limited_by]}</small>
+          {agent.if_case_required_minor !== undefined && agent.if_case_required_minor < agent.exposure_minor &&
+            <small className="exposure-what-if">If it had to name a case for each refund: {minor(agent.if_case_required_minor, agent.currency)}</small>}
+        </div>
+        <span className="amount">{minor(agent.exposure_minor, agent.currency)}</span>
+      </li>)}</ul>
+      <p className="small muted exposure-notes">Agents on one budget share it, so their figures overlap; the total above does not double-count. {exposure.notes.join(' ')}</p>
+    </>}
   </section>;
 }

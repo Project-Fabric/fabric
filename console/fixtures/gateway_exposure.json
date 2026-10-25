@@ -1,0 +1,59 @@
+{
+  "data": {
+    "agents": [
+      {
+        "agent_id": "agent_36459e68b13f2add6c8878214575d313f2c97388a5f35e3a8690f63740f4414a",
+        "budget_id": "budget_7f3987216088702e1078c976553d3e9b0c1f39c0f30964edc7056c042ed8075f",
+        "currency": "USD",
+        "exposure_minor": 50000,
+        "largest_single_minor": 5000,
+        "limited_by": "cases",
+        "must_name_case": true,
+        "name": "returns-desk",
+        "until": 1794159121
+      },
+      {
+        "agent_id": "agent_c612971df54b28b63164569ab6ec252b4a8d97aa492607a5936b1723d87fc4bc",
+        "budget_id": "budget_7f3987216088702e1078c976553d3e9b0c1f39c0f30964edc7056c042ed8075f",
+        "currency": "USD",
+        "exposure_minor": 198000,
+        "if_case_required_minor": 50000,
+        "largest_single_minor": 10000,
+        "limited_by": "budget",
+        "must_name_case": false,
+        "name": "refunds-bot",
+        "until": 1794159121
+      }
+    ],
+    "at": 1792949521,
+    "budgets": [
+      {
+        "agents": [
+          "agent_36459e68b13f2add6c8878214575d313f2c97388a5f35e3a8690f63740f4414a",
+          "agent_c612971df54b28b63164569ab6ec252b4a8d97aa492607a5936b1723d87fc4bc"
+        ],
+        "approved_minor": 0,
+        "available_minor": 198000,
+        "budget_id": "budget_7f3987216088702e1078c976553d3e9b0c1f39c0f30964edc7056c042ed8075f",
+        "currency": "USD",
+        "exposure_minor": 198000,
+        "limited_by": "budget",
+        "until": 1794159121
+      }
+    ],
+    "currencies": [
+      {
+        "approved_minor": 0,
+        "currency": "USD",
+        "open_cases_minor": 50000,
+        "without_a_person_minor": 198000
+      }
+    ],
+    "notes": [
+      "Counts only what agents can pay without a person; requests a person approves are excluded.",
+      "Holds while grants, budgets and case records stay as they are now. New budgets, agents or cases can raise it.",
+      "An upper bound: rails can refuse more than it counts, such as a refund larger than what is left on the payment."
+    ]
+  },
+  "schema": "cosigna.exposure/v1"
+}

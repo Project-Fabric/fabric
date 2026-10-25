@@ -47,6 +47,11 @@ cd console && npm ci && npm run dev             # owner console with captured sa
 node site/server.mjs                            # landing page at http://127.0.0.1:3091/next
 ```
 
+Before a demo, `node scripts/demo-check.mjs` plays the demo's story against the real gateway in a
+temporary profile (routine refund, injected refund denied, wrong amount held, exact approval,
+no double payment, exposure, both evidence verifiers, console, landing page) and lists anything
+that would fail on stage.
+
 Then read the [gateway API](docs/COSIGNA_GATEWAY.md), the
 [agent tools](crates/cosigna-agent/README.md) and the [storage and API formats](docs/STORAGE_FORMAT.md).
 

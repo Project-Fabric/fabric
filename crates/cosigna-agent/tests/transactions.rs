@@ -414,6 +414,105 @@ fn expired_quotes_and_revocation_block_submission_and_owner_can_cancel() {
 }
 
 #[test]
+fn an_expired_quote_says_so_and_planning_again_gives_a_fresh_one_to_approve() {
+    // Room for two purchases: one approved on time, one re-quoted.
+    let s = Setup::new(5000);
+    let quoted = s.quote("slow-owner");
+    let old_digest = quoted.quote.as_ref().unwrap().digest().unwrap();
+    let expires = quoted.quote.as_ref().unwrap().expires_at;
+    // At the boundary second the quote is still approvable; one second later it is not, and
+    // the refusal names the reason instead of a generic conflict.
+    let late = s
+        .service
+        .approve(&actor(Role::Owner), &quoted.id, &old_digest, expires);
+    assert!(matches!(late, Err(Error::Conflict(ref m)) if m.starts_with("quote_expired")));
+    let still_valid = s.quote("on-time");
+    s.service
+        .approve(
+            &actor(Role::Owner),
+            &still_valid.id,
+            &still_valid.quote.as_ref().unwrap().digest().unwrap(),
+            expires - 1,
+        )
+        .unwrap();
+    // Planning again issues a fresh quote with a new digest; the old digest stays refused.
+    let fresh = s
+        .service
+        .plan(
+            &actor(Role::Planner),
+            &quoted.id,
+            &FixturePlanner,
+            expires + 60,
+        )
+        .unwrap();
+    assert_eq!(fresh.stage, Stage::Quoted);
+    let fresh_digest = fresh.quote.as_ref().unwrap().digest().unwrap();
+    assert_ne!(fresh_digest, old_digest);
+    assert!(
+        s.service
+            .approve(&actor(Role::Owner), &quoted.id, &old_digest, expires + 60)
+            .is_err()
+    );
+    s.service
+        .approve(&actor(Role::Owner), &quoted.id, &fresh_digest, expires + 60)
+        .unwrap();
+    let done = s
+        .service
+        .execute(
+            &actor(Role::Executor),
+            &quoted.id,
+            Scenario::Success,
+            expires + 61,
+        )
+        .unwrap();
+    assert_eq!(done.stage, Stage::Confirmed);
+}
+
+#[test]
+fn an_approved_quote_that_expires_before_payment_is_held_back_and_can_be_requoted() {
+    let s = Setup::new(1000);
+    let approved = s.approve("approved-late");
+    let expires = approved.quote.as_ref().unwrap().expires_at;
+    let late = s.service.execute(
+        &actor(Role::Executor),
+        &approved.id,
+        Scenario::Success,
+        expires,
+    );
+    assert!(matches!(late, Err(Error::Conflict(ref m)) if m.starts_with("quote_expired")));
+    assert_eq!(
+        s.service.provider.order_count().unwrap(),
+        0,
+        "nothing was paid"
+    );
+    // A plain replay of plan before expiry does not re-quote an approved task...
+    let replay = s
+        .service
+        .plan(&actor(Role::Planner), &approved.id, &FixturePlanner, AT)
+        .unwrap();
+    assert_eq!(replay.stage, Stage::Approved);
+    // ...after expiry it does, and releases the hold until the owner approves again.
+    let fresh = s
+        .service
+        .plan(
+            &actor(Role::Planner),
+            &approved.id,
+            &FixturePlanner,
+            expires,
+        )
+        .unwrap();
+    assert_eq!(fresh.stage, Stage::Quoted);
+    assert!(fresh.approved_digest.is_none());
+    assert_eq!(
+        s.service
+            .balance(&actor(Role::Owner), &s.budget)
+            .unwrap()
+            .reserved_minor,
+        0
+    );
+}
+
+#[test]
 fn replanning_releases_old_reservation_and_requires_fresh_owner_approval() {
     let s = Setup::new(1000);
     let old = s.approve("requote");

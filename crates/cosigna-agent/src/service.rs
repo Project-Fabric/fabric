@@ -224,8 +224,15 @@ impl Service {
             Some(crate::agents::Permission::Plan),
             at,
         )?;
-        // Replays of plan do not repeat a paid request once a quote or attempt exists.
-        if task.stage != Stage::Draft && task.stage != Stage::NeedsInput {
+        // Replays of plan do not repeat a paid request once a quote or attempt exists, unless
+        // the quote expired before any attempt: then planning again issues a fresh quote (new
+        // digest), releases any hold and needs a new approval.
+        let expired = matches!(task.stage, Stage::Quoted | Stage::Approved)
+            && task
+                .quote
+                .as_ref()
+                .is_some_and(|quote| quote.expires_at <= at);
+        if task.stage != Stage::Draft && task.stage != Stage::NeedsInput && !expired {
             return Ok(task);
         }
         let balance = self.balance(actor, &task.input.budget_id)?;
@@ -522,10 +529,16 @@ fn active(budget: &Budget, at: i64) -> Result<()> {
     Ok(())
 }
 
+/// The error for an expired quote. Its prefix is the worker's pause reason.
+pub const QUOTE_EXPIRED: &str =
+    "quote_expired: plan the task again for a fresh quote, then approve that";
+
 fn validate_quote(task: &Task, budget: &Budget, quote: &Quote, at: i64) -> Result<()> {
     active(budget, at)?;
+    if quote.expires_at <= at {
+        return Err(Error::Conflict(QUOTE_EXPIRED.into()));
+    }
     if quote.task_id != task.id
-        || quote.expires_at <= at
         || quote.issued_at > at
         || quote.offer.currency != budget.terms.currency
         || !budget.terms.merchants.contains(&quote.offer.merchant_id)
@@ -544,7 +557,7 @@ fn validate_quote(task: &Task, budget: &Budget, quote: &Quote, at: i64) -> Resul
         || !quote.offer.simulated
     {
         return Err(Error::Conflict(
-            "quote is expired or outside the authorized terms".into(),
+            "quote is outside the authorized terms".into(),
         ));
     }
     if quote.total_minor > budget.terms.per_purchase_minor {

@@ -17,6 +17,15 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     db.busy_timeout(Duration::from_secs(5))?;
     db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
     let expected = if provider { PROVIDER_APP } else { LEDGER_APP };
+    let current = if provider { 4 } else { LEDGER_VERSION };
+    // Fast path: a store already at the current version needs no write lock, so concurrent
+    // readers do not queue behind each other or behind writers just to open a connection.
+    let app: i64 = db.query_row("PRAGMA application_id", [], |r| r.get(0))?;
+    let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if app == expected && version == current {
+        return Ok(db);
+    }
+    // Create or upgrade under the write lock, re-reading the version inside it.
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let app: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
     let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -37,7 +46,7 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
                 CREATE TABLE reservations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), budget_id TEXT NOT NULL REFERENCES budgets(id), amount INTEGER NOT NULL CHECK(amount>0), state TEXT NOT NULL CHECK(state IN ('held','spent','released')));
                 CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, at INTEGER NOT NULL);")?;
         }
-    } else if app != expected || !(1..=if provider { 4 } else { 6 }).contains(&version) {
+    } else if app != expected || !(1..=current).contains(&version) {
         return Err(Error::StoreFormat);
     }
     // Additive, transactional upgrade; existing task JSON and provider format stay v1.

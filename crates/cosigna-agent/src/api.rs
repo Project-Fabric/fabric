@@ -213,114 +213,135 @@ pub fn serve(
         "Cosigna agent · http://127.0.0.1:{port} · planner: {} · SIMULATED merchant",
         planner.name()
     );
-    for mut request in server.incoming_requests() {
-        let gateway_request = request.url().starts_with("/gateway/");
-        let result = (|| -> Result<Value> {
-            let headers = request.headers();
-            // No browser origins or CORS. Explicit Host blocks DNS rebinding to loopback.
-            if headers.iter().any(|h| h.field.equiv("Origin")) {
-                return Err(Error::Forbidden);
-            }
-            let host = headers
-                .iter()
-                .find(|h| h.field.equiv("Host"))
-                .map(|h| h.value.as_str());
-            if host != Some(format!("127.0.0.1:{port}").as_str()) {
-                return Err(Error::Forbidden);
-            }
-            if request.method() == &Method::Get && request.url() == "/v1/health" {
-                return Ok(json!({"schema":API_VERSION,"simulated_provider":true,"status":"ok"}));
-            }
-            let authorization = headers
-                .iter()
-                .find(|h| h.field.equiv("Authorization"))
-                .map(|h| h.value.as_str())
-                .ok_or(Error::Forbidden)?;
-            let (actor, principal) = if gateway_request {
-                (
-                    None,
-                    Some(crate::gateway::authenticate(
-                        service,
-                        credentials,
-                        authorization,
-                        now(),
-                    )?),
-                )
-            } else {
-                (Some(credentials.authenticate(authorization)?), None)
-            };
-            if request.body_length().is_some_and(|length| length > 16_384) {
-                return Err(Error::Invalid("body exceeds 16 KiB".into()));
-            }
-            if request.method() == &Method::Post {
-                let content_type = headers
-                    .iter()
-                    .find(|h| h.field.equiv("Content-Type"))
-                    .map(|h| h.value.as_str());
-                if !content_type
-                    .is_some_and(|value| value.split(';').next() == Some("application/json"))
-                {
-                    return Err(Error::Invalid(
-                        "Content-Type must be application/json".into(),
-                    ));
+    // A small pool: a slow rail or planner call holds one worker, not the whole gateway, so
+    // status, approvals and revocation stay responsive. Each request opens its own connection.
+    std::thread::scope(|scope| {
+        for _ in 0..WORKERS {
+            scope.spawn(|| {
+                while let Ok(request) = server.recv() {
+                    handle(service, planner, credentials, port, request);
                 }
-            }
-            let mut body = Vec::new();
-            request.as_reader().take(16_385).read_to_end(&mut body)?;
-            if body.len() > 16_384 {
-                return Err(Error::Invalid("body exceeds 16 KiB".into()));
-            }
-            if let Some(principal) = principal {
-                return crate::gateway::dispatch_authenticated(
+            });
+        }
+    });
+    Ok(())
+}
+
+/// Requests served at once. Writes still serialize in SQLite; reads and external calls overlap.
+const WORKERS: usize = 8;
+
+fn handle(
+    service: &Service,
+    planner: &dyn Planner,
+    credentials: &Credentials,
+    port: u16,
+    mut request: tiny_http::Request,
+) {
+    let gateway_request = request.url().starts_with("/gateway/");
+    let result = (|| -> Result<Value> {
+        let headers = request.headers();
+        // No browser origins or CORS. Explicit Host blocks DNS rebinding to loopback.
+        if headers.iter().any(|h| h.field.equiv("Origin")) {
+            return Err(Error::Forbidden);
+        }
+        let host = headers
+            .iter()
+            .find(|h| h.field.equiv("Host"))
+            .map(|h| h.value.as_str());
+        if host != Some(format!("127.0.0.1:{port}").as_str()) {
+            return Err(Error::Forbidden);
+        }
+        if request.method() == &Method::Get && request.url() == "/v1/health" {
+            return Ok(json!({"schema":API_VERSION,"simulated_provider":true,"status":"ok"}));
+        }
+        let authorization = headers
+            .iter()
+            .find(|h| h.field.equiv("Authorization"))
+            .map(|h| h.value.as_str())
+            .ok_or(Error::Forbidden)?;
+        let (actor, principal) = if gateway_request {
+            (
+                None,
+                Some(crate::gateway::authenticate(
                     service,
-                    planner,
-                    principal,
-                    request.method().as_str(),
-                    request.url(),
-                    &body,
+                    credentials,
+                    authorization,
                     now(),
-                );
+                )?),
+            )
+        } else {
+            (Some(credentials.authenticate(authorization)?), None)
+        };
+        if request.body_length().is_some_and(|length| length > 16_384) {
+            return Err(Error::Invalid("body exceeds 16 KiB".into()));
+        }
+        if request.method() == &Method::Post {
+            let content_type = headers
+                .iter()
+                .find(|h| h.field.equiv("Content-Type"))
+                .map(|h| h.value.as_str());
+            if !content_type
+                .is_some_and(|value| value.split(';').next() == Some("application/json"))
+            {
+                return Err(Error::Invalid(
+                    "Content-Type must be application/json".into(),
+                ));
             }
-            dispatch(
+        }
+        let mut body = Vec::new();
+        request.as_reader().take(16_385).read_to_end(&mut body)?;
+        if body.len() > 16_384 {
+            return Err(Error::Invalid("body exceeds 16 KiB".into()));
+        }
+        if let Some(principal) = principal {
+            return crate::gateway::dispatch_authenticated(
                 service,
                 planner,
-                &actor.ok_or(Error::Forbidden)?,
+                principal,
                 request.method().as_str(),
                 request.url(),
                 &body,
                 now(),
-            )
-        })();
-        let (status, mut value) = match result {
-            Ok(value) => (200, value),
-            Err(error) => error_response(&error),
-        };
-        if gateway_request && value.get("error").is_some() {
-            let pipeline_request = request.url() == "/gateway/v1/pipelines"
-                || request.url().starts_with("/gateway/v1/pipelines/");
-            let worker_request = pipeline_request && request.url().ends_with("/worker");
-            value["schema"] = if worker_request {
-                crate::worker::API_VERSION
-            } else if pipeline_request {
-                crate::pipeline::API_VERSION
-            } else {
-                crate::gateway::API_VERSION
-            }
-            .into();
+            );
         }
-        let mut response = Response::from_string(value.to_string()).with_status_code(status);
-        for (name, value) in [
-            ("Content-Type", "application/json"),
-            ("Cache-Control", "no-store"),
-            ("X-Content-Type-Options", "nosniff"),
-        ] {
-            if let Ok(header) = Header::from_bytes(name, value) {
-                response.add_header(header);
-            }
+        dispatch(
+            service,
+            planner,
+            &actor.ok_or(Error::Forbidden)?,
+            request.method().as_str(),
+            request.url(),
+            &body,
+            now(),
+        )
+    })();
+    let (status, mut value) = match result {
+        Ok(value) => (200, value),
+        Err(error) => error_response(&error),
+    };
+    if gateway_request && value.get("error").is_some() {
+        let pipeline_request = request.url() == "/gateway/v1/pipelines"
+            || request.url().starts_with("/gateway/v1/pipelines/");
+        let worker_request = pipeline_request && request.url().ends_with("/worker");
+        value["schema"] = if worker_request {
+            crate::worker::API_VERSION
+        } else if pipeline_request {
+            crate::pipeline::API_VERSION
+        } else {
+            crate::gateway::API_VERSION
         }
-        let _ = request.respond(response);
+        .into();
     }
-    Ok(())
+    let mut response = Response::from_string(value.to_string()).with_status_code(status);
+    for (name, value) in [
+        ("Content-Type", "application/json"),
+        ("Cache-Control", "no-store"),
+        ("X-Content-Type-Options", "nosniff"),
+    ] {
+        if let Ok(header) = Header::from_bytes(name, value) {
+            response.add_header(header);
+        }
+    }
+    let _ = request.respond(response);
 }
 
 #[cfg(test)]

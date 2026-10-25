@@ -204,6 +204,9 @@ impl Worker {
                     Error::Planner => "planner_failed",
                     Error::Forbidden => "permission_denied",
                     Error::Merchant => "merchant_unavailable",
+                    Error::Conflict(ref message) if message.starts_with("quote_expired") => {
+                        "quote_expired"
+                    }
                     _ => "operation_failed",
                 };
                 ("paused", Some(reason), 0, claimed.reconcile_count)

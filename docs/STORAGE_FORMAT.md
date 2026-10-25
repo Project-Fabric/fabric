@@ -550,6 +550,14 @@ struct in declaration order: `id`, `task_id`, `offer`, `quantity`, `total_minor`
 approval to the complete quote and its expiry. API clients receive the digest directly;
 arbitrarily reserializing JSON is not an equivalent hashing protocol.
 
+A quote is valid for 300 seconds from planning (never past the budget). Approving or submitting
+it at or after `expires_at` is refused with a conflict whose message starts with `quote_expired`
+(the worker pauses with that reason). Planning a `quoted` or `approved` task again after its
+quote expired, and before any attempt, issues a fresh quote with a new digest, releases any
+reservation and needs a new owner approval; before expiry, planning again returns the task
+unchanged. The pipeline's `advance` does not re-quote: an expired quote stays `needs_review`
+until a person plans again or cancels.
+
 `credentials.json`: strict JSON `{schema, owner, planner, executor}`, with
 `schema: "cosigna.agent/v1"` and independent role tokens (`owner_`, `planner_`, `executor_`,
 then 64 random hex characters). Created exclusively and synced without overwriting an existing
@@ -661,7 +669,11 @@ approval_digest,data}`. `agent_id` is populated for associated task responses, o
 null; `approval_digest` is populated for a task quote, otherwise null. Errors have `schema`
 and `error:{code,message}` with the gateway schema. All POST input schemas reject unknown
 fields and are bounded to 16 KiB. The loopback server retains exact Host, browser-Origin,
-JSON content-type and no-store response controls.
+JSON content-type and no-store response controls. It serves up to eight requests at once, so
+a slow client, rail or planner call holds one worker rather than the whole gateway; SQLite still
+serializes writes. A connection to a store already at the current version opens without a write
+lock; creation and upgrades take it. Eight clients that stall mid-request can still occupy every
+worker: a shared deployment needs a front proxy with request timeouts (G13).
 
 Owner control endpoints create budgets, register/list/read/revoke agents, and approve or
 cancel tasks. Registration input is `{name,budget_id,permissions,expires_at}` and returns

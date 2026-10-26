@@ -15,6 +15,9 @@ both produce and accept a bad record. Short enough for an auditor to read.
    - named approvers (ledger version 7): an approver's decision is made by an approver the owner
      registered earlier in the chain and had not revoked; an approval is in the approver's
      currency and within their limit, and the operation records them as its approver;
+   - two-person approval (ledger version 8): above a budget's `second_approval_above_minor`
+     nothing is approved automatically, and a person's approval completes an operation only
+     after a first approval of it by a different person, each within their own limit;
    - a succeeded operation has a receipt matching its proposal amount and currency, and its hold
      is spent; failed, denied and rejected operations never end with spent money;
    - an approval names the digest of the proposal it approved;
@@ -108,7 +111,7 @@ def check_approver(seq, step, event, request, by, approvers, problems, stats):
         problems.append(f"record {seq}: {step} by a revoked approver")
     elif approver.get("owner") != by.get("owner"):
         problems.append(f"record {seq}: {step} by another owner's approver")
-    elif step == "approver_approved" and (request["currency"] != approver.get("currency")
+    elif step in ("approver_approved", "first_approved") and (request["currency"] != approver.get("currency")
                                           or request["amount_minor"] > approver.get("max_approval_minor", 0)):
         problems.append(f"record {seq}: approval above the approver's limit")
     if step == "approver_approved" and event.get("approved_by") != "approver":
@@ -116,8 +119,9 @@ def check_approver(seq, step, event, request, by, approvers, problems, stats):
 
 
 def replay(records, problems):
-    budgets, agents, ops, tasks, approvers = {}, {}, {}, {}, {}
-    stats = {"operations": 0, "auto_approved": 0, "owner_decisions": 0, "approver_decisions": 0, "denied": 0}
+    budgets, agents, ops, tasks, approvers, firsts = {}, {}, {}, {}, {}, {}
+    stats = {"operations": 0, "auto_approved": 0, "owner_decisions": 0, "approver_decisions": 0,
+             "first_approvals": 0, "denied": 0}
     for record in records:
         event, seq = record.get("event", {}), record.get("seq")
         kind = event.get("kind", "")
@@ -168,6 +172,23 @@ def replay(records, problems):
                     problems.append(f"record {seq}: {step} not made by the owner")
             if step in ("approver_approved", "approver_rejected"):
                 check_approver(seq, step, event, request, by, approvers, problems, stats)
+            threshold = terms.get("second_approval_above_minor")
+            above = threshold is not None and request["amount_minor"] > threshold
+            person = by.get("approver") if by.get("role") == "approver" else "owner"
+            if step == "auto_approved" and above:
+                problems.append(f"record {seq}: automatic approval above the two-person threshold")
+            if step == "first_approved":
+                stats["first_approvals"] += 1
+                if by.get("role") == "approver":
+                    check_approver(seq, step, event, request, by, approvers, problems, stats)
+                elif by.get("role") != "owner" or by.get("agent"):
+                    problems.append(f"record {seq}: first approval not made by a person")
+                firsts[op_id] = person
+            if step in ("owner_approved", "approver_approved") and above:
+                if op_id not in firsts:
+                    problems.append(f"record {seq}: approved above the two-person threshold without a first approval")
+                elif firsts[op_id] == person:
+                    problems.append(f"record {seq}: the same person gave both approvals")
             if step in ("owner_approved", "approver_approved", "auto_approved"):
                 proposal = event.get("proposal") or {}
                 if event.get("approved_digest") != proposal.get("digest"):

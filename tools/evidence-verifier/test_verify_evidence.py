@@ -55,7 +55,7 @@ class Verifier(unittest.TestCase):
         db = sqlite3.connect(os.path.join(cls.dir, "fixture-provider.sqlite"))
         db.executemany("INSERT INTO fixture_payments(id,currency,amount_minor,customer) VALUES (?,?,?,?)",
                        [("pay_v_1", "USD", 2000, "a"), ("pay_v_2", "USD", 45000, "b"), ("pay_v_3", "USD", 30000, "c"),
-                        ("pay_v_4", "USD", 3000, "d"), ("pay_v_5", "USD", 40000, "e")])
+                        ("pay_v_4", "USD", 3000, "d"), ("pay_v_5", "USD", 40000, "e"), ("pay_v_6", "USD", 45000, "f")])
         db.execute("INSERT INTO fixture_cases(id,customer,source,currency,owed_minor) VALUES ('case_v_4','d','pay_v_4','USD',1000)")
         db.commit(); db.close()
         owner = "Bearer " + json.load(open(os.path.join(cls.dir, "credentials.json")))["owner"]
@@ -101,6 +101,15 @@ class Verifier(unittest.TestCase):
             named = refund("pay_v_5", 40000, "named")              # held, then Priya approves
             http(port, "Bearer " + priya["token"], "POST", f"/operations/{named['data']['id']}/approve",
                  {"proposal_digest": named["proposal_digest"]})
+            dual = http(port, owner, "POST", "/budgets", {"currency": "USD", "limit_minor": 100000, "per_purchase_minor": 50000,
+                        "merchants": ["m"], "expires_at": now + 3600, "second_approval_above_minor": 20000})["data"]["id"]
+            dual_bot = "Bearer " + http(port, owner, "POST", "/agents", {"name": "dual", "budget_id": dual, "permissions": ["execute"],
+                                        "expires_at": now + 1800, "operations": {"kinds": ["refund"], "rails": ["fixture"],
+                                        "auto_approve_minor": 50000}})["data"]["token"]
+            two = http(port, dual_bot, "POST", "/operations", {"budget_id": dual, "kind": "refund", "rail": "fixture",
+                       "source": "pay_v_6", "amount_minor": 45000, "currency": "USD", "reason": "r", "idempotency_key": "two"})
+            for person in ("Bearer " + priya["token"], owner):     # held: needs two people; Priya, then the owner
+                http(port, person, "POST", f"/operations/{two['data']['id']}/approve", {"proposal_digest": two["proposal_digest"]})
         finally:
             server.kill(); server.wait()
         cls.genuine = os.path.join(cls.dir, "evidence.jsonl")
@@ -126,11 +135,12 @@ class Verifier(unittest.TestCase):
         code, report = self.verify()
         self.assertEqual(code, 0, report["problems"])
         self.assertEqual(report["hashes_checked"], report["records"])
-        self.assertEqual(report["rules"]["operations"], 8)
+        self.assertEqual(report["rules"]["operations"], 9)
         self.assertEqual(report["rules"]["auto_approved"], 2)
         self.assertEqual(report["rules"]["case_bound"], 2)
-        self.assertEqual(report["rules"]["owner_decisions"], 2)
-        self.assertEqual(report["rules"]["approver_decisions"], 1)
+        self.assertEqual(report["rules"]["owner_decisions"], 3)
+        self.assertEqual(report["rules"]["approver_decisions"], 2)
+        self.assertEqual(report["rules"]["first_approvals"], 1)
         self.assertEqual(subprocess.run([BIN, "evidence", "verify", "--data-dir", self.dir], capture_output=True).returncode, 0)
 
     def test_an_edited_body_breaks_its_hash(self):
@@ -195,6 +205,18 @@ class Verifier(unittest.TestCase):
             for r in records:
                 if r["event"]["kind"] == "gateway.operation.approver_approved":
                     r["event"]["approved_by"] = "owner"
+        def first_approval_removed(records):
+            records[:] = [r for r in records if r["event"]["kind"] != "gateway.operation.first_approved"]
+        def same_person_twice(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.operation.first_approved":
+                    r["event"]["by"] = {"owner": r["event"]["by"]["owner"], "role": "owner", "agent": None}
+        def threshold_lowered(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.budget.created" and "second_approval_above_minor" not in e["terms"]:
+                    e["terms"]["second_approval_above_minor"] = 1000
+                    break
         def wrong_digest(records):
             for r in records:
                 if r["event"]["kind"] == "gateway.operation.owner_approved":
@@ -207,7 +229,10 @@ class Verifier(unittest.TestCase):
                                  (approver_limit_lowered, "above the approver's limit"),
                                  (revoked_approver_decides, "by a revoked approver"),
                                  (unregistered_approver, "by an unregistered approver"),
-                                 (approval_recorded_as_owner, "not recorded as theirs")):
+                                 (approval_recorded_as_owner, "not recorded as theirs"),
+                                 (first_approval_removed, "without a first approval"),
+                                 (same_person_twice, "the same person gave both approvals"),
+                                 (threshold_lowered, "automatic approval above the two-person threshold")):
             code, report = self.verify(self.forged(change))
             self.assertEqual(code, 5, change.__name__)
             self.assertEqual(report["hashes_checked"], report["records"], "the forged chain is internally consistent")

@@ -52,6 +52,7 @@ fn hosted_request_is_structured_bounded_and_has_no_execution_authority() {
             per_purchase_minor: 1000,
             merchants: vec!["fixture-cafe".into()],
             expires_at: 1000,
+            second_approval_above_minor: None,
         },
     };
     let task = TaskInput {
@@ -183,6 +184,7 @@ fn groq_uses_the_same_constrained_plan_and_rejects_models_from_other_providers()
                 per_purchase_minor: 1000,
                 merchants: vec!["fixture-cafe".into()],
                 expires_at: 1000,
+                second_approval_above_minor: None,
             },
         };
         let task = TaskInput {

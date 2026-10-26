@@ -272,10 +272,7 @@ pub(crate) fn operation(
         None => Value::Null,
     };
     let request = &op.request;
-    append(
-        db,
-        at,
-        json!({"kind": format!("gateway.operation.{step}"), "by": by, "operation": op.id,
+    let mut event = json!({"kind": format!("gateway.operation.{step}"), "by": by, "operation": op.id,
             "budget": request.budget_id, "agent": op.agent, "version": op.version,
             "stage": op.stage, "decision": op.decision,
             "request": {"kind": request.kind, "rail": request.rail, "source": request.source,
@@ -287,8 +284,12 @@ pub(crate) fn operation(
             "proposal": proposal, "approved_digest": op.approved_digest,
             "approved_by": op.approved_by, "attempt_key": op.attempt_key,
             "receipt": op.receipt, "hold": operation_hold(db, &op.id)?,
-            "operation_digest": digest(data)}),
-    )
+            "operation_digest": digest(data)});
+    // Present only when two approvals are needed, so earlier records keep their exact shape.
+    if let (Some(first), Some(map)) = (&op.first_approval, event.as_object_mut()) {
+        map.insert("first_approval".into(), serde_json::to_value(first)?);
+    }
+    append(db, at, event)
 }
 
 /// Owner delegation to the local scheduler (enroll, pause, resume). Not spending authority.

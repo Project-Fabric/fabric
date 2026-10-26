@@ -55,6 +55,9 @@ export const gatewayOperationSchema = z.object({
     proposal: z.object({ facts: z.record(z.unknown()), expires_at: z.number(), amount_minor: z.number().int(),
       currency: string }).passthrough().nullable(),
     approved_by: nullable,
+    // The first of two required approvals (gateway ledger version 8).
+    first_approval: z.object({ by: z.enum(['owner', 'approver']), approver: string.optional(), digest: hex64, at: z.number() })
+      .passthrough().nullable().optional(),
     receipt: z.object({ rail_reference: string, succeeded: z.boolean() }).passthrough().nullable(),
   }).passthrough(),
 });

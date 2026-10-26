@@ -176,8 +176,12 @@ async function performOperation(action: Extract<ConsoleAction, { action: 'operat
   const value = validate(gatewayOperationSchema, await gatewayCall('POST', `/operations/${action.id}/${route}`,
     action.action === 'operation-decide' && route === 'approve' ? { proposal_digest: action.digest } : {}));
   const stage = value.data.stage;
-  if (value.data.id !== action.id || (route === 'approve' && value.data.approved_by !== 'owner') || (route === 'reject' && stage !== 'rejected'))
+  // Above a budget's two-person threshold the owner's approval may be the first of two: it stays held.
+  const firstOfTwo = route === 'approve' && stage === 'held' && value.data.first_approval?.by === 'owner';
+  if (value.data.id !== action.id || (route === 'approve' && !firstOfTwo && value.data.approved_by !== 'owner') || (route === 'reject' && stage !== 'rejected'))
     throw new Error('The gateway result did not match the requested decision. Refresh the record before retrying.');
+  if (firstOfTwo) return { simulated: false, args,
+    message: 'Recorded by the Cosigna gateway as the first of two approvals. A second person must approve before it is paid.' };
   const outcome: Record<string, string> = { succeeded: 'Approved and paid.', failed: 'The payment system refused it; no money moved and the hold was released.',
     unknown: 'Approved; the payment result is not known yet. It stays held until settled.', submitting: 'Approved; the payment is being submitted.',
     rejected: 'Rejected. No money moved.' };

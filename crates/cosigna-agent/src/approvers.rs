@@ -209,6 +209,7 @@ mod tests {
                     per_purchase_minor: 50_000,
                     merchants: vec!["fixture-cafe".into()],
                     expires_at: at + 86_400,
+                    second_approval_above_minor: None,
                 },
                 at,
             )

@@ -35,6 +35,7 @@ impl Setup {
                     per_purchase_minor: limit,
                     merchants: vec!["fixture-cafe".into()],
                     expires_at: AT + 3600,
+                    second_approval_above_minor: None,
                 },
                 AT,
             )
@@ -644,6 +645,7 @@ fn currency_seller_features_ceiling_and_catalog_are_enforced_outside_model() {
             per_purchase_minor: 1000,
             merchants: vec!["fixture-cafe".into()],
             expires_at: AT + 3600,
+            second_approval_above_minor: None,
         };
         if constraint == "currency" {
             terms.currency = "INR".into();
@@ -749,7 +751,7 @@ fn provider_idempotency_rejects_changed_payload_and_ledger_rejects_future_schema
     ));
     assert_eq!(s.service.provider.order_count().unwrap(), 1);
     let db = rusqlite::Connection::open(s.directory.path().join("transactions.sqlite")).unwrap();
-    db.pragma_update(None, "user_version", 8).unwrap();
+    db.pragma_update(None, "user_version", 9).unwrap();
     drop(db);
     assert!(matches!(
         Service::open(s.directory.path()),

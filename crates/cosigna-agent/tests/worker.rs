@@ -45,6 +45,7 @@ impl Setup {
                     per_purchase_minor: 1000,
                     merchants: vec!["fixture-cafe".into()],
                     expires_at: at + 3600,
+                    second_approval_above_minor: None,
                 },
                 at,
             )
@@ -476,7 +477,7 @@ fn v2_migration_preserves_approval_and_hold_and_does_not_enroll_historical_tasks
         s.db()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        7
+        8
     );
     assert!(
         Worker::open(&reopened)

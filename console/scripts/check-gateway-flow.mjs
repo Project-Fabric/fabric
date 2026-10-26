@@ -91,11 +91,26 @@ try {
   assert.equal(after.find(op => op.data.id === toReject.id).data.stage, 'rejected');
   assert.equal((await snapshot()).operations.filter(op => op.data.stage === 'held').length, 0);
   assert.equal((await snapshot()).exposure.currencies[0].without_a_person_minor, 200000 - 45000, 'Paid money leaves the bound.');
+  // Two-person approval: the owner approves first in the console, a named approver completes it.
+  const dual = (await gw(ownerToken, 'POST', '/budgets', { currency: 'USD', limit_minor: 200000, per_purchase_minor: 100000,
+    merchants: ['northwind'], expires_at: now + 3600, second_approval_above_minor: 20000 })).data.id;
+  const dualBot = (await gw(ownerToken, 'POST', '/agents', { name: 'dual-bot', budget_id: dual, permissions: ['execute'], expires_at: now + 1800,
+    operations: { kinds: ['refund'], rails: ['fixture'], auto_approve_minor: 100000 } })).data.token;
+  const two = (await gw(dualBot, 'POST', '/operations', { budget_id: dual, kind: 'refund', rail: 'fixture', source: 'pay_live_2049',
+    amount_minor: 30000, currency: 'USD', reason: 'Live check two people', idempotency_key: 'live-two' }));
+  assert.equal(two.data.decision.rule, 'needs_two_approvals');
+  const twoView = (await snapshot()).operations.find(op => op.data.id === two.data.id);
+  const first = await send({ action: 'operation-decide', id: two.data.id, decision: 'approve', digest: twoView.proposal_digest });
+  assert.equal(first.status, 200);
+  assert.match((await first.json()).message, /first of two approvals/);
+  const priya = (await gw(ownerToken, 'POST', '/approvers', { name: 'Priya', currency: 'USD', max_approval_minor: 50000 })).data.token;
+  const completed = await gw(priya, 'POST', `/operations/${two.data.id}/approve`, { proposal_digest: twoView.proposal_digest });
+  assert.equal(completed.data.stage, 'succeeded'); assert.equal(completed.data.first_approval.by, 'owner');
   lines.close();
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));
   execFileSync(binary, ['evidence', 'verify', '--data-dir', dir], { stdio: 'ignore' });
-  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, exposure reported, evidence intact.');
+  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, exposure reported, two-person approval, evidence intact.');
 } finally {
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));

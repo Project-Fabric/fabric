@@ -17,6 +17,8 @@ It checks two things:
    - automatic approvals stay within the agent's grant at that moment;
    - only the owner, or a named approver the owner registered and had not revoked, approves or
      rejects, and an approver's approval is in their currency and within their limit;
+   - above a budget's two-person threshold, nothing is approved automatically and two different
+     people approve, each within their own limit;
    - holds match the requested amounts;
    - every paid operation has a matching receipt and spent hold;
    - every approval names the digest it approved.

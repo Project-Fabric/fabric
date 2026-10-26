@@ -85,6 +85,20 @@ function verifiedFacts(op: OperationView) {
   return parts.length ? parts.join(' · ') : 'No verified facts recorded';
 }
 
+/** Why a payment is waiting, in plain words. */
+function heldReason(op: OperationView) {
+  const first = op.data.first_approval;
+  switch (op.data.decision.rule) {
+    case 'needs_owner_approval': return 'Above the agent’s automatic limit';
+    case 'needs_two_approvals': return first
+      ? `Approved once by ${first.by === 'owner' ? 'you' : 'an approver'}; needs a second, different person`
+      : 'Above the two-person limit: needs two people to approve';
+    case 'case_mismatch': return 'Does not match the customer’s case (payment, customer or currency)';
+    case 'exceeds_case_owed': return 'More than the customer’s case says is owed';
+    default: return 'Waiting for a person to decide';
+  }
+}
+
 /** Money operations from the Cosigna gateway that need a person: held above an agent's limit, or with an unknown result. */
 export function GatewayPayments() {
   const { data, act } = useConsole();
@@ -114,7 +128,7 @@ export function GatewayPayments() {
         <div className="request-title"><strong>{op.kindLabel}</strong><span className="amount">{op.amountLabel}</span></div>
         <span className="counterparty mono">{op.counterparty}</span>
         <p className="agent-reason">{op.data.request.reason}</p>
-        <small className="muted">{op.agentName} · {op.data.stage === 'held' ? 'Above the agent’s automatic limit' : 'Result unknown: the money stays held until settled'}</small>
+        <small className="muted">{op.agentName} · {op.data.stage === 'held' ? heldReason(op) : 'Result unknown: the money stays held until settled'}</small>
         <small className="verified-facts">Verified by the payment system: {verifiedFacts(op)}</small>
       </div></div>
       <div className="gateway-actions">{op.data.stage === 'held'

@@ -194,6 +194,24 @@ pub struct OperationReceipt {
     pub simulated: bool,
 }
 
+/// The first person's approval of an operation that needs two. Bound to the same digest the
+/// second person must approve.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FirstApproval {
+    /// `owner` or `approver`.
+    pub by: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approver: Option<String>,
+    pub digest: String,
+    pub at: i64,
+}
+
+impl FirstApproval {
+    fn person(&self) -> &str {
+        self.approver.as_deref().unwrap_or("owner")
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Operation {
     pub id: String,
@@ -210,6 +228,9 @@ pub struct Operation {
     /// The named approver who approved it (ledger version 7); absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approver: Option<String>,
+    /// The first of two required approvals (ledger version 8); absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_approval: Option<FirstApproval>,
     pub attempt_key: Option<String>,
     /// When the attempt was claimed (bounds idempotent retries on some rails).
     #[serde(default)]
@@ -240,6 +261,14 @@ pub fn decide(
     }
     if request.amount_minor > available_minor {
         return denied("budget_exhausted");
+    }
+    // Above the budget's two-person threshold nothing is approved automatically.
+    if budget
+        .terms
+        .second_approval_above_minor
+        .is_some_and(|above| request.amount_minor > above)
+    {
+        return Decision::Held("needs_two_approvals".into());
     }
     match agent_grant {
         Some(Some(grant)) if request.amount_minor <= grant.auto_approve_minor => {
@@ -477,6 +506,7 @@ impl Service {
             approved_digest: approved_by.as_ref().and(digest),
             approved_by,
             approver: None,
+            first_approval: None,
             attempt_key: None,
             submitted_at: None,
             receipt: None,
@@ -583,6 +613,41 @@ impl Service {
         }
         let budget = storage::budget(&tx, &op.request.budget_id)?;
         active(&budget, at)?;
+        // Two-person rule: the first approval is recorded and the operation stays held; the
+        // second must come from a different person, for the same digest.
+        let needs_two = budget
+            .terms
+            .second_approval_above_minor
+            .is_some_and(|above| proposal.amount_minor > above);
+        let person = approver.as_ref().map_or("owner", |a| a.id.as_str());
+        if needs_two {
+            match &op.first_approval {
+                None => {
+                    op.first_approval = Some(FirstApproval {
+                        by: if approver.is_some() {
+                            "approver"
+                        } else {
+                            "owner"
+                        }
+                        .into(),
+                        approver: approver.as_ref().map(|a| a.id.clone()),
+                        digest: digest.to_string(),
+                        at,
+                    });
+                    save(&tx, &mut op, "first_approved", at, self.by(owner))?;
+                    tx.commit()?;
+                    return Ok(op);
+                }
+                Some(first) if first.person() == person => {
+                    return Err(Error::Conflict(
+                        "second_approver_required: a different person must give the second approval"
+                            .into(),
+                    ));
+                }
+                Some(first) if first.digest != digest => return Err(Error::StoreFormat),
+                Some(_) => {}
+            }
+        }
         let (held, spent) = storage::totals(&tx, &budget.id)?;
         if proposal.amount_minor > budget.terms.limit_minor - held - spent {
             return Err(Error::BudgetExceeded);

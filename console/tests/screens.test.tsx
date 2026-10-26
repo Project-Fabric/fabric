@@ -106,6 +106,20 @@ describe('Cosigna gateway payments in the inbox', () => {
     await waitFor(() => expect(submitted).toEqual([{ action: 'operation-resolve', id: op.data.id }]));
   });
 });
+describe('why a payment is waiting', () => {
+  it('names the reason for each hold, including a first of two approvals', async () => {
+    const data = sample();
+    const [two, theCase] = data.operations.filter(o => o.data.stage === 'held');
+    two.data.decision = { outcome: 'held', rule: 'needs_two_approvals' };
+    two.data.first_approval = { by: 'approver', approver: 'approver_x', digest: 'a'.repeat(64), at: 1 };
+    theCase.data.decision = { outcome: 'held', rule: 'exceeds_case_owed' };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => structuredClone(data) })));
+    render(<ConsoleProvider><ApprovalInbox /></ConsoleProvider>);
+    const section = within(await screen.findByRole('region', { name: 'Agent payments' }));
+    expect(section.getByText(/Approved once by an approver; needs a second, different person/)).toBeVisible();
+    expect(section.getByText(/More than the customer’s case says is owed/)).toBeVisible();
+  });
+});
 describe('what agents can pay without the owner', () => {
   it('shows the worst case from the captured gateway report, what sets each limit, and the case what-if', async () => {
     mount(<ApprovalInbox />);

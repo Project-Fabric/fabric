@@ -227,9 +227,11 @@ fn assess(agent: &RegisteredAgent, state: &BudgetState, at: i64, room: i64) -> A
     } else {
         available
     };
+    // Above a two-person threshold nothing is approved automatically.
     let largest = grant
         .auto_approve_minor
         .min(budget.terms.per_purchase_minor)
+        .min(budget.terms.second_approval_above_minor.unwrap_or(i64::MAX))
         .min(exposure);
     if refunds_only && !grant.require_case {
         out.if_case_required_minor = Some(case_bound);

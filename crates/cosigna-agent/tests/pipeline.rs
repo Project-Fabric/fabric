@@ -45,6 +45,7 @@ impl Setup {
                     per_purchase_minor: 1000,
                     merchants: vec!["fixture-cafe".into()],
                     expires_at: at + 3600,
+                    second_approval_above_minor: None,
                 },
                 at,
             )

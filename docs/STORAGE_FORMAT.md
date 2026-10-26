@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 7, provider version 4)
+## Optional Cosigna agent development stores (ledger version 8, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 7 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers` |
+| `transactions.sqlite` | `0x43535458` | 8 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -327,13 +327,15 @@ index. Version 4 added `evidence` (below). Version 5 added money operations, the
 agent operation grants. Version 6 adds case binding: the nullable `operations.case_id` column
 with index `operations_case(owner, case_id)`, and the optional `case_id` request field and
 `require_case` grant field (below). Version 7 adds the `approvers` table (named approvers,
-below). Opening an application-matching v1-v6 ledger creates the missing tables and columns and
-updates `user_version` to 7 in one transaction. Existing
+below). Version 8 adds no tables: budget JSON may carry `second_approval_above_minor` and
+operation JSON `first_approval` (two-person approval, below). Opening an application-matching
+v1-v7 ledger creates the missing tables and columns and updates `user_version` to 8 in one
+transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 7, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v7
+one transaction, and provider versions above 4 are refused. Versions above 8, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v8
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -508,7 +510,7 @@ Owner routes: `GET /gateway/v1/operations[?stage=held|unknown]`, `POST .../{id}/
 `.../reconcile`. Other agents cannot see an operation.
 
 Evidence kinds `gateway.operation.{auto_approved,held,denied,owner_approved,owner_rejected,
-approver_approved,approver_rejected,
+approver_approved,approver_rejected,first_approved,
 submission_started,rail_result,rail_rejected,rail_voided,submission_unknown}` record `by`,
 `operation`, `budget`, `agent`, `version`, `stage`, `decision`, `request` (with
 `reason_digest` instead of the reason text, and `case_id` from v6), `proposal` (`digest`, `facts`, `expires_at`),
@@ -608,8 +610,33 @@ or a revocation undone outside the service is reported. The independent verifier
 each approver decision was made by an approver registered earlier in the chain, not revoked,
 of the same owner, and that an approval is in their currency and within their limit.
 
-Not yet: approver sign-in for the console (it still acts as the owner), approval by two people
-above a threshold, and approvers for purchase quotes (tasks).
+Not yet: approver sign-in for the console (it still acts as the owner) and approvers for
+purchase quotes (tasks).
+
+### Two-person approval (ledger version 8)
+
+A budget may set `second_approval_above_minor` (0 to the maximum amount; written only when
+present, so earlier budget JSON and digests are unchanged). For an operation on that budget
+whose amount is above it:
+
+- Policy never approves it automatically, even within the agent's own limit: after the budget
+  checks, `decide` holds it with rule `needs_two_approvals`. The exposure report's
+  `largest_single_minor` is capped at the threshold accordingly.
+- The first person's approval (the owner, or a named approver within their currency and
+  limit) is stored as the operation's `first_approval: {by: "owner"|"approver", approver?,
+  digest, at}`, recorded as `gateway.operation.first_approved`, and leaves the operation
+  `held` with no budget hold. The approve route then returns without executing.
+- The completing approval must be for the same digest, by a different person, also within
+  their own limit; the owner counts as one person and each approver as one. The same person
+  again is refused with a conflict starting `second_approver_required`. The completing
+  approval places the hold, records `owner_approved` or `approver_approved` as before (with
+  `first_approval` in the record), and executes.
+- Either person, or any other, may reject before submission.
+
+Operation records carry `first_approval` only when it is set, so records of operations that
+need one person keep their earlier shape. The independent verifier checks that no automatic
+approval exceeds the threshold, and that each approval above it follows a `first_approved`
+record of the same operation by a different person, both within their limits.
 
 ### Worst-case exposure (`cosigna.exposure/v1`; no database migration)
 

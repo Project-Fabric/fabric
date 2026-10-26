@@ -209,7 +209,11 @@ fn approver_routes(
         }
         ("POST", ["", "gateway", "v1", "operations", id, "approve"]) => {
             let input: OperationApproval = decode(body)?;
-            service.approve_operation(&actor, id, &input.proposal_digest, at)?;
+            let op = service.approve_operation(&actor, id, &input.proposal_digest, at)?;
+            // A first of two approvals leaves it held; only a complete approval executes.
+            if op.stage == crate::operations::OperationStage::Held {
+                return operation_view(&op);
+            }
             operation_view(&service.execute_operation(&actor, id, Scenario::Success, at)?)
         }
         ("POST", ["", "gateway", "v1", "operations", id, "reject"]) => {
@@ -307,7 +311,10 @@ pub(crate) fn dispatch_authenticated(
         }
         ("POST", ["", "gateway", "v1", "operations", id, "approve"]) if owner => {
             let input: OperationApproval = decode(body)?;
-            service.approve_operation(&actor, id, &input.proposal_digest, at)?;
+            let op = service.approve_operation(&actor, id, &input.proposal_digest, at)?;
+            if op.stage == crate::operations::OperationStage::Held {
+                return operation_view(&op);
+            }
             return operation_view(&service.execute_operation(
                 &actor,
                 id,

@@ -20,6 +20,7 @@ fn budget_input(limit: i64) -> BudgetInput {
         per_purchase_minor: limit,
         merchants: vec!["fixture-cafe".into()],
         expires_at: AT + 3600,
+        second_approval_above_minor: None,
     }
 }
 

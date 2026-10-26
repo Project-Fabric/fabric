@@ -45,6 +45,10 @@ pub struct BudgetInput {
     pub per_purchase_minor: i64,
     pub merchants: Vec<String>,
     pub expires_at: i64,
+    /// Operations above this amount need two different people to approve, and are never
+    /// approved automatically (ledger version 8). Absent: one person is enough.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub second_approval_above_minor: Option<i64>,
 }
 
 impl BudgetInput {
@@ -57,6 +61,9 @@ impl BudgetInput {
             || self.merchants.is_empty()
             || self.merchants.len() > 20
             || self.merchants.iter().any(|s| s.is_empty() || s.len() > 100)
+            || self
+                .second_approval_above_minor
+                .is_some_and(|above| !(0..=MAX_MINOR).contains(&above))
         {
             return Err(Error::Invalid("invalid budget terms".into()));
         }

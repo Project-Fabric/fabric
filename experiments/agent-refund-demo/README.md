@@ -131,11 +131,14 @@ before Review, then the explicit human confirmation and the updated provider res
 The real-service run must be completed before describing a video as real Zendesk + Stripe.
 Do not record private credential files, OAuth pages, developer consoles or unrelated tickets.
 
-26 October verification: a real signed-in Codex smoke run completed all three scenarios
-against loopback stand-ins; one USD 10.00 refund, no refund on the other cases, MCP requests
-observed on all three, gateway evidence verified. The combined real Zendesk + Stripe run and
-its recording remain pending owner-entered credentials and manual ticket updates. Claude's
-separate real-account checks are documented in the handover; they do not substitute for it.
+26 October verification: the signed-in Codex smoke run completed all three scenarios against
+loopback stand-ins. The combined run then completed against the real Zendesk trial and Stripe
+test account: one USD 10.00 refund succeeded; the USD 45.00 request against USD 30.00 owed
+was held by the case limit; and the USD 30.00 owner-review request stayed held pending human
+approval. The report verified gateway evidence. Stripe test mode moved no real funds. The
+explicit owner-approval follow-up and recording remain outstanding. This one synthetic
+workflow does not establish commercial adoption or competitive advantage. Claude's separate
+real-account checks are documented in the handover; they do not substitute for this run.
 
 ## Automated checks
 

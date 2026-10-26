@@ -9,14 +9,14 @@ has named approvers, console sign-in, replay, CSV/HTTP case sources, an operator
 and lookup-only refund recovery. Separate checks passed against a real Zendesk trial and
 Stripe test account, as recorded in [Claude's handover](HANDOVER_CODEX_2026-10-26.md).
 
-The next [agent refund demo](../experiments/agent-refund-demo/README.md) uses the signed-in
-Codex CLI and the current Rust gateway. Its combined scripted adapter checks and a real
-Codex smoke run against loopback payment/case stand-ins passed. The runner prepares Stripe
-test payments with attached customers, requires matching Zendesk case fields and fresh
-per-run comments, isolates agent credentials, verifies provider outcomes and separates
-human review from agent action. The combined real Zendesk + Stripe run and its recording
-are pending owner-entered credentials and manual ticket updates. No live funds, commercial
-adoption, independently verified human identity or competitive advantage are established.
+The [agent refund demo](../experiments/agent-refund-demo/README.md) uses the signed-in Codex
+CLI and current Rust gateway. On 26 October, a combined run against the real Zendesk trial
+and Stripe test account completed: the routine USD 10.00 refund succeeded once; the USD
+45.00 request against USD 30.00 owed was held; and the USD 30.00 owner-review request was
+held pending owner approval. Evidence verification passed. Stripe test mode moved no real
+funds. This is one synthetic workflow, not evidence of commercial adoption, independently
+verified human identity, or competitive advantage. The owner-approval follow-up and demo
+recording remain outstanding.
 
 ## Why we are pivoting
 

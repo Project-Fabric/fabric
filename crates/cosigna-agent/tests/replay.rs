@@ -177,6 +177,9 @@ fn replay_decides_every_operation_exactly_as_the_live_gateway() {
     }
     assert_eq!(report.automatic.count, 3);
     assert_eq!(report.automatic.amount_minor, 2000 + 2000 + 9000);
+    // r10 was paid automatically with no case: allowed, but nothing confirmed it was owed.
+    assert_eq!(report.paid_without_a_record.count, 1);
+    assert_eq!(report.paid_without_a_record.amount_minor, 9000);
     assert_eq!(report.held_for_a_person.count, 5);
     assert_eq!(report.denied.count, 3);
 }

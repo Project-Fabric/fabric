@@ -121,6 +121,9 @@ pub struct Report {
     pub held_for_a_person: Tally,
     pub denied: Tally,
     pub other_currency: u64,
+    /// Paid automatically with no business record (case) to check it against: the policy
+    /// allowed it, but nothing confirmed it was owed.
+    pub paid_without_a_record: Tally,
     pub held_per_week: f64,
     pub by_rule: Vec<RuleTally>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -188,6 +191,7 @@ pub fn replay(policy: Policy, mut history: Vec<Past>, cases: &[Case]) -> Result<
     let (mut automatic, mut held, mut denied) =
         (Tally::default(), Tally::default(), Tally::default());
     let mut other_currency = 0;
+    let mut unchecked = Tally::default();
     let mut rules: BTreeMap<(&'static str, String), Tally> = BTreeMap::new();
     let mut replayed = Vec::with_capacity(history.len());
     let mut mistakes = Mistakes {
@@ -264,6 +268,10 @@ pub fn replay(policy: Policy, mut history: Vec<Past>, cases: &[Case]) -> Result<
             other_currency += 1;
         }
         let amount = if in_currency { past.amount_minor } else { 0 };
+        if outcome == "automatic" && past.case_id.is_none() {
+            unchecked.count += 1;
+            unchecked.amount_minor += amount;
+        }
         let tally = match outcome {
             "automatic" => &mut automatic,
             "held_for_a_person" => &mut held,
@@ -303,6 +311,7 @@ pub fn replay(policy: Policy, mut history: Vec<Past>, cases: &[Case]) -> Result<
         held_for_a_person: held,
         denied,
         other_currency,
+        paid_without_a_record: unchecked,
         by_rule: rules
             .into_iter()
             .map(|((outcome, rule), t)| RuleTally {
@@ -555,6 +564,14 @@ pub fn summary(report: &Report) -> String {
         report.denied.count,
         money(report.denied.amount_minor),
     );
+    if report.paid_without_a_record.count > 0 {
+        out += &format!(
+            "Paid automatically with no business record to check against: {} ({})
+",
+            report.paid_without_a_record.count,
+            money(report.paid_without_a_record.amount_minor)
+        );
+    }
     if report.other_currency > 0 {
         out += &format!(
             "({} operations in other currencies were stopped and not summed.)\n",

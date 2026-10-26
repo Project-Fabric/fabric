@@ -668,7 +668,8 @@ History CSV (RFC 4180, UTF-8, optional BOM; header names matter, column order do
 
 Output `{"schema":"cosigna.replay/v1","data":{...}}`: `policy`, `operations`, `from`, `to`,
 `automatic`, `held_for_a_person` and `denied` (`{count, amount_minor}`, amounts in the budget's
-currency only), `other_currency` (count), `held_per_week` (one decimal), `by_rule`
+currency only), `other_currency` (count), `paid_without_a_record` (`{count, amount_minor}` of
+operations paid automatically with no `case_id` to check them against), `held_per_week` (one decimal), `by_rule`
 (`{outcome, rule, count, amount_minor}`), `mistakes` when any row is labelled (`labelled`,
 `stopped`, `stopped_amount_minor`, `paid_automatically` ids), `replayed` (per operation: `id`,
 `at`, `amount_minor`, `currency`, `outcome`, `rule`) and three fixed `notes` stating the

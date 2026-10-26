@@ -192,20 +192,44 @@ def read_tickets(run, token, *, offline_base=None):
             if f['id'] in fields:
                 raise DemoError('Zendesk returned duplicate field ids.')
             fields[f['id']] = f.get('value')
-        if (fields.get(cfg['customer_field']) != row['customer']
-                or fields.get(cfg['payment_field']) != row['payment']
-                or cents(fields.get(cfg['owed_field'])) != row['owed_minor']):
-            raise DemoError(f'Ticket {row["ticket_id"]} does not match ticket-updates.md; no agent has started.')
+        mismatches = []
+        for label, field, expected in [('Customer id', 'customer_field', row['customer']),
+                                       ('Payment id', 'payment_field', row['payment'])]:
+            if fields.get(cfg[field]) != expected:
+                mismatches.append(f'{label} (field {cfg[field]})')
+        try:
+            owed_matches = cents(fields.get(cfg['owed_field'])) == row['owed_minor']
+        except DemoError:
+            owed_matches = False
+        if not owed_matches:
+            mismatches.append(f'Amount owed (field {cfg["owed_field"]})')
+        if mismatches:
+            raise DemoError(f'Ticket {row["ticket_id"]}: update and submit these custom fields using '
+                            f'ticket-updates.md: {", ".join(mismatches)}.')
         status, comments = request('GET', f'{base}/api/v2/tickets/{row["ticket_id"]}/comments.json?sort_order=desc',
                                    {'Authorization': 'Bearer ' + token})
+        if status != 200:
+            raise DemoError(f'Zendesk ticket {row["ticket_id"]} comments unavailable (HTTP {status}); '
+                            'check the read-only token and agent access. No comment text was printed.')
         marker = 'COSIGNA_DEMO ' + run['run_id'] + '\n'
         entries = comments.get('comments', []) if isinstance(comments, dict) else []
-        text = (entries[0].get('plain_body') or entries[0].get('body')) if entries and isinstance(entries[0], dict) else None
-        if isinstance(text, str):
-            text = text.replace('\r\n', '\n').replace('\r', '\n').strip()
-        if (status != 200 or not isinstance(text, str) or not text.startswith(marker)
-                or len(text.encode()) > 12000):
-            raise DemoError(f'Ticket {row["ticket_id"]} needs the current run comment from ticket-updates.md as its newest comment.')
+        if not isinstance(entries, list):
+            raise DemoError(f'Zendesk ticket {row["ticket_id"]} returned an invalid comments list.')
+
+        def comment_text(entry):
+            text = (entry.get('plain_body') or entry.get('body')) if isinstance(entry, dict) else None
+            return text.replace('\r\n', '\n').replace('\r', '\n').strip() if isinstance(text, str) else ''
+
+        text = comment_text(entries[0]) if entries else ''
+        if not text.startswith(marker):
+            if any(comment_text(entry).startswith(marker) for entry in entries[1:]):
+                raise DemoError(f'Ticket {row["ticket_id"]}: the current run comment is present but is not newest. '
+                                'Add the specified comment as a new internal note and submit the ticket.')
+            raise DemoError(f'Ticket {row["ticket_id"]}: add the current run comment from ticket-updates.md '
+                            'as a NEW internal note in Message composer, then submit the ticket. '
+                            'The run marker must be on the first line.')
+        if len(text.encode()) > 12000:
+            raise DemoError(f'Ticket {row["ticket_id"]}: the current run comment exceeds the size limit.')
         text = text[len(marker):].strip()
         if not text:
             raise DemoError('The current run comment must include a synthetic refund request.')

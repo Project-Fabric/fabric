@@ -57,6 +57,9 @@ per-run idempotency keys. It saves a new run directory under
 
 Open the printed `ticket-updates.md`. In Zendesk, manually update the three mapped fields
 on each synthetic ticket and add the specified new comment, including its run marker.
+Under Message composer, change Public reply to Internal note, paste the specified two lines,
+and click Submit. Confirm the new note appears newest in the ticket conversation. Editing
+the old description or leaving text in the composer without submitting does not add a note.
 Preparation makes no Zendesk writes. The agent gets no ticket-writing tool or credential.
 Keep mapped financial fields outside the paying agent's write access. This demo does not
 independently prove the organization's wider Zendesk permissions are configured correctly.
@@ -71,6 +74,19 @@ The scenarios are:
 
 ## Run, inspect and approve
 
+Check readiness without starting Codex or submitting a refund:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\experiments\agent-refund-demo\run.ps1 -Stage Check
+```
+
+Check reads the ticket fields/comments and Stripe test payment/refund records. It asks for
+the same hidden credentials as Run, but requires no gateway build, model call, gateway startup
+or new payment. Errors identify which mapped field needs changing, distinguish a missing
+or older run note from denied comment access, and omit remote values and comment text.
+
+When Check passes, start the agents:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\experiments\agent-refund-demo\run.ps1 -Stage Run
 ```
@@ -83,7 +99,12 @@ demo wrapper, not automatic OAuth refresh in the gateway (E16 remains open).
 The runner checks all three ticket mappings, the newest per-run comment, attached payment
 customers and untouched Stripe refund lists before any agent starts. Then type `RUN` to
 start inference. Requests go through Cosigna's MCP adapter, with one separately scoped
-agent per ticket and `require_case: true`. A second Run is refused; use Verify after errors.
+agent per ticket and `require_case: true`.
+Run repeats preflight before asking you to type `RUN`. If setup fails before the agent run
+starts, correct the fields/notes and use Check or Run on the same prepared run. Do not repeat
+Prepare to repair setup. Once an agent run starts, use Verify or Review: Check and Run
+refuse that run before the wrapper requests credentials. Verify also distinguishes an
+unstarted run, where there is no payment attempt to reconcile.
 
 For a particular run, add `-RunDir 'C:\path\printed\by\Prepare'`. `-Model <id>` passes an
 explicit model to Codex; otherwise the CLI chooses its default. There is no model fallback.

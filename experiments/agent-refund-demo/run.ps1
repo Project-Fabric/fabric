@@ -1,5 +1,5 @@
 param(
-  [ValidateSet('Prepare','Run','Verify','Review','Offline','Agent-Smoke')][string]$Stage = 'Offline',
+  [ValidateSet('Prepare','Check','Run','Verify','Review','Offline','Agent-Smoke')][string]$Stage = 'Offline',
   [string]$RunDir,
   [string]$Config = (Join-Path $PSScriptRoot 'config.example.json'),
   [string]$Model
@@ -13,8 +13,10 @@ try {
   $env:COSIGNA_STRIPE_TEST_SECRET_KEY = $null
   $env:COSIGNA_CASES_SECRET = $null
   # Build before reading credentials; compiler/dependency processes never receive them.
-  & cargo build -p cosigna-agent --locked
-  if ($LASTEXITCODE -ne 0) { throw 'Gateway build failed.' }
+  if ($Stage -ne 'Check') {
+    & cargo build -p cosigna-agent --locked
+    if ($LASTEXITCODE -ne 0) { throw 'Gateway build failed.' }
+  }
   $argsList = @('-I', (Join-Path $PSScriptRoot 'run.py'), $Stage.ToLowerInvariant(), '--config', $Config)
   if ($RunDir) { $argsList += @('--run-dir', $RunDir) }
   if ($Model) { $argsList += @('--model', $Model) }
@@ -31,6 +33,12 @@ try {
     $argsList += @('--run-dir', $RunDir)
   }
   if ($RunDir) { Write-Host "Using prepared run: $RunDir" }
+  if ($Stage -in @('Check','Run') -and (Test-Path -LiteralPath (Join-Path $RunDir 'agent-run.started'))) {
+    throw 'This agent run already started. Use Verify or Review; Check and Run cannot resume it.'
+  }
+  if ($Stage -in @('Verify','Review') -and -not (Test-Path -LiteralPath (Join-Path $RunDir 'agent-run.started'))) {
+    throw 'No agent run has started. Fix setup and use Check or Run; there is no attempt to verify.'
+  }
   try {
     $stripeInput = Read-Host 'Stripe TEST secret key (hidden)' -AsSecureString
     $env:COSIGNA_STRIPE_TEST_SECRET_KEY = [System.Net.NetworkCredential]::new('', $stripeInput).Password
@@ -52,7 +60,13 @@ try {
     }
     if ($Stage -eq 'Run') { $argsList += '--execute-agent' }
     & python @argsList
-    if ($LASTEXITCODE -ne 0) { throw 'Demo stopped or a check failed. Use Verify before retrying any agent.' }
+    if ($LASTEXITCODE -ne 0) {
+      if ($Stage -eq 'Prepare') { throw 'Preparation stopped. Inspect the status above before creating another run.' }
+      if (Test-Path -LiteralPath (Join-Path $RunDir 'agent-run.started')) {
+        throw 'An agent run has started. Use Verify to inspect existing attempts; do not rerun Run.'
+      }
+      throw 'Setup stopped before any agent started. Fix the issue above, then use Check or Run. Do not repeat Prepare for this run.'
+    }
   } finally {
     $env:COSIGNA_STRIPE_TEST_SECRET_KEY = $originalStripe
     $env:COSIGNA_CASES_SECRET = $originalCases

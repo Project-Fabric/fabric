@@ -18,6 +18,11 @@ funds. This is one synthetic workflow, not evidence of commercial adoption, inde
 verified human identity, or competitive advantage. The owner-approval follow-up and demo
 recording remain outstanding.
 
+27 October: the demo runner now has a read-only `Check` stage and field-specific setup
+diagnostics. Run checks setup before requesting permission to start Codex; setup failures
+and existing payment attempts give different retry guidance. This addresses the repeated
+manual ticket setup failures observed in the combined trial, without changing gateway policy.
+
 ## Why we are pivoting
 
 - **Developers do not pay for undo.** At least seven open-source "undo for agents" tools have

@@ -1,16 +1,19 @@
 import copy
+import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from demo import (BINARY, DemoError, Stripe, child_env, codex_command, config, grade, invoke_codex,
                   load, manifest, read_tickets, safe_trace_call, safe_trace_result)
 from fake_services import Services, offline
-from run import Gateway, prepare, preflight, run_agents, verify
+from run import Gateway, check_ready, main, prepare, preflight, run_agents, verify
 
 
 CFG = load(Path(__file__).with_name('config.example.json'))
@@ -161,6 +164,121 @@ class LocalServices(unittest.TestCase):
             services.tickets['/api/v2/tickets/2.json']['comments'][0]['body'] = 'Please refund $10.00'
             with self.assertRaisesRegex(DemoError, 'current run comment'):
                 read_tickets(run, services.token, offline_base=services.base)
+
+    def test_setup_errors_name_fields_without_printing_their_values(self):
+        with tempfile.TemporaryDirectory() as tmp, Services() as services:
+            stripe = Stripe(services.key, services.base, offline=True)
+            run = prepare(CFG, stripe, Path(tmp) / 'run')
+            services.set_tickets(run)
+            fields = services.tickets['/api/v2/tickets/2.json']['custom_fields']
+            private = 'synthetic-private-value-do-not-print'
+            for field in fields:
+                field['value'] = private
+            with self.assertRaises(DemoError) as caught:
+                read_tickets(run, services.token, offline_base=services.base)
+            message = str(caught.exception)
+            for label in ['Ticket 2', 'Customer id', 'Payment id', 'Amount owed', 'submit', 'ticket-updates.md']:
+                self.assertIn(label, message)
+            for value in [private, services.token, services.key]:
+                self.assertNotIn(value, message)
+
+    def test_comment_access_errors_are_distinct_from_missing_or_older_notes(self):
+        from demo import request as real_request
+        with tempfile.TemporaryDirectory() as tmp, Services() as services:
+            stripe = Stripe(services.key, services.base, offline=True)
+            run = prepare(CFG, stripe, Path(tmp) / 'run')
+            services.set_tickets(run)
+
+            def denied(method, url, *args, **kwargs):
+                if '/comments.json?' in url:
+                    return 403, {'error': 'synthetic-private-response'}
+                return real_request(method, url, *args, **kwargs)
+
+            with patch('demo.request', side_effect=denied):
+                with self.assertRaises(DemoError) as caught:
+                    read_tickets(run, services.token, offline_base=services.base)
+            self.assertIn('comments unavailable (HTTP 403)', str(caught.exception))
+            self.assertNotIn('synthetic-private-response', str(caught.exception))
+            self.assertNotIn('add the current run comment', str(caught.exception))
+
+            ticket = services.tickets['/api/v2/tickets/2.json']
+            current = ticket['comments'][0]
+            ticket['comments'] = []
+            with self.assertRaisesRegex(DemoError, 'NEW internal note.*submit'):
+                read_tickets(run, services.token, offline_base=services.base)
+            ticket['comments'] = [{'body': 'synthetic-newer-private-comment'}, current]
+            with self.assertRaisesRegex(DemoError, 'present but is not newest'):
+                read_tickets(run, services.token, offline_base=services.base)
+
+    def test_check_is_read_only_and_confirmation_waits_for_valid_setup(self):
+        with tempfile.TemporaryDirectory() as tmp, Services() as services:
+            folder = Path(tmp) / 'run'
+            stripe = Stripe(services.key, services.base, offline=True)
+            run = prepare(CFG, stripe, folder)
+            services.set_tickets(run)
+            writes = len(services.writes)
+            with patch('run.Gateway') as gateway, patch('run.invoke_codex') as model:
+                checked, texts = check_ready(folder, stripe, services.token, case_base=services.base)
+                self.assertEqual(checked['run_id'], run['run_id'])
+                self.assertEqual(len(texts), 3)
+                with patch('builtins.input', return_value='no') as confirmation:
+                    with self.assertRaisesRegex(DemoError, 'No agent started'):
+                        run_agents(folder, stripe, services.token, case_base=services.base, confirm=True)
+                    confirmation.assert_called_once()
+                services.tickets['/api/v2/tickets/2.json']['custom_fields'][0]['value'] = 'cus_stale'
+                with patch('builtins.input') as confirmation:
+                    with self.assertRaisesRegex(DemoError, 'Customer id'):
+                        run_agents(folder, stripe, services.token, case_base=services.base, confirm=True)
+                    confirmation.assert_not_called()
+                gateway.assert_not_called()
+                model.assert_not_called()
+            self.assertEqual(len(services.writes), writes)
+            self.assertEqual(services.refunds, [])
+            self.assertFalse((folder / 'agent-run.started').exists())
+            self.assertFalse((folder / 'gateway').exists())
+
+    def test_started_run_is_refused_before_remote_reads_and_unstarted_run_needs_no_verify(self):
+        with tempfile.TemporaryDirectory() as tmp, Services() as services:
+            folder = Path(tmp) / 'run'
+            stripe = Stripe(services.key, services.base, offline=True)
+            prepare(CFG, stripe, folder)
+            with patch('run.preflight') as remote:
+                with self.assertRaisesRegex(DemoError, 'No agent run has started'):
+                    verify(folder, stripe, services.token)
+                (folder / 'agent-run.started').write_text('synthetic-start-marker', encoding='utf-8')
+                with self.assertRaisesRegex(DemoError, 'already started'):
+                    check_ready(folder, stripe, services.token)
+                remote.assert_not_called()
+
+    def test_check_command_never_prompts_for_model_execution_or_writes_a_report(self):
+        output = io.StringIO()
+        with patch('sys.argv', ['run.py', 'check', '--run-dir', 'synthetic-run']), \
+                patch('run.Stripe'), patch('run.check_ready') as check, \
+                patch('run.Gateway') as gateway, patch('run.invoke_codex') as model, \
+                patch('run.report') as report, patch('builtins.input') as confirmation, \
+                redirect_stdout(output):
+            self.assertEqual(main(), 0)
+        check.assert_called_once()
+        gateway.assert_not_called()
+        model.assert_not_called()
+        report.assert_not_called()
+        confirmation.assert_not_called()
+        self.assertIn('No agent started or refund submitted', output.getvalue())
+
+    @unittest.skipUnless(os.name == 'nt', 'PowerShell wrapper runs on Windows')
+    def test_powershell_check_rejects_a_started_run_without_building_or_prompting_for_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / 'agent-run.started').write_text('synthetic-start-marker', encoding='utf-8')
+            wrapper = Path(__file__).with_name('run.ps1')
+            result = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                                     '-File', str(wrapper), '-Stage', 'Check', '-RunDir', str(folder)],
+                                    input='', capture_output=True, text=True, timeout=15, env=child_env())
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('This agent run already started', output)
+            self.assertNotIn('Stripe TEST secret key', output)
+            self.assertNotIn('Finished `dev` profile', output)
 
     @unittest.skipUnless(BINARY.is_file(), 'build cosigna-agent for the combined wiring regression')
     def test_real_gateway_mcp_case_and_stripe_adapters_repeat_and_hold(self):

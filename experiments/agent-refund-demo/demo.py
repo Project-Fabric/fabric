@@ -220,7 +220,9 @@ def grade(row, refunds, operations, *, reviewed=False):
     pending = False
     total = 0
     for refund in refunds:
-        if (refund.get('object') != 'refund' or refund.get('livemode') is not False
+        # Stripe Refund objects don't expose `livemode`. The parent PaymentIntent
+        # was checked as test-mode during preflight, and this client accepts only sk_test_ keys.
+        if (refund.get('object') != 'refund'
                 or refund.get('payment_intent') != row['payment'] or refund.get('currency') != 'usd'
                 or type(refund.get('amount')) is not int or refund['amount'] <= 0):
             errors.append('invalid_provider_record')

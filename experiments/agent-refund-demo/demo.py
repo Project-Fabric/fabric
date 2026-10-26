@@ -200,11 +200,15 @@ def read_tickets(run, token, *, offline_base=None):
                                    {'Authorization': 'Bearer ' + token})
         marker = 'COSIGNA_DEMO ' + run['run_id'] + '\n'
         entries = comments.get('comments', []) if isinstance(comments, dict) else []
-        text = entries[0].get('body') if entries and isinstance(entries[0], dict) else None
+        text = (entries[0].get('plain_body') or entries[0].get('body')) if entries and isinstance(entries[0], dict) else None
+        if isinstance(text, str):
+            text = text.replace('\r\n', '\n').replace('\r', '\n').strip()
         if (status != 200 or not isinstance(text, str) or not text.startswith(marker)
                 or len(text.encode()) > 12000):
             raise DemoError(f'Ticket {row["ticket_id"]} needs the current run comment from ticket-updates.md as its newest comment.')
-        text = text[len(marker):]
+        text = text[len(marker):].strip()
+        if not text:
+            raise DemoError('The current run comment must include a synthetic refund request.')
         texts.append(text)
     return texts
 

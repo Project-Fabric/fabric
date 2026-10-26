@@ -108,6 +108,8 @@ class LocalServices(unittest.TestCase):
             run = prepare(CFG, stripe, Path(tmp) / 'run')
             manifest(run)
             services.set_tickets(run)
+            first = services.tickets['/api/v2/tickets/2.json']['comments'][0]
+            first['plain_body'] = first['body'].replace('\n', '\r\n')
             texts = preflight(run, stripe, services.token, services.base)
             self.assertEqual(len(texts), 3)
             self.assertEqual(len(set(p['customer'] for p in services.payments.values())), 3)

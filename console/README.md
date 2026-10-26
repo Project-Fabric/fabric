@@ -146,6 +146,12 @@ needs the console's own origin and allows five failed attempts a minute for the 
 It needs a live gateway (not fixtures mode). The console binds to 127.0.0.1 only, so approvers
 must use this machine until there is a hosted deployment.
 
+Each agent payment has a **Timeline** (also under **Recent agent payments**): who asked, what
+policy decided and why, who approved, what the payment system answered, where it stands now and
+what can happen next, each step citing its evidence record, and whether the evidence chain
+verifies. Timelines come from the live gateway (`/operations/{id}/timeline`); fixtures mode has
+none.
+
 Below it, **What agents can pay without you** shows the gateway's worst-case exposure
 (`GET /gateway/v1/exposure`, `cosigna.exposure/v1`): the most agents can still move with nobody
 signing, what limits each agent (its budget or what open cases owe), and what requiring a case

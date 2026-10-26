@@ -122,6 +122,30 @@ describe('a named approver signed in to the console', () => {
     expect(screen.queryByRole('button', { name: 'Settle' })).not.toBeInTheDocument();
   });
 });
+describe('payment timelines', () => {
+  it('lists recent payments and opens one payment\'s story from the gateway evidence', async () => {
+    const data = sample();
+    const paid = data.operations.find(o => o.data.stage === 'succeeded')!;
+    const story = { operation: paid.data.id, kind: 'refund', amount_minor: 2000, currency: 'USD', counterparty: 'pay_nw_2041',
+      case_id: null, stage: 'succeeded', now: 'Paid.', next: [], evidence_ok: true,
+      entries: [{ seq: 7, hash: 'b'.repeat(64), at: '2026-10-21T12:00:00Z', step: 'auto_approved',
+        summary: 'refunds-bot asked for a refund of USD 20.00 on pay_nw_2041. Approved by policy: within the agent\'s automatic limit.',
+        who: { role: 'agent', name: 'refunds-bot' } }] };
+    const requested: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requested.push(url);
+      return { ok: true, json: async () => structuredClone(url.includes('timeline=') ? story : data) };
+    }));
+    render(<ConsoleProvider><ApprovalInbox /></ConsoleProvider>);
+    const recent = within(await screen.findByRole('region', { name: 'Recent agent payments' }));
+    await userEvent.setup().click(recent.getByRole('button', { name: /timeline of refund \$20.00/i }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(await dialog.findByText(/Approved by policy: within the agent.s automatic limit/)).toBeVisible();
+    expect(dialog.getByText(/Evidence record #7/)).toBeVisible();
+    expect(dialog.getByText('The evidence chain verifies, and current state matches it.')).toBeVisible();
+    expect(requested.some(url => url === `/api/console?timeline=${paid.data.id}`)).toBe(true);
+  });
+});
 describe('why a payment is waiting', () => {
   it('names the reason for each hold, including a first of two approvals', async () => {
     const data = sample();

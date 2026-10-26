@@ -675,6 +675,21 @@ operations paid automatically with no `case_id` to check them against), `held_pe
 `at`, `amount_minor`, `currency`, `outcome`, `rule`) and three fixed `notes` stating the
 assumptions. `--text` prints a short summary instead. Example data: `examples/replay/`.
 
+### Operation timeline (`cosigna.timeline/v1`; no database migration)
+
+`GET /gateway/v1/operations/{id}/timeline` (the owner, or a named approver of the same owner;
+agents get not found) tells one operation's story from its evidence records only: the records
+whose event names the operation, in sequence order. Envelope `{"schema":"cosigna.timeline/v1",
+"data":{...}}`; `data` has `operation`, `kind`, `amount_minor`, `currency`, `counterparty`,
+`case_id`, `stage`, `entries`, `now` (one sentence on where it stands), `next` (what can happen
+and who can do it; empty once final) and `evidence_ok` (`evidence verify` passes for the whole
+ledger). Each entry cites its record: `seq`, `hash`, `at` (the record's time), `step` (the
+event kind without `gateway.operation.`), `who` (`role`: `agent`, `owner`, `approver` or
+`gateway`, with the agent's or approver's `id` and current `name` where there is one) and a
+plain-language `summary` that names the rule in words (for example "above the two-person limit:
+two different people must approve"). The summaries are derived text, not stored authority;
+the records they cite are the evidence.
+
 ### Worst-case exposure (`cosigna.exposure/v1`; no database migration)
 
 `GET /gateway/v1/exposure` (owner only; agents get not found) reports the most money the

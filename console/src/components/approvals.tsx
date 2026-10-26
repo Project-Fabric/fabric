@@ -1,10 +1,11 @@
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import { ArrowLeft, ArrowUpRight, Clock3, ConfirmDialog, DetailField, Empty, JsonBlock, Notice, OperationIcon,
   PageTitle, Badge, RefreshButton, SectionError, useConsole } from './console';
-import type { ActionResult, Exposure, OperationView } from '@/lib/contracts';
+import type { ActionResult, Exposure, OperationView, Timeline } from '@/lib/contracts';
 import { dateTime, minor, waiting } from '@/lib/display';
 
 export function ApprovalInbox() {
@@ -18,10 +19,12 @@ export function ApprovalInbox() {
     <PageTitle eyebrow="SIGNED IN AS A NAMED APPROVER" title="Payments waiting for a person"
       description={data.approver ? `You can approve payments up to ${minor(data.approver.max_approval_minor, data.approver.currency)} in ${data.approver.currency}, and reject any. Each decision is recorded under your name.` : 'Each decision is recorded under your name.'}><RefreshButton /></PageTitle>
     <GatewayPayments />
+    <RecentPayments />
   </>;
   return <>
     <PageTitle eyebrow="HUMAN DECISIONS. CLEAR AUTHORITY." title="Approval inbox" description="A clear decision for every exception. Review the request, then decide."><RefreshButton /></PageTitle>
     <GatewayPayments />
+    <RecentPayments />
     <ExposurePanel />
     <SectionError name="approvals" />
     <div className="inbox-summary"><span className="summary-icon"><Clock3 size={21} /></span><div><strong>{pending.length} {pending.length === 1 ? 'request needs' : 'requests need'} your decision</strong><p>{oldest ? `Oldest request · ${waiting(oldest.requested_at, data.now)}` : 'You’re all caught up. New requests will appear here.'}</p></div><span className="summary-tag">{data.fixtures ? 'Sample workspace' : 'This project'}</span></div>
@@ -139,8 +142,10 @@ export function GatewayPayments() {
       <div className="gateway-actions">{op.data.stage === 'held'
         ? <><button className="button primary" disabled={!op.proposal_digest} onClick={() => { setError(''); setTarget({ op, decision: 'approve' }); }}>Review payment<ArrowUpRight size={16} /></button>
           <button className="button secondary reject" onClick={() => { setError(''); setTarget({ op, decision: 'reject' }); }}>Reject</button></>
-        : data.role === 'owner' && <button className="button secondary" onClick={() => { setError(''); setTarget({ op, decision: 'resolve' }); }}>Settle</button>}</div>
+        : data.role === 'owner' && <button className="button secondary" onClick={() => { setError(''); setTarget({ op, decision: 'resolve' }); }}>Settle</button>}
+        <TimelineButton op={op} /></div>
     </li>)}</ul> : <Empty title="No agent payments waiting">Payments within each agent’s limit settle on their own; exceptions appear here.</Empty>}
+
     {target && <ConfirmDialog open onOpenChange={next => { if (!next) setTarget(null); }} title={titles[target.decision]}
       description={`${data.fixtures ? 'Simulate' : 'Send'} this decision to the Cosigna gateway as ${data.role === 'approver' ? data.user : 'the owner'}.`} confirm={confirms[target.decision]}
       danger={target.decision === 'reject'} busy={busy} error={error} onConfirm={() => void submit()}>
@@ -186,4 +191,53 @@ export function ExposurePanel() {
       <p className="small muted exposure-notes">Agents on one budget share it, so their figures overlap; the total above does not double-count. {exposure.notes.join(' ')}</p>
     </>}
   </section>;
+}
+
+/** Settled and refused agent payments, newest first, each with its story. */
+function RecentPayments() {
+  const { data } = useConsole();
+  if (!data || !data.gatewayConfigured) return null;
+  const recent = data.operations.filter(op => !['held', 'unknown', 'submitting'].includes(op.data.stage)).slice(0, 10);
+  if (!recent.length) return null;
+  return <section className="panel recent-panel" aria-labelledby="recent-heading">
+    <div className="section-heading"><h2 id="recent-heading">Recent agent payments</h2><span className="small muted">Open a timeline to see who asked, who decided and what the payment system said</span></div>
+    <ul className="recent-list">{recent.map(op => <li key={op.data.id} className="recent-row">
+      <span><strong>{op.kindLabel} {op.amountLabel}</strong><small className="muted">{op.agentName} · {op.counterparty}</small></span>
+      <Badge value={op.data.stage} /><TimelineButton op={op} />
+    </li>)}</ul>
+  </section>;
+}
+
+/** Opens one payment's story, read from the gateway's evidence records. */
+function TimelineButton({ op }: { op: OperationView }) {
+  const [open, setOpen] = useState(false), [story, setStory] = useState<Timeline | null>(null), [error, setError] = useState('');
+  const load = async () => {
+    setError(''); setStory(null);
+    try {
+      const response = await fetch(`/api/console?timeline=${encodeURIComponent(op.data.id)}`, { cache: 'no-store' });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || 'Could not load this payment’s timeline.');
+      setStory(value as Timeline);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not load this payment’s timeline.'); }
+  };
+  return <Dialog.Root open={open} onOpenChange={next => { setOpen(next); if (next) void load(); }}>
+    <Dialog.Trigger asChild><button className="button secondary" aria-label={`Timeline of ${op.kindLabel.toLowerCase()} ${op.amountLabel}`}>Timeline</button></Dialog.Trigger>
+    <Dialog.Portal><Dialog.Overlay className="modal-overlay" /><Dialog.Content className="modal timeline-modal">
+      <Dialog.Title>{op.kindLabel} {op.amountLabel}</Dialog.Title>
+      <Dialog.Description>{op.counterparty} · requested by {op.agentName}</Dialog.Description>
+      {error && <p role="alert" className="action-error">{error}</p>}
+      {!story && !error && <p className="muted" role="status">Loading…</p>}
+      {story && <>
+        <p className="timeline-now"><strong>Now:</strong> {story.now}</p>
+        {story.next.length > 0 && <ul className="timeline-next">{story.next.map(n => <li key={n}>{n}</li>)}</ul>}
+        <ol className="timeline-list">{story.entries.map(e => <li key={e.seq}>
+          <span className="timeline-at">{dateTime(e.at)}</span><p>{e.summary}</p>
+          <small className="muted mono">Evidence record #{e.seq} · {e.hash.slice(0, 16)}…</small></li>)}</ol>
+        <p className={`timeline-evidence ${story.evidence_ok ? '' : 'action-error'}`}>{story.evidence_ok
+          ? 'The evidence chain verifies, and current state matches it.'
+          : 'The evidence does not verify. Investigate before relying on this record.'}</p>
+      </>}
+      <div className="modal-actions"><Dialog.Close asChild><button className="button secondary">Close</button></Dialog.Close></div>
+    </Dialog.Content></Dialog.Portal>
+  </Dialog.Root>;
 }

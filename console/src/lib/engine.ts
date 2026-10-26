@@ -6,8 +6,8 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { approvalSchema, approvalsSchema, agentsSchema, callsSchema, consentsSchema, declarationsSchema,
-  gatewayAgentsSchema, gatewayExposureSchema, gatewayFixtureSchema, gatewayOperationSchema, gatewayOperationsSchema,
-  mandatesSchema, verifySchema, type ConsoleAction, type Snapshot, type ActionResult, type Exposure, type GatewayOperation } from './contracts';
+  gatewayAgentsSchema, gatewayExposureSchema, gatewayFixtureSchema, timelineSchema, gatewayOperationSchema, gatewayOperationsSchema,
+  mandatesSchema, verifySchema, type ConsoleAction, type Snapshot, type ActionResult, type Exposure, type GatewayOperation, type Timeline } from './contracts';
 import { buildCommand } from './commands';
 import { approvalView, operationViews } from './display';
 import { redact, redactText } from './redact';
@@ -164,6 +164,13 @@ export async function snapshot(session: Session): Promise<Snapshot> {
     agents: redact(data.agents) as Snapshot['agents'], mandates: redact(data.mandates) as Snapshot['mandates'],
     verification: redact(data.verification) as Snapshot['verification'], consents: redact(data.consents) as Snapshot['consents'],
     operations: redact(data.operations) as Snapshot['operations'], exposure: redact(data.exposure) as Snapshot['exposure'] };
+}
+
+/** One payment's story from the gateway's evidence, as this session's person. Needs a live gateway. */
+export async function timeline(session: Session, id: string): Promise<Timeline> {
+  if (!/^op_[0-9a-f]{64}$/.test(id)) throw new Error('Unknown payment.');
+  if (fixtureMode()) throw new Error('Payment timelines are read from a live Cosigna gateway; fixtures mode has none.');
+  return redact(validate(timelineSchema, await gatewayCall(session, 'GET', `/operations/${id}/timeline`)).data) as Timeline;
 }
 
 /** A named approver sees only the agent payments their gateway key can read and decide; no local engine data. */

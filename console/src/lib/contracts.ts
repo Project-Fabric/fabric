@@ -75,6 +75,14 @@ export const gatewayExposureSchema = z.object({ schema: z.literal('cosigna.expos
     largest_single_minor: minorAmount, limited_by: limit, must_name_case: z.boolean(),
     if_case_required_minor: minorAmount.optional(), until: z.number().int().optional() }).passthrough()),
 }) });
+// One operation's story (GET /gateway/v1/operations/{id}/timeline, schema cosigna.timeline/v1).
+export const timelineSchema = z.object({ schema: z.literal('cosigna.timeline/v1'), data: z.object({
+  operation: opId, kind: string, amount_minor: z.number().int(), currency: string, counterparty: nullable, case_id: nullable,
+  stage: string, now: string, next: z.array(string), evidence_ok: z.boolean(),
+  entries: z.array(z.object({ seq: z.number().int(), hash: hex64, at: string, step: string, summary: string,
+    who: z.object({ role: string, id: string.optional(), name: string.optional() }).passthrough() }).passthrough()),
+}).passthrough() });
+export type Timeline = z.infer<typeof timelineSchema>['data'];
 export const gatewayFixtureSchema = z.object({ operations: gatewayOperationsSchema, agents: gatewayAgentsSchema });
 const id = z.number().int().positive().safe();
 const text = z.string().trim().min(1).max(200).refine(value => !value.startsWith('-'), 'Values cannot begin with an option prefix.');

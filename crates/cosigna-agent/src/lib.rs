@@ -18,6 +18,7 @@ pub mod replay;
 pub mod service;
 mod storage;
 pub mod stripe_rail;
+pub mod timeline;
 pub mod worker;
 
 pub use domain::*;

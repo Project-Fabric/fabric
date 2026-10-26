@@ -158,6 +158,15 @@ pub enum Decision {
     Denied(String),
 }
 
+impl Decision {
+    /// The rule that decided it.
+    pub fn rule(&self) -> &str {
+        match self {
+            Self::AutoApproved(rule) | Self::Held(rule) | Self::Denied(rule) => rule,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationStage {

@@ -216,6 +216,9 @@ fn approver_routes(
         ("GET", ["", "gateway", "v1", "operations", id]) => {
             operation_view(&service.operation(&actor, id)?)
         }
+        ("GET", ["", "gateway", "v1", "operations", id, "timeline"]) => Ok(
+            json!({"schema": crate::timeline::API_VERSION, "data": service.timeline(&actor, id)?}),
+        ),
         ("POST", ["", "gateway", "v1", "operations", id, "approve"]) => {
             let input: OperationApproval = decode(body)?;
             let op = service.approve_operation(&actor, id, &input.proposal_digest, at)?;
@@ -327,6 +330,11 @@ pub(crate) fn dispatch_authenticated(
         }
         ("GET", ["", "gateway", "v1", "operations", id]) => {
             return operation_view(&service.operation(&actor, id)?);
+        }
+        ("GET", ["", "gateway", "v1", "operations", id, "timeline"]) if owner => {
+            return Ok(
+                json!({"schema": crate::timeline::API_VERSION, "data": service.timeline(&actor, id)?}),
+            );
         }
         ("POST", ["", "gateway", "v1", "operations", id, "approve"]) if owner => {
             let input: OperationApproval = decode(body)?;

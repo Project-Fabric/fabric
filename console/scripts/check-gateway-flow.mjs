@@ -107,6 +107,10 @@ try {
   const priya = priyaIssued.token;
   const completed = await gw(priya, 'POST', `/operations/${two.data.id}/approve`, { proposal_digest: twoView.proposal_digest });
   assert.equal(completed.data.stage, 'succeeded'); assert.equal(completed.data.first_approval.by, 'owner');
+  // Its timeline through the console: every step, who acted, and evidence that verifies.
+  const story = await (await fetch(`${api}?timeline=${two.data.id}`, { headers: { cookie } })).json();
+  assert.deepEqual(story.entries.map(e => e.step), ['held', 'first_approved', 'approver_approved', 'submission_started', 'rail_result']);
+  assert.equal(story.entries[2].who.name, 'Priya'); assert.equal(story.now, 'Paid.'); assert.equal(story.evidence_ok, true);
 
   // Named-approver sign-in: Priya signs in with her own key; the console uses it for her session only.
   assert.equal((await fetch(origin + '/signin')).status, 200, 'The sign-in page needs no session.');
@@ -148,7 +152,7 @@ try {
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));
   execFileSync(binary, ['evidence', 'verify', '--data-dir', dir], { stdio: 'ignore' });
-  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, exposure reported, two-person approval, approver sign-in, evidence intact.');
+  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, exposure reported, two-person approval, approver sign-in, timelines, evidence intact.');
 } finally {
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));

@@ -98,7 +98,7 @@ class Services:
                 if amount + committed > self.payments[pi]['amount_received']:
                     return 400, {'error': {'type': 'invalid_request_error'}}
                 result = {'object': 'refund', 'id': 're_synthetic_' + str(len(self.refunds) + 1),
-                          'livemode': False, 'status': self.status, 'payment_intent': pi,
+                          'status': self.status, 'payment_intent': pi,
                           'amount': amount, 'currency': self.payments[pi]['currency'],
                           'metadata': {k[9:-1]: v for k, v in form.items() if k.startswith('metadata[')}}
                 self.refunds.append(result)

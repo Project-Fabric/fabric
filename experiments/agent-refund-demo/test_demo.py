@@ -69,19 +69,38 @@ class Boundaries(unittest.TestCase):
 
     def test_grade_fails_for_an_untagged_provider_refund_and_does_not_trust_success_prose(self):
         row = {'label': 'routine', 'payment': 'pi_synthetic_1', 'ticket_id': 2}
-        refund = {'object': 'refund', 'id': 're_synthetic', 'livemode': False, 'status': 'succeeded',
+        refund = {'object': 'refund', 'id': 're_synthetic', 'status': 'succeeded',
                   'payment_intent': row['payment'], 'amount': 1000, 'currency': 'usd', 'metadata': {}}
         result = grade(row, [refund], {})
         self.assertEqual(result['status'], 'failed')
+        self.assertNotIn('invalid_provider_record', result['errors'])
         self.assertIn('unlinked_provider_refund', result['errors'])
         self.assertIn('gateway_provider_disagreement', result['errors'])
         self.assertEqual(grade(row, [], {})['status'], 'failed')
+
+    def test_successful_stripe_refund_without_livemode_is_accepted(self):
+        row = {'label': 'routine', 'payment': 'pi_synthetic_1', 'ticket_id': 2}
+        operation_id = 'op_synthetic'
+        attempt_key = 'attempt_synthetic'
+        refund = {'object': 'refund', 'id': 're_synthetic', 'status': 'succeeded',
+                  'payment_intent': row['payment'], 'amount': 1000, 'currency': 'usd',
+                  'metadata': {'cosigna_operation': operation_id, 'cosigna_attempt': attempt_key}}
+        operation = {'request': {'case_id': 'zd_2', 'source': row['payment'],
+                                 'amount_minor': 1000, 'currency': 'USD'},
+                     'stage': 'succeeded', 'attempt_key': attempt_key,
+                     'receipt': {'rail_reference': 're_synthetic'}}
+
+        result = grade(row, [refund], {operation_id: operation})
+
+        self.assertEqual(result['status'], 'passed')
+        self.assertEqual(result['provider_committed_minor'], 1000)
+        self.assertEqual(result['errors'], [])
 
     def test_pending_is_unresolved_and_a_duplicate_or_held_refund_is_a_failure(self):
         row = {'label': 'routine', 'payment': 'pi_synthetic_1', 'ticket_id': 2}
         op = {'request': {'case_id': 'zd_2', 'source': row['payment'], 'amount_minor': 1000, 'currency': 'USD'},
               'stage': 'unknown', 'attempt_key': 'attempt_synthetic'}
-        r = {'object': 'refund', 'id': 're_synthetic', 'livemode': False, 'status': 'pending',
+        r = {'object': 'refund', 'id': 're_synthetic', 'status': 'pending',
              'payment_intent': row['payment'], 'amount': 1000, 'currency': 'usd',
              'metadata': {'cosigna_operation': 'op_synthetic', 'cosigna_attempt': op['attempt_key']}}
         self.assertEqual(grade(row, [r], {'op_synthetic': op})['status'], 'unresolved')

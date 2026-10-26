@@ -2,7 +2,9 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 const root = path.join(process.cwd(), '.next', 'static');
 const patterns = [/(?:sk|rk)_(?:test|live)_[A-Za-z0-9_]{8,}/, /fat_[A-Za-z0-9_-]{8,}/,
-  /aa_live_[A-Za-z0-9_-]{8,}/, /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/];
+  /aa_live_[A-Za-z0-9_-]{8,}/, /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/,
+  // Cosigna gateway credentials: owner and role keys, agent keys and named-approver keys.
+  /\b(?:owner|planner|executor|agentkey|approverkey)_[0-9a-f]{64}\b/];
 let checked = 0;
 async function scan(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {

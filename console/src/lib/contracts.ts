@@ -108,6 +108,8 @@ export type Snapshot = { user: string; fixtures: boolean; now: string; csrf: str
   approvals: ApprovalView[]; calls: Call[]; agents: Agent[]; required: boolean;
   mandates: Mandate[]; consents: Consent[]; consentTotal: number; verification: Verification | null;
   errors: Record<string, string>; exportEnabled: boolean;
-  operations: OperationView[]; gatewayConfigured: boolean; exposure: Exposure | null };
+  operations: OperationView[]; gatewayConfigured: boolean; exposure: Exposure | null;
+  /** Who is signed in: the configured owner, or a named approver with their limit. */
+  role: 'owner' | 'approver'; approver: { name: string; currency: string; max_approval_minor: number } | null };
 export type ActionResult = { simulated: boolean; args: string[]; message: string; token?: string;
   fingerprint?: string; out?: string; verifyCommand?: string };

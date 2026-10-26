@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import next from 'next';
 import nextEnv from '@next/env';
 import { COOKIE, equal, issueSession, readSession } from './server/security.mjs';
+import { forget, identify, remember, signInAllowed, signInFailed } from './server/approvers.mjs';
 
 const dev = process.argv.includes('--dev');
 nextEnv.loadEnvConfig(process.cwd(), dev);
@@ -24,6 +25,24 @@ nextEnv.updateInitialEnv({
   CONSOLE_INTERNAL_KEY: process.env.CONSOLE_INTERNAL_KEY,
   CONSOLE_ORIGIN: process.env.CONSOLE_ORIGIN,
 });
+// Approver sign-in page: plain HTML, no scripts. The key field is a password field.
+const signInPage = (message = '', status = 200) => [status, `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Approver sign-in · Cosigna</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0c0e;color:#e8e9ec;font:15px/1.6 system-ui,sans-serif}
+main{width:min(420px,calc(100% - 32px))}h1{font-size:22px;margin:0 0 8px}p{color:#a7aab3;margin:0 0 20px}
+label{display:block;font-size:13px;color:#a7aab3;margin-bottom:6px}input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:8px;
+border:1px solid #2c2f36;background:#131418;color:#e8e9ec;font:13px ui-monospace,monospace}button{margin-top:14px;width:100%;padding:11px;
+border:0;border-radius:8px;background:#e8e9ec;color:#0b0c0e;font-weight:600;font-size:14px;cursor:pointer}
+.error{color:#ff8a80;margin:14px 0 0}</style></head><body><main><h1>Approver sign-in</h1>
+<p>Sign in with the approver key the owner gave you. You will see the payments waiting for a person, and can approve them up to your limit.</p>
+<form method="post" action="/signin"><label for="key">Approver key</label>
+<input id="key" name="key" type="password" autocomplete="off" spellcheck="false" required>
+<button type="submit">Sign in</button></form>${message ? `<p class="error" role="alert">${message}</p>` : ''}</main></body></html>`];
+async function readForm(req) {
+  let body = '';
+  for await (const chunk of req) { body += chunk; if (body.length > 2048) return null; }
+  return new URLSearchParams(body);
+}
 const token = randomBytes(32).toString('hex');
 const bootstrapExpires = Date.now() + 10 * 60 * 1000;
 let used = false;
@@ -47,9 +66,30 @@ const server = createServer(async (req, res) => {
     res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200`);
     res.writeHead(303, { Location: '/approvals' }); res.end(); return;
   }
+  const html = ([status, page]) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(page); };
+  if (url.pathname === '/signin' && req.method === 'GET') return html(signInPage());
+  if (url.pathname === '/signin' && req.method === 'POST') {
+    if (req.headers.origin !== process.env.CONSOLE_ORIGIN) return deny(403, 'Request rejected: origin check failed.');
+    if (fixtures) return html(signInPage('Approver sign-in needs a live Cosigna gateway; fixtures mode has none.', 503));
+    if (!signInAllowed()) return html(signInPage('Too many failed sign-ins. Wait a minute and try again.', 429));
+    const form = await readForm(req);
+    const approver = form ? await identify(form.get('key')) : null;
+    if (!approver) { signInFailed(); return html(signInPage('That key was not accepted. Check it with the owner who issued it.', 401)); }
+    const issued = issueSession(approver.name, Date.now(), 'approver');
+    remember(issued.session.id, approver);
+    res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200`);
+    res.writeHead(303, { Location: '/approvals' }); res.end(); return;
+  }
+  if (url.pathname === '/signout' && req.method === 'POST') {
+    if (req.headers.origin !== process.env.CONSOLE_ORIGIN) return deny(403, 'Request rejected: origin check failed.');
+    const session = readSession(req.headers.cookie);
+    if (session) forget(session.id);
+    res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+    res.writeHead(303, { Location: '/signin' }); res.end(); return;
+  }
   try {
     const session = readSession(req.headers.cookie);
-    if (!session) return deny(401, 'Open the one-time access URL printed in the console terminal.');
+    if (!session) return deny(401, 'Open the one-time access URL printed in the console terminal, or sign in as an approver at /signin.');
     if (!['GET', 'HEAD'].includes(req.method || '')) {
       if (req.headers.origin !== process.env.CONSOLE_ORIGIN || !equal(req.headers['x-csrf-token'], session.csrf))
         return deny(403, 'Request rejected: session or CSRF check failed.');

@@ -174,7 +174,7 @@ fn empty(body: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// A named approver's only routes: who am I, the operations, and deciding them.
+/// A named approver's only routes: who am I, agent names, the operations, and deciding them.
 fn approver_routes(
     service: &Service,
     approver: &crate::approvers::RegisteredApprover,
@@ -192,6 +192,15 @@ fn approver_routes(
     match (method, parts.as_slice()) {
         ("GET", ["", "gateway", "v1", "approvers", "me"]) => {
             Ok(json!({"schema": crate::approvers::API_VERSION, "data": approver}))
+        }
+        // Which agent asked, by name only: no grants, budgets or credentials.
+        ("GET", ["", "gateway", "v1", "agents"]) => {
+            let names: Vec<Value> = service
+                .agent_names(&actor)?
+                .into_iter()
+                .map(|(id, name)| json!({"id": id, "name": name}))
+                .collect();
+            Ok(json!({"schema": crate::approvers::API_VERSION, "data": names}))
         }
         ("GET", ["", "gateway", "v1", "operations"]) => {
             let stage = match query {

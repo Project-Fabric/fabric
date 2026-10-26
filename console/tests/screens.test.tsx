@@ -106,6 +106,22 @@ describe('Cosigna gateway payments in the inbox', () => {
     await waitFor(() => expect(submitted).toEqual([{ action: 'operation-resolve', id: op.data.id }]));
   });
 });
+describe('a named approver signed in to the console', () => {
+  it('sees only agent payments and their limit, and cannot settle', async () => {
+    const data = sample();
+    Object.assign(data, { role: 'approver', user: 'Priya', approver: { name: 'Priya', currency: 'USD', max_approval_minor: 50000 },
+      approvals: [], calls: [], mandates: [], verification: null, exposure: null });
+    data.operations.find(o => o.data.stage === 'held')!.data.stage = 'unknown';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => structuredClone(data) })));
+    render(<ConsoleProvider><ApprovalInbox /></ConsoleProvider>);
+    expect(await screen.findByRole('heading', { name: 'Payments waiting for a person' })).toBeVisible();
+    expect(screen.getByText(/up to \$500.00 in USD/)).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Agent payments' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'What agents can pay without you' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /pending/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Settle' })).not.toBeInTheDocument();
+  });
+});
 describe('why a payment is waiting', () => {
   it('names the reason for each hold, including a first of two approvals', async () => {
     const data = sample();

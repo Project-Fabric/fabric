@@ -265,7 +265,6 @@ fn approvers_can_do_nothing_but_read_and_decide_operations() {
             json!({"name":"Mallory","currency":"USD","max_approval_minor":1}),
         ),
         ("GET", "/approvers", json!({})),
-        ("GET", "/agents", json!({})),
         ("GET", "/exposure", json!({})),
         (
             "POST",
@@ -281,6 +280,14 @@ fn approvers_can_do_nothing_but_read_and_decide_operations() {
             "{method} {path}"
         );
     }
+    // Agent names only, so the inbox can say who asked: no grants, budgets or credentials.
+    let names = lab.call(&token, "GET", "/agents", json!({})).unwrap();
+    assert_eq!(names["data"][0]["name"], "refunds-bot");
+    assert_eq!(
+        names["data"][0].as_object().unwrap().len(),
+        2,
+        "id and name only"
+    );
     // An agent cannot use the approver routes, and a malformed approver token is refused.
     let (id, digest) = lab.held("pay_fixture_2045", 45000, "agent-tries");
     assert!(lab.decide(&lab.bot, &id, Some(&digest)).is_err());

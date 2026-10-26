@@ -11,6 +11,11 @@ import { approvalSchema, approvalsSchema, agentsSchema, callsSchema, consentsSch
 import { buildCommand } from './commands';
 import { approvalView, operationViews } from './display';
 import { redact, redactText } from './redact';
+import { recall } from '../../server/approvers.mjs';
+
+/** A signed-in console session: the configured owner, or a named approver signed in with their own key. */
+type Session = { id: string; user: string; csrf: string; role?: 'owner' | 'approver' };
+const isApprover = (session: { role?: string }) => session.role === 'approver';
 
 const execute = promisify(execFile);
 const files = { approvals: 'inbox_approvals.json', calls: 'evidence_calls.json', agents: 'agent_list.json',
@@ -74,20 +79,27 @@ type GatewayData = { operations: GatewayOperation[]; agents: { id: string; name:
 type FixtureState = { approvals?: z.infer<typeof approvalsSchema>; agents?: z.infer<typeof agentsSchema>; mandates?: z.infer<typeof mandatesSchema>; gateway?: GatewayData };
 
 export const gatewayConfigured = () => fixtureMode() || !!process.env.CONSOLE_GATEWAY_URL;
-/** Owner call to the Cosigna gateway. The owner credential is read here, server-side, and never returned. */
-async function gatewayCall(method: 'GET' | 'POST', route: string, body?: unknown): Promise<unknown> {
+/** Call to the Cosigna gateway as this session's person: the owner credential (read here, server-side) or the
+ * approver's own key (held in server memory for the session). Neither is ever returned to the browser. */
+async function gatewayCall(session: { id: string; role?: string }, method: 'GET' | 'POST', route: string, body?: unknown): Promise<unknown> {
   let base: URL;
   try { base = new URL(process.env.CONSOLE_GATEWAY_URL || ''); } catch { throw new Error('Configure CONSOLE_GATEWAY_URL as http://127.0.0.1:<port>.'); }
   if (base.protocol !== 'http:' || base.hostname !== '127.0.0.1' || !base.port || base.username || base.password)
     throw new Error('CONSOLE_GATEWAY_URL must be a loopback address: http://127.0.0.1:<port>.');
-  const dir = process.env.CONSOLE_GATEWAY_DIR;
-  if (!dir || !path.isAbsolute(dir)) throw new Error('Configure an absolute CONSOLE_GATEWAY_DIR (the gateway profile holding credentials.json).');
-  let owner: string;
-  try { owner = z.object({ owner: z.string().regex(/^owner_[0-9a-f]{64}$/) }).passthrough().parse(JSON.parse(await readFile(path.join(dir, 'credentials.json'), 'utf8'))).owner; }
-  catch { throw new Error('Could not read the gateway owner credential from CONSOLE_GATEWAY_DIR.'); }
+  let credential: string;
+  if (isApprover(session)) {
+    const approver = recall(session.id) as { key: string } | null;
+    if (!approver) throw new Error('Your approver session ended. Sign in again.');
+    credential = approver.key;
+  } else {
+    const dir = process.env.CONSOLE_GATEWAY_DIR;
+    if (!dir || !path.isAbsolute(dir)) throw new Error('Configure an absolute CONSOLE_GATEWAY_DIR (the gateway profile holding credentials.json).');
+    try { credential = z.object({ owner: z.string().regex(/^owner_[0-9a-f]{64}$/) }).passthrough().parse(JSON.parse(await readFile(path.join(dir, 'credentials.json'), 'utf8'))).owner; }
+    catch { throw new Error('Could not read the gateway owner credential from CONSOLE_GATEWAY_DIR.'); }
+  }
   const response = await fetch(new URL(`/gateway/v1${route}`, base), { method, cache: 'no-store', redirect: 'error',
     signal: AbortSignal.timeout(30000), body: body === undefined ? undefined : JSON.stringify(body),
-    headers: { Authorization: `Bearer ${owner}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) } });
+    headers: { Authorization: `Bearer ${credential}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) } });
   const value: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const message = z.object({ error: z.object({ message: z.string() }) }).safeParse(value);
@@ -95,23 +107,23 @@ async function gatewayCall(method: 'GET' | 'POST', route: string, body?: unknown
   }
   return value;
 }
-async function gateway(session: string): Promise<GatewayData> {
+async function gateway(session: { id: string; role?: string }): Promise<GatewayData> {
   if (fixtureMode()) {
-    const memory = state(session);
+    const memory = state(session.id);
     if (!memory.gateway) {
       const raw = gatewayFixtureSchema.parse(JSON.parse(await readFile(path.join(process.cwd(), 'fixtures', 'gateway_operations.json'), 'utf8')));
       memory.gateway = { operations: raw.operations.data, agents: raw.agents.data };
     }
     return memory.gateway;
   }
-  const [operations, agents] = await Promise.all([gatewayCall('GET', '/operations'), gatewayCall('GET', '/agents')]);
+  const [operations, agents] = await Promise.all([gatewayCall(session, 'GET', '/operations'), gatewayCall(session, 'GET', '/agents')]);
   return { operations: validate(gatewayOperationsSchema, operations).data, agents: validate(gatewayAgentsSchema, agents).data };
 }
 /** What the owner's agents can move without a person. Read-only; fixtures use a report captured from the gateway. */
-async function exposure(): Promise<Exposure> {
+async function exposure(session: { id: string; role?: string }): Promise<Exposure> {
   const value = fixtureMode()
     ? JSON.parse(await readFile(path.join(process.cwd(), 'fixtures', 'gateway_exposure.json'), 'utf8')) as unknown
-    : await gatewayCall('GET', '/exposure');
+    : await gatewayCall(session, 'GET', '/exposure');
   return validate(gatewayExposureSchema, value).data;
 }
 const shared = globalThis as typeof globalThis & { consoleFixtures?: Map<string, FixtureState> };
@@ -121,7 +133,8 @@ async function approvals(session: string) {
   const value = fixtureMode() ? state(session).approvals : undefined;
   return value || validate(approvalsSchema, await read('approvals'));
 }
-export async function snapshot(session: { id: string; user: string; csrf: string }): Promise<Snapshot> {
+export async function snapshot(session: Session): Promise<Snapshot> {
+  if (isApprover(session)) return approverSnapshot(session);
   const errors: Record<string, string> = {};
   async function load<T>(name: keyof typeof files, schema: z.ZodType<T>): Promise<T | null> {
     try {
@@ -135,13 +148,13 @@ export async function snapshot(session: { id: string; user: string; csrf: string
   ]);
   let operations: Snapshot['operations'] = [], exposed: Exposure | null = null;
   if (gatewayConfigured()) {
-    try { const value = await gateway(session.id); operations = operationViews(value.operations, value.agents); }
+    try { const value = await gateway(session); operations = operationViews(value.operations, value.agents); }
     catch (error) { errors.operations = safeMessage(error instanceof Error ? error.message : 'Could not load gateway operations.'); }
-    try { exposed = await exposure(); }
+    try { exposed = await exposure(session); }
     catch (error) { errors.exposure = safeMessage(error instanceof Error ? error.message : 'Could not load what agents can pay without you.'); }
   }
   const data: Snapshot = { user: session.user, csrf: session.csrf, fixtures: fixtureMode(), now: new Date().toISOString(),
-    operations, gatewayConfigured: gatewayConfigured(), exposure: exposed,
+    role: 'owner', approver: null, operations, gatewayConfigured: gatewayConfigured(), exposure: exposed,
     approvals: (inbox?.requests || []).map(r => approvalView(r, declarations?.payments || [], fixtureMode())),
     calls: activity?.calls || [], agents: agents?.agents || [], required: agents?.required ?? false,
     mandates: mandates?.mandates || [], verification, consents: consents?.consents || [], consentTotal: consents?.total || 0,
@@ -153,10 +166,24 @@ export async function snapshot(session: { id: string; user: string; csrf: string
     operations: redact(data.operations) as Snapshot['operations'], exposure: redact(data.exposure) as Snapshot['exposure'] };
 }
 
+/** A named approver sees only the agent payments their gateway key can read and decide; no local engine data. */
+async function approverSnapshot(session: Session): Promise<Snapshot> {
+  const errors: Record<string, string> = {};
+  const approver = recall(session.id) as { name: string; currency: string; max_approval_minor: number } | null;
+  let operations: Snapshot['operations'] = [];
+  try { const value = await gateway(session); operations = operationViews(value.operations, value.agents); }
+  catch (error) { errors.operations = safeMessage(error instanceof Error ? error.message : 'Could not load gateway operations.'); }
+  return { user: session.user, csrf: session.csrf, fixtures: false, now: new Date().toISOString(), role: 'approver',
+    approver: approver && { name: approver.name, currency: approver.currency, max_approval_minor: approver.max_approval_minor },
+    operations: redact(operations) as Snapshot['operations'], gatewayConfigured: true, exposure: null,
+    approvals: [], calls: [], agents: [], required: false, mandates: [], verification: null, consents: [], consentTotal: 0,
+    errors, exportEnabled: false };
+}
+
 /** Decides or settles a gateway operation after re-checking its current state, then checks the gateway's result. */
 async function performOperation(action: Extract<ConsoleAction, { action: 'operation-decide' | 'operation-resolve' }>,
-  session: { id: string; user: string }): Promise<ActionResult> {
-  const current = (await gateway(session.id)).operations.find(op => op.data.id === action.id);
+  session: Session): Promise<ActionResult> {
+  const current = (await gateway(session)).operations.find(op => op.data.id === action.id);
   if (action.action === 'operation-decide' && (!current || current.data.stage !== 'held' || current.proposal_digest !== action.digest))
     throw new Error('This payment changed or was already decided. Refresh the inbox before deciding.');
   if (action.action === 'operation-resolve' && (!current || !['unknown', 'submitting'].includes(current.data.stage)))
@@ -173,12 +200,13 @@ async function performOperation(action: Extract<ConsoleAction, { action: 'operat
     op.needs_owner = false;
     return { simulated: true, args, message: 'Simulation only. No gateway call was made and no money moved.' };
   }
-  const value = validate(gatewayOperationSchema, await gatewayCall('POST', `/operations/${action.id}/${route}`,
+  const value = validate(gatewayOperationSchema, await gatewayCall(session, 'POST', `/operations/${action.id}/${route}`,
     action.action === 'operation-decide' && route === 'approve' ? { proposal_digest: action.digest } : {}));
   const stage = value.data.stage;
-  // Above a budget's two-person threshold the owner's approval may be the first of two: it stays held.
-  const firstOfTwo = route === 'approve' && stage === 'held' && value.data.first_approval?.by === 'owner';
-  if (value.data.id !== action.id || (route === 'approve' && !firstOfTwo && value.data.approved_by !== 'owner') || (route === 'reject' && stage !== 'rejected'))
+  // Above a budget's two-person threshold this approval may be the first of two: it stays held.
+  const as = isApprover(session) ? 'approver' : 'owner';
+  const firstOfTwo = route === 'approve' && stage === 'held' && value.data.first_approval?.by === as;
+  if (value.data.id !== action.id || (route === 'approve' && !firstOfTwo && value.data.approved_by !== as) || (route === 'reject' && stage !== 'rejected'))
     throw new Error('The gateway result did not match the requested decision. Refresh the record before retrying.');
   if (firstOfTwo) return { simulated: false, args,
     message: 'Recorded by the Cosigna gateway as the first of two approvals. A second person must approve before it is paid.' };
@@ -187,7 +215,12 @@ async function performOperation(action: Extract<ConsoleAction, { action: 'operat
     rejected: 'Rejected. No money moved.' };
   return { simulated: false, args, message: `Recorded by the Cosigna gateway. ${outcome[stage] || ''}`.trim() };
 }
-export async function perform(action: ConsoleAction, session: { id: string; user: string }): Promise<ActionResult> {
+export async function perform(action: ConsoleAction, session: Session): Promise<ActionResult> {
+  if (isApprover(session)) {
+    // A named approver may only decide agent payments; settling and local engine actions stay with the owner.
+    if (action.action !== 'operation-decide') throw new Error('Approvers can only approve or reject agent payments.');
+    return performOperation(action, session);
+  }
   if (session.user !== process.env.CONSOLE_USER) throw new Error('Console identity changed. Restart and sign in again.');
   if (action.action === 'operation-decide' || action.action === 'operation-resolve') return performOperation(action, session);
   if (action.action === 'approve') {

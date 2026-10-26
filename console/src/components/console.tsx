@@ -45,23 +45,27 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => { const enabled = localStorage.getItem('console-theme') === 'light'; setLight(enabled); document.documentElement.dataset.theme = enabled ? 'light' : 'dark'; }, []);
   const toggle = () => { const next = !light; setLight(next); document.documentElement.dataset.theme = next ? 'light' : 'dark'; localStorage.setItem('console-theme', next ? 'light' : 'dark'); };
   const pending = data?.approvals.filter(a => a.status === 'pending').length || 0;
+  // A named approver sees only the payments inbox; everything else belongs to the owner.
+  const approver = data?.role === 'approver';
+  const visible = approver ? links.filter(l => l.href === '/approvals') : links;
   return <div className="app-shell">
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className="sidebar">
       <Link className="brand" href="/approvals" aria-label="Cosigna approvals"><span className="brand-mark"><ShieldCheck size={21} /></span>Cosigna<span className="brand-tag">CONSOLE</span></Link>
       <div className="workspace"><span className="workspace-avatar">{taskPreview ? 'C' : 'N'}</span><span><strong>{taskPreview ? 'Personal assistant' : data?.fixtures ? 'Northwind Supplies' : 'Local workspace'}</strong><small>{taskPreview ? 'Interactive preview' : 'Finance operations'}</small></span><ChevronRight size={14} className="muted" /></div>
       <div className="nav-caption">WORKSPACE</div>
-      <nav aria-label="Main navigation">{links.map(({ href, label, icon: Icon }) => {
+      <nav aria-label="Main navigation">{visible.map(({ href, label, icon: Icon }) => {
         const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
         return <Link key={href} href={href} className={`nav-item ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined}><Icon size={18} /><span>{label}</span>{href === '/approvals' && pending > 0 && <span className="nav-count">{pending}</span>}</Link>;
       })}</nav>
-      <div className="sidebar-footer"><span className="status-dot" />Local connection<span className="local-lock"><LockKeyhole size={13} />Single user</span></div>
+      <div className="sidebar-footer"><span className="status-dot" />Local connection<span className="local-lock"><LockKeyhole size={13} />{approver ? 'Approver' : 'Single user'}</span>
+        {approver && <form method="post" action="/signout"><button type="submit" className="button secondary full">Sign out</button></form>}</div>
     </aside>
     <div className="main-column">
       <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{links.find(l => l.href !== '/' && pathname.startsWith(l.href))?.label || 'Overview'}</strong></div><div className="header-actions">
         {data && <span className={`mode-badge ${data.fixtures || taskPreview ? 'fixture' : ''}`}><span className="status-dot" />{taskPreview ? 'Tasks simulation' : data.fixtures ? 'Fixtures mode' : 'Live mode'}</span>}
         <button className="icon-button" onClick={toggle} aria-label={`Switch to ${light ? 'dark' : 'light'} mode`}>{light ? <Moon size={17} /> : <Sun size={17} />}</button>
-        <span className="identity" title={data?.user} aria-label={`Console user: ${data?.user || 'Connecting'}`}><span className="user-avatar" aria-hidden="true">{data?.user?.slice(0, 1).toUpperCase() || '·'}</span><span>{data?.user || 'Connecting…'}</span></span>
+        <span className="identity" title={data?.user} aria-label={`Console user: ${data?.user || 'Connecting'}`}><span className="user-avatar" aria-hidden="true">{data?.user?.slice(0, 1).toUpperCase() || '·'}</span><span>{data?.user || 'Connecting…'}{approver && <small className="muted"> · approver</small>}</span></span>
       </div></header>
       <main id="main">{data?.fixtures && <div className="fixture-banner"><CircleHelp size={15} /><span><strong>Fixtures mode.</strong> Decisions are simulated. No engine commands run and no money moves.</span></div>}
         {error ? <div className="error-panel" role="alert"><strong>Connection needs attention</strong><p>{error}</p><button className="button secondary" onClick={() => void refresh()}>Try again</button></div>

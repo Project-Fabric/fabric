@@ -103,14 +103,52 @@ try {
   const first = await send({ action: 'operation-decide', id: two.data.id, decision: 'approve', digest: twoView.proposal_digest });
   assert.equal(first.status, 200);
   assert.match((await first.json()).message, /first of two approvals/);
-  const priya = (await gw(ownerToken, 'POST', '/approvers', { name: 'Priya', currency: 'USD', max_approval_minor: 50000 })).data.token;
+  const priyaIssued = (await gw(ownerToken, 'POST', '/approvers', { name: 'Priya', currency: 'USD', max_approval_minor: 50000 })).data;
+  const priya = priyaIssued.token;
   const completed = await gw(priya, 'POST', `/operations/${two.data.id}/approve`, { proposal_digest: twoView.proposal_digest });
   assert.equal(completed.data.stage, 'succeeded'); assert.equal(completed.data.first_approval.by, 'owner');
+
+  // Named-approver sign-in: Priya signs in with her own key; the console uses it for her session only.
+  assert.equal((await fetch(origin + '/signin')).status, 200, 'The sign-in page needs no session.');
+  const signIn = (key, headers = { origin }) => fetch(origin + '/signin', { method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, body: new URLSearchParams({ key }).toString() });
+  assert.equal((await signIn(priya, {})).status, 403, 'Sign-in requires the console origin.');
+  assert.equal((await signIn('approverkey_' + '0'.repeat(64))).status, 401, 'An unknown key is refused.');
+  const signedIn = await signIn(priya);
+  assert.equal(signedIn.status, 303);
+  const approverCookie = signedIn.headers.get('set-cookie').split(';')[0];
+  const approverRaw = await (await fetch(api, { headers: { cookie: approverCookie } })).text();
+  assert.ok(!approverRaw.includes(priya) && !approverRaw.includes(ownerToken), 'No credential reaches the browser.');
+  const approverView = JSON.parse(approverRaw);
+  assert.equal(approverView.role, 'approver'); assert.equal(approverView.user, 'Priya');
+  assert.equal(approverView.approver.max_approval_minor, 50000); assert.equal(approverView.approvals.length, 0);
+  // Priya decides a held refund within her limit through the console; it is recorded as hers.
+  const forPriya = (await refund('pay_live_2049', 20000, 'live-approver')).data;
+  assert.equal(forPriya.stage, 'held');
+  const priyaInbox = (await (await fetch(api, { headers: { cookie: approverCookie } })).json()).operations;
+  const priyaTarget = priyaInbox.find(op => op.data.id === forPriya.id);
+  assert.equal(priyaTarget.agentName, 'refunds-bot', 'Approvers see which agent asked.');
+  const asPriya = action => fetch(api, { method: 'POST', body: JSON.stringify(action),
+    headers: { cookie: approverCookie, origin, 'x-csrf-token': approverView.csrf, 'content-type': 'application/json' } });
+  const decided = await asPriya({ action: 'operation-decide', id: forPriya.id, decision: 'approve', digest: priyaTarget.proposal_digest });
+  assert.equal(decided.status, 200, await decided.clone().text());
+  const recorded = (await gw(ownerToken, 'GET', `/operations/${forPriya.id}`)).data;
+  assert.equal(recorded.stage, 'succeeded'); assert.equal(recorded.approved_by, 'approver');
+  assert.equal(recorded.approver, priyaIssued.approver.id);
+  // Owner actions stay with the owner.
+  const ownerOnly = await asPriya({ action: 'evidence-export' });
+  assert.equal(ownerOnly.status, 409); assert.match((await ownerOnly.json()).error, /Approvers can only approve or reject/);
+  // Sign-out ends the session in the console, not just in the browser.
+  assert.equal((await fetch(origin + '/signout', { method: 'POST', redirect: 'manual', headers: { cookie: approverCookie, origin } })).status, 303);
+  assert.equal((await fetch(api, { headers: { cookie: approverCookie } })).status, 401);
+  // Guessing is bounded: one failure so far, four more allowed, then the console refuses for a minute.
+  for (let i = 0; i < 4; i++) assert.equal((await signIn('approverkey_' + String(i).repeat(64))).status, 401);
+  assert.equal((await signIn(priya)).status, 429, 'Even a correct key waits out the lockout.');
   lines.close();
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));
   execFileSync(binary, ['evidence', 'verify', '--data-dir', dir], { stdio: 'ignore' });
-  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, exposure reported, two-person approval, evidence intact.');
+  console.log('Live gateway console flow passed: held payments listed, owner credential kept server-side, CSRF, stale-digest refusal, approve paid, reject recorded, no double decision, exposure reported, two-person approval, approver sign-in, evidence intact.');
 } finally {
   for (const child of children) child.kill();
   await new Promise(r => setTimeout(r, 300));

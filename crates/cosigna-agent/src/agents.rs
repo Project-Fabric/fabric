@@ -86,6 +86,18 @@ pub(crate) fn owned(db: &Connection, owner: &str) -> Result<Vec<RegisteredAgent>
     ids.iter().map(|id| load(db, id)).collect()
 }
 
+impl Service {
+    /// The ids and names of an owner's agents, for a named approver's inbox. Nothing else.
+    pub(crate) fn agent_names(&self, approver: &Actor) -> Result<Vec<(String, String)>> {
+        approver.require(&[Role::Approver])?;
+        let db = storage::connect(&self.ledger, false)?;
+        let mut statement = db.prepare("SELECT id,name FROM agents WHERE owner=?1 ORDER BY id")?;
+        Ok(statement
+            .query_map([&approver.owner], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+}
+
 /// An agent's money-operation grant, if it has one.
 pub(crate) fn grant(db: &Connection, id: &str) -> Result<Option<OperationGrant>> {
     Ok(load(db, id)?.operations)

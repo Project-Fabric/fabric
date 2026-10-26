@@ -19,3 +19,24 @@ test('mutations require the session, exact origin and per-session CSRF token', (
   for (const invalid of [{ ...valid, cookie: '' }, { ...valid, origin: 'https://foreign.example' },
     { ...valid, 'x-csrf-token': 'wrong' }, { ...valid, origin: '' }]) assert.throws(() => requireRequest(request(invalid), true));
 });
+test('an approver session is valid only while this console holds it, and never as the owner', async () => {
+  const { remember, forget, signInAllowed, signInFailed } = await import('../server/approvers.mjs');
+  const { cookie, session } = issueSession('Priya', Date.now(), 'approver');
+  assert.equal(readSession(`${COOKIE}=${cookie}`), null, 'not signed in through /signin');
+  remember(session.id, { key: 'approverkey_' + '0'.repeat(64), id: 'approver_x', name: 'Priya', currency: 'USD', max_approval_minor: 100 });
+  const read = readSession(`${COOKIE}=${cookie}`);
+  assert.equal(read.role, 'approver'); assert.equal(read.user, 'Priya');
+  assert.equal(JSON.stringify(read).includes('approverkey_'), false, 'the key never travels in the cookie');
+  // The signed name must match the approver this console holds for the session.
+  remember(session.id, { key: 'approverkey_' + '0'.repeat(64), id: 'approver_x', name: 'Mallory', currency: 'USD', max_approval_minor: 100 });
+  assert.equal(readSession(`${COOKIE}=${cookie}`), null);
+  forget(session.id);
+  assert.equal(readSession(`${COOKIE}=${cookie}`), null, 'sign-out or restart ends it');
+  // Owner sessions are unchanged, including ones signed before roles existed.
+  assert.equal(readSession(`${COOKIE}=${issueSession('fixture-approver').cookie}`).role, 'owner');
+  // Online guessing is bounded: five failures a minute for the whole console.
+  const start = 10_000_000;
+  for (let i = 0; i < 5; i++) { assert.equal(signInAllowed(start + i), true); signInFailed(start + i); }
+  assert.equal(signInAllowed(start + 10), false);
+  assert.equal(signInAllowed(start + 61_000), true);
+});

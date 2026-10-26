@@ -11,7 +11,7 @@ export function sample(): Snapshot {
     calls: callsSchema.parse(fixture('evidence_calls.json')).calls, agents: agents.agents, required: agents.required,
     mandates: mandatesSchema.parse(fixture('inbox_mandates.json')).mandates, consents: consents.consents,
     consentTotal: consents.total, verification: verifySchema.parse(fixture('evidence_verify.json')), errors: {}, exportEnabled: true,
-    operations: gateway(), gatewayConfigured: true,
+    operations: gateway(), gatewayConfigured: true, role: 'owner', approver: null,
     exposure: gatewayExposureSchema.parse(fixture('gateway_exposure.json')).data };
 }
 export function gateway() {

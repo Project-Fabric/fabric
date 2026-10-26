@@ -588,7 +588,8 @@ Owner routes: `POST /gateway/v1/approvers {name, currency, max_approval_minor}` 
 rejected) returns `{approver, token}`; `GET /gateway/v1/approvers` lists without credentials;
 `POST /gateway/v1/approvers/{id}/revoke`. Responses use envelope schema `cosigna.approver/v1`.
 
-An approver credential reaches only: `GET /gateway/v1/approvers/me`, `GET /gateway/v1/operations
+An approver credential reaches only: `GET /gateway/v1/approvers/me`, `GET /gateway/v1/agents`
+(each agent's `id` and `name` only, so an inbox can say which agent asked), `GET /gateway/v1/operations
 [?stage=held|unknown]`, `GET .../operations/{id}`, `POST .../{id}/approve {proposal_digest}`
 (which then executes, as for the owner) and `POST .../{id}/reject`, for the owner who registered
 them. Everything else is not found. Approval checks, inside the deciding transaction: the
@@ -610,8 +611,8 @@ or a revocation undone outside the service is reported. The independent verifier
 each approver decision was made by an approver registered earlier in the chain, not revoked,
 of the same owner, and that an approval is in their currency and within their limit.
 
-Not yet: approver sign-in for the console (it still acts as the owner) and approvers for
-purchase quotes (tasks).
+The console signs approvers in with their own key (see `console/README.md`). Not yet: approvers
+for purchase quotes (tasks).
 
 ### Two-person approval (ledger version 8)
 

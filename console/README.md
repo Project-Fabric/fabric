@@ -134,6 +134,18 @@ gateway address must be loopback. In fixtures mode the section shows `fixtures/g
 which was captured from a real gateway. Decisions are recorded by the gateway as its owner role. Per-person
 approver identity on the gateway is still planned (G3). Live check: `npm run test:gateway`.
 
+**Named approvers sign in with their own key.** The owner registers approvers on the gateway
+(`POST /gateway/v1/approvers`, each with a currency and a limit) and gives each person their
+`approverkey_…` once. An approver opens `http://127.0.0.1:3090/signin` and pastes it. The console
+checks it with the gateway (`/approvers/me`) and keeps it only in this process's memory for that
+session: never on disk, never in the browser, and gone on sign-out or restart. An approver
+session sees only the agent payments and their limit, and can approve or reject; the gateway
+refuses approvals above their limit and records each decision under their name. Settling unknown
+results, exposure, the local engine screens and every other action stay with the owner. Sign-in
+needs the console's own origin and allows five failed attempts a minute for the whole console.
+It needs a live gateway (not fixtures mode). The console binds to 127.0.0.1 only, so approvers
+must use this machine until there is a hosted deployment.
+
 Below it, **What agents can pay without you** shows the gateway's worst-case exposure
 (`GET /gateway/v1/exposure`, `cosigna.exposure/v1`): the most agents can still move with nobody
 signing, what limits each agent (its budget or what open cases owe), and what requiring a case

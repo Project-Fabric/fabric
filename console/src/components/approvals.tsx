@@ -14,6 +14,11 @@ export function ApprovalInbox() {
   const rows = data.approvals.filter(r => tab === 'all' || r.status === tab || tab === 'approved' && r.status === 'used')
     .sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending') || Date.parse(b.requested_at) - Date.parse(a.requested_at) || b.id - a.id);
   const oldest = [...pending].sort((a, b) => a.requested_at.localeCompare(b.requested_at))[0];
+  if (data.role === 'approver') return <>
+    <PageTitle eyebrow="SIGNED IN AS A NAMED APPROVER" title="Payments waiting for a person"
+      description={data.approver ? `You can approve payments up to ${minor(data.approver.max_approval_minor, data.approver.currency)} in ${data.approver.currency}, and reject any. Each decision is recorded under your name.` : 'Each decision is recorded under your name.'}><RefreshButton /></PageTitle>
+    <GatewayPayments />
+  </>;
   return <>
     <PageTitle eyebrow="HUMAN DECISIONS. CLEAR AUTHORITY." title="Approval inbox" description="A clear decision for every exception. Review the request, then decide."><RefreshButton /></PageTitle>
     <GatewayPayments />
@@ -134,10 +139,10 @@ export function GatewayPayments() {
       <div className="gateway-actions">{op.data.stage === 'held'
         ? <><button className="button primary" disabled={!op.proposal_digest} onClick={() => { setError(''); setTarget({ op, decision: 'approve' }); }}>Review payment<ArrowUpRight size={16} /></button>
           <button className="button secondary reject" onClick={() => { setError(''); setTarget({ op, decision: 'reject' }); }}>Reject</button></>
-        : <button className="button secondary" onClick={() => { setError(''); setTarget({ op, decision: 'resolve' }); }}>Settle</button>}</div>
+        : data.role === 'owner' && <button className="button secondary" onClick={() => { setError(''); setTarget({ op, decision: 'resolve' }); }}>Settle</button>}</div>
     </li>)}</ul> : <Empty title="No agent payments waiting">Payments within each agent’s limit settle on their own; exceptions appear here.</Empty>}
     {target && <ConfirmDialog open onOpenChange={next => { if (!next) setTarget(null); }} title={titles[target.decision]}
-      description={`${data.fixtures ? 'Simulate' : 'Send'} this decision to the Cosigna gateway as the owner.`} confirm={confirms[target.decision]}
+      description={`${data.fixtures ? 'Simulate' : 'Send'} this decision to the Cosigna gateway as ${data.role === 'approver' ? data.user : 'the owner'}.`} confirm={confirms[target.decision]}
       danger={target.decision === 'reject'} busy={busy} error={error} onConfirm={() => void submit()}>
       <div className="confirmation-request"><span>{target.op.kindLabel}</span><strong>{target.op.amountLabel}</strong><code>{target.op.counterparty}</code></div>
       <dl><DetailField label="Agent">{target.op.agentName}</DetailField><DetailField label="Reason given">{target.op.data.request.reason}</DetailField>

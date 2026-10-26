@@ -225,10 +225,16 @@ fn run() -> Result<std::process::ExitCode> {
             let mut worker = cosigna_agent::worker::Worker::open(&service)?;
             let planner = make_planner(planner, model)?;
             eprintln!(
-                "Cosigna worker · enrolled tasks only · planner: {} · SIMULATED merchant",
+                "Cosigna worker · enrolled tasks only · planner: {} · SIMULATED merchant · recovers unknown money operations by lookup only",
                 planner.name()
             );
             loop {
+                for recovery in worker.recover_operations(now())? {
+                    println!(
+                        "{}",
+                        json!({"schema":cosigna_agent::worker::RECOVERY_API_VERSION,"data":recovery})
+                    );
+                }
                 if let Some(job) = worker.tick(planner.as_ref(), now())? {
                     println!(
                         "{}",

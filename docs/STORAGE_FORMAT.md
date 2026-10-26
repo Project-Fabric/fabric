@@ -804,6 +804,20 @@ or replaces attempt keys. Existing pipeline/task envelopes retain their versions
 The worker CLI emits the same success envelope for processed jobs, and no request, model
 response, reasoning, bearer/hash or payment credentials. See [operations](GATEWAY_OPERATIONS.md).
 
+Refund recovery (`cosigna.recovery/v1`; no database migration). Each loop, the worker also
+checks money operations sent to a rail whose result is not recorded (`submitting` or
+`unknown`, `submitted_at` at least 30 seconds ago, so an execute still in flight in the
+gateway is not touched), for every owner, without enrollment. A check is a rail lookup by
+attempt key only: nothing is sent again, voided or resolved. A result is recorded as
+`rail_result`, as a manual reconcile would; an operation still `submitting` with no result
+(left by a crash) becomes `unknown`, recorded once as `submission_unknown`; an `unknown` one
+with no result is left unchanged and adds no evidence record. Checks per operation back off
+5, 10, 20, 40, 80, 160 seconds, then every 300 seconds while unsettled. The pacing state is
+in memory: a restart starts checking again, which is safe because checks only read. The
+worker prints one line `{"schema":"cosigna.recovery/v1","data":{operation_id, stage, checks,
+needs_person}}` when an operation settles, and once at the 12th check without a result
+(`needs_person: true`); settling it then is the owner's `resolve`.
+
 ### Optional batch verification report version 1
 
 The Apache lab writes non-authoritative artifacts below its ignored

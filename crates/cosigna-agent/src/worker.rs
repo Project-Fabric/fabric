@@ -9,6 +9,12 @@ use crate::{
 };
 
 pub const API_VERSION: &str = "cosigna.worker/v1";
+/// Lines the worker prints about money operations it is recovering.
+pub const RECOVERY_API_VERSION: &str = "cosigna.recovery/v1";
+/// An attempt this recent may still be in flight in the gateway; it is not touched.
+pub const RECOVERY_GRACE: i64 = 30;
+/// After this many checks with no result, the operation is reported as needing a person.
+pub const RECOVERY_CHECKS_BEFORE_PERSON: u32 = 12;
 const MAX_ACTIVE: i64 = 1000;
 const MAX_RECONCILES: u32 = 12;
 
@@ -113,6 +119,20 @@ fn capacity(db: &Connection) -> Result<()> {
 pub struct Worker {
     service: Service,
     _lock: File,
+    /// Per unsettled operation: checks made and when the next is due. In memory only: a
+    /// restart checks again from the start, which is safe because checks only read.
+    checks: std::collections::HashMap<String, (u32, i64)>,
+}
+
+/// What one recovery check found for a money operation sent to a rail.
+#[derive(Debug, Serialize)]
+pub struct Recovery {
+    pub operation_id: String,
+    /// The stage after the check: `succeeded` or `failed` when settled, else `unknown`.
+    pub stage: crate::operations::OperationStage,
+    pub checks: u32,
+    /// No result after the checks so far: a person should settle it (resolve) or wait.
+    pub needs_person: bool,
 }
 
 impl Worker {
@@ -131,6 +151,7 @@ impl Worker {
         let worker = Self {
             service: service.clone(),
             _lock: lock,
+            checks: Default::default(),
         };
         worker.recover()?;
         Ok(worker)
@@ -153,6 +174,54 @@ impl Worker {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Checks money operations whose rail result is unknown, by lookup only: nothing is sent
+    /// again. Each is checked with backoff (5 s doubling to 5 min, then every 5 min, since
+    /// a payment system can hold a refund pending for days). Returns only what changed: a
+    /// settlement, or the check at which an operation first needs a person.
+    pub fn recover_operations(&mut self, at: i64) -> Result<Vec<Recovery>> {
+        let due = self.service.unsettled_operations(at, RECOVERY_GRACE)?;
+        self.checks.retain(|id, _| due.iter().any(|(_, d)| d == id));
+        let mut out = Vec::new();
+        for (owner, id) in due {
+            let (count, next_at) = self.checks.get(&id).copied().unwrap_or((0, at));
+            if next_at > at {
+                continue;
+            }
+            let owner = Actor {
+                owner,
+                role: Role::Owner,
+            };
+            let count = count.saturating_add(1);
+            // A rail or ledger error is one more check with no result.
+            let stage = self
+                .service
+                .recover_operation(&owner, &id, at)
+                .map(|op| op.stage)
+                .unwrap_or(crate::operations::OperationStage::Unknown);
+            let settled = !matches!(
+                stage,
+                crate::operations::OperationStage::Submitting
+                    | crate::operations::OperationStage::Unknown
+            );
+            if settled {
+                self.checks.remove(&id);
+            } else {
+                let delay = (5_i64 << (count - 1).min(6)).min(300);
+                self.checks
+                    .insert(id.clone(), (count, at.saturating_add(delay)));
+            }
+            if settled || count == RECOVERY_CHECKS_BEFORE_PERSON {
+                out.push(Recovery {
+                    operation_id: id,
+                    stage,
+                    checks: count,
+                    needs_person: !settled,
+                });
+            }
+        }
+        Ok(out)
     }
 
     /// At most one eligible job and one external operation per tick. Waiting jobs

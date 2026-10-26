@@ -807,6 +807,47 @@ impl Service {
         self.finish_operation(actor, &op, outcome, at)
     }
 
+    /// Operations sent to a rail whose result is not recorded, submitted at least `grace`
+    /// seconds before `at` (an execute still in flight is left alone): `(owner, id)`.
+    pub fn unsettled_operations(&self, at: i64, grace: i64) -> Result<Vec<(String, String)>> {
+        self.require_unscoped()?;
+        let db = storage::connect(&self.ledger, false)?;
+        let mut statement = db.prepare(
+            "SELECT owner,id FROM operations
+             WHERE json_extract(data,'$.stage') IN ('submitting','unknown')
+               AND COALESCE(json_extract(data,'$.submitted_at'),0) <= ?1 ORDER BY id",
+        )?;
+        let rows = statement
+            .query_map([at.saturating_sub(grace)], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Recovery by lookup only; nothing is ever sent. If the rail has the attempt's result it
+    /// is recorded; an attempt left `submitting` (say, by a crash) with no result becomes
+    /// `unknown`, recorded once; an `unknown` one with no result is left as it is, with no
+    /// new record, so repeated checks do not fill the evidence chain.
+    pub fn recover_operation(&self, owner: &Actor, id: &str, at: i64) -> Result<Operation> {
+        self.require_unscoped()?;
+        owner.require(&[Role::Owner])?;
+        let op = self.operation(owner, id)?;
+        if !matches!(
+            op.stage,
+            OperationStage::Submitting | OperationStage::Unknown
+        ) {
+            return Ok(op);
+        }
+        let key = op.attempt_key.as_deref().ok_or(Error::StoreFormat)?;
+        let proposal = op.proposal.as_ref().ok_or(Error::StoreFormat)?;
+        match self.rails.lookup(key, proposal) {
+            Ok(Some(receipt)) => self.finish_operation(owner, &op, RailOutcome::Done(receipt), at),
+            _ if op.stage == OperationStage::Submitting => {
+                self.finish_operation(owner, &op, RailOutcome::Unknown, at)
+            }
+            _ => Ok(op),
+        }
+    }
+
     /// Owner settlement of an unknown result through the rail: its receipt, or a void that
     /// refuses any late copy of the attempt. A rail that cannot answer leaves it held.
     pub fn resolve_operation(&self, owner: &Actor, id: &str, at: i64) -> Result<Operation> {

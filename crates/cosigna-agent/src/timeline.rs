@@ -241,7 +241,7 @@ impl Service {
             OperationStage::Submitting | OperationStage::Unknown => (
                 "Sent, but the payment system's answer is not known. The money stays held.".into(),
                 vec![
-                    "Look up the result (reconcile); nothing is sent again.".into(),
+                    "Look up the result (reconcile, or the worker checks on its own); nothing is sent again.".into(),
                     "The owner settles it through the payment system (resolve).".into(),
                 ],
             ),

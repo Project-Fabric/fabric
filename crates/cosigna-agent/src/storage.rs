@@ -10,7 +10,7 @@ use crate::{Budget, Error, Event, Result, Task, evidence, rails};
 const LEDGER_APP: i64 = 0x43535458;
 const PROVIDER_APP: i64 = 0x43534658;
 /// Current ledger version, as recorded when an evidence chain starts.
-pub(crate) const LEDGER_VERSION: i64 = 6;
+pub(crate) const LEDGER_VERSION: i64 = 7;
 
 pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     let mut db = Connection::open(path)?;
@@ -118,6 +118,19 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
             CREATE INDEX operations_case ON operations(owner, case_id);",
         )?;
         tx.pragma_update(None, "user_version", 6)?;
+    }
+    // Version 7 adds named approvers: people who may decide held operations within a limit.
+    if !provider && version < 7 {
+        tx.execute_batch(
+            "CREATE TABLE approvers (
+                id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                max_approval_minor INTEGER NOT NULL CHECK(max_approval_minor > 0),
+                created_at INTEGER NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0,1)),
+                token_hash TEXT NOT NULL UNIQUE);",
+        )?;
+        tx.pragma_update(None, "user_version", 7)?;
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL;")?;

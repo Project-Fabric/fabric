@@ -10,6 +10,8 @@ pub enum Role {
     Owner,
     Planner,
     Executor,
+    /// A named person who may decide held money operations within their limit.
+    Approver,
 }
 
 #[derive(Clone, Debug)]

@@ -2,6 +2,7 @@
 //! This first increment executes synthetic merchant orders only; see this crate's README.
 mod agents;
 pub mod api;
+pub mod approvers;
 pub mod domain;
 pub mod evidence;
 pub mod exposure;

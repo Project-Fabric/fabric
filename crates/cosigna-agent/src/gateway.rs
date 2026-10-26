@@ -112,6 +112,7 @@ pub fn demo() -> Result<Value> {
 pub(crate) enum Principal {
     Owner(Actor),
     Agent(RegisteredAgent),
+    Approver(crate::approvers::RegisteredApprover),
 }
 
 pub(crate) fn authenticate(
@@ -123,6 +124,11 @@ pub(crate) fn authenticate(
     if let Ok(actor) = credentials.authenticate(authorization) {
         actor.require(&[Role::Owner])?;
         return Ok(Principal::Owner(actor));
+    }
+    if authorization.starts_with("Bearer approverkey_") {
+        return Ok(Principal::Approver(
+            service.authenticate_approver(authorization)?,
+        ));
     }
     Ok(Principal::Agent(
         service.authenticate_agent(authorization, at)?,
@@ -168,6 +174,52 @@ fn empty(body: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// A named approver's only routes: who am I, the operations, and deciding them.
+fn approver_routes(
+    service: &Service,
+    approver: &crate::approvers::RegisteredApprover,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    at: i64,
+) -> Result<Value> {
+    let actor = Actor {
+        owner: approver.owner.clone(),
+        role: Role::Approver,
+    };
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let parts: Vec<_> = path.split('/').collect();
+    match (method, parts.as_slice()) {
+        ("GET", ["", "gateway", "v1", "approvers", "me"]) => {
+            Ok(json!({"schema": crate::approvers::API_VERSION, "data": approver}))
+        }
+        ("GET", ["", "gateway", "v1", "operations"]) => {
+            let stage = match query {
+                "" => None,
+                "stage=held" => Some(crate::operations::OperationStage::Held),
+                "stage=unknown" => Some(crate::operations::OperationStage::Unknown),
+                _ => return Err(Error::Invalid("unsupported operation filter".into())),
+            };
+            let ops = service.operations(&actor, stage)?;
+            Ok(json!({"schema": crate::operations::API_VERSION,
+                "data": ops.iter().map(operation_view).collect::<Result<Vec<_>>>()?}))
+        }
+        ("GET", ["", "gateway", "v1", "operations", id]) => {
+            operation_view(&service.operation(&actor, id)?)
+        }
+        ("POST", ["", "gateway", "v1", "operations", id, "approve"]) => {
+            let input: OperationApproval = decode(body)?;
+            service.approve_operation(&actor, id, &input.proposal_digest, at)?;
+            operation_view(&service.execute_operation(&actor, id, Scenario::Success, at)?)
+        }
+        ("POST", ["", "gateway", "v1", "operations", id, "reject"]) => {
+            empty(body)?;
+            operation_view(&service.reject_operation(&actor, id, at)?)
+        }
+        _ => Err(Error::NotFound),
+    }
+}
+
 /// Authenticates the complete request; caller-supplied fields cannot select identity.
 #[allow(clippy::too_many_arguments)]
 pub fn dispatch(
@@ -210,6 +262,16 @@ pub(crate) fn dispatch_authenticated(
             },
             false,
         ),
+        Principal::Approver(approver) => {
+            return approver_routes(
+                &service.scoped_approver(&approver),
+                &approver,
+                method,
+                path,
+                body,
+                at,
+            );
+        }
     };
     let executor = Actor {
         owner: actor.owner.clone(),
@@ -320,6 +382,19 @@ pub(crate) fn dispatch_authenticated(
         ("POST", ["", "gateway", "v1", "budgets", id, "revoke"]) if owner => {
             empty(body)?;
             serde_json::to_value(service.revoke_budget_at(&actor, id, at)?)?
+        }
+        ("GET", ["", "gateway", "v1", "approvers"]) if owner => {
+            return Ok(json!({"schema": crate::approvers::API_VERSION,
+                "data": service.approvers(&actor)?}));
+        }
+        ("POST", ["", "gateway", "v1", "approvers"]) if owner => {
+            return Ok(json!({"schema": crate::approvers::API_VERSION,
+                "data": service.register_approver(&actor, decode(body)?, at)?}));
+        }
+        ("POST", ["", "gateway", "v1", "approvers", id, "revoke"]) if owner => {
+            empty(body)?;
+            return Ok(json!({"schema": crate::approvers::API_VERSION,
+                "data": service.revoke_approver(&actor, id, at)?}));
         }
         ("GET", ["", "gateway", "v1", "agents"]) if owner => {
             serde_json::to_value(service.registered_agents(&actor)?)?

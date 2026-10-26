@@ -749,7 +749,7 @@ fn provider_idempotency_rejects_changed_payload_and_ledger_rejects_future_schema
     ));
     assert_eq!(s.service.provider.order_count().unwrap(), 1);
     let db = rusqlite::Connection::open(s.directory.path().join("transactions.sqlite")).unwrap();
-    db.pragma_update(None, "user_version", 7).unwrap();
+    db.pragma_update(None, "user_version", 8).unwrap();
     drop(db);
     assert!(matches!(
         Service::open(s.directory.path()),

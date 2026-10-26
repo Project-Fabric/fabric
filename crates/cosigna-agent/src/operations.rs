@@ -205,8 +205,11 @@ pub struct Operation {
     pub proposal: Option<Proposal>,
     pub decision: Decision,
     pub approved_digest: Option<String>,
-    /// `policy` for an automatic approval, `owner` for a person's.
+    /// `policy` for an automatic approval, `owner` or `approver` for a person's.
     pub approved_by: Option<String>,
+    /// The named approver who approved it (ledger version 7); absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approver: Option<String>,
     pub attempt_key: Option<String>,
     /// When the attempt was claimed (bounds idempotent retries on some rails).
     #[serde(default)]
@@ -473,6 +476,7 @@ impl Service {
             decision,
             approved_digest: approved_by.as_ref().and(digest),
             approved_by,
+            approver: None,
             attempt_key: None,
             submitted_at: None,
             receipt: None,
@@ -496,7 +500,7 @@ impl Service {
     }
 
     pub fn operation(&self, actor: &Actor, id: &str) -> Result<Operation> {
-        actor.require(&[Role::Owner, Role::Planner, Role::Executor])?;
+        actor.require(&[Role::Owner, Role::Planner, Role::Executor, Role::Approver])?;
         let op = load(&storage::connect(&self.ledger, false)?, id)?;
         self.visible(actor, &op)?;
         Ok(op)
@@ -517,7 +521,7 @@ impl Service {
         stage: Option<OperationStage>,
     ) -> Result<Vec<Operation>> {
         self.require_unscoped()?;
-        owner.require(&[Role::Owner])?;
+        owner.require(&[Role::Owner, Role::Approver])?;
         let db = storage::connect(&self.ledger, false)?;
         let mut stmt =
             db.prepare("SELECT data FROM operations WHERE owner=?1 ORDER BY rowid DESC LIMIT 200")?;
@@ -541,16 +545,17 @@ impl Service {
         at: i64,
     ) -> Result<Operation> {
         self.require_unscoped()?;
-        owner.require(&[Role::Owner])?;
+        owner.require(&[Role::Owner, Role::Approver])?;
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut op = load(&tx, id)?;
         owner.owns(&op.owner)?;
-        // A repeat of the owner's recorded approval returns the operation as it is, even once
-        // payment has started; it changes nothing. An automatic approval is not the owner's.
+        let approver = crate::approvers::authority(&tx, self, owner)?;
+        // A repeat of a person's recorded approval returns the operation as it is, even once
+        // payment has started; it changes nothing. An automatic approval is not a person's.
+        let by_person = matches!(op.approved_by.as_deref(), Some("owner" | "approver"));
         let repeat = op.approved_digest.as_deref() == Some(digest)
-            && (op.stage == OperationStage::Approved
-                || (op.stage.has_attempt() && op.approved_by.as_deref() == Some("owner")));
+            && (op.stage == OperationStage::Approved || (op.stage.has_attempt() && by_person));
         if repeat {
             return Ok(op);
         }
@@ -568,6 +573,14 @@ impl Service {
                 "proposal has expired; request it again".into(),
             ));
         }
+        if let Some(approver) = &approver
+            && (proposal.currency != approver.currency
+                || proposal.amount_minor > approver.max_approval_minor)
+        {
+            return Err(Error::Conflict(
+                "above_approver_limit: this payment needs an approver with a higher limit".into(),
+            ));
+        }
         let budget = storage::budget(&tx, &op.request.budget_id)?;
         active(&budget, at)?;
         let (held, spent) = storage::totals(&tx, &budget.id)?;
@@ -578,20 +591,35 @@ impl Service {
         hold(&tx, &op, &budget.id, amount)?;
         op.stage = OperationStage::Approved;
         op.approved_digest = Some(digest.to_string());
-        op.approved_by = Some("owner".into());
-        save(&tx, &mut op, "owner_approved", at, self.by(owner))?;
+        let step = if approver.is_some() {
+            "approver_approved"
+        } else {
+            "owner_approved"
+        };
+        op.approved_by = Some(
+            if approver.is_some() {
+                "approver"
+            } else {
+                "owner"
+            }
+            .into(),
+        );
+        op.approver = approver.map(|a| a.id);
+        save(&tx, &mut op, step, at, self.by(owner))?;
         tx.commit()?;
         Ok(op)
     }
 
     /// Owner refusal before submission. Releases any hold.
+    /// A named approver may reject any unsubmitted operation: refusing never moves money.
     pub fn reject_operation(&self, owner: &Actor, id: &str, at: i64) -> Result<Operation> {
         self.require_unscoped()?;
-        owner.require(&[Role::Owner])?;
+        owner.require(&[Role::Owner, Role::Approver])?;
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut op = load(&tx, id)?;
         owner.owns(&op.owner)?;
+        let approver = crate::approvers::authority(&tx, self, owner)?;
         match op.stage {
             OperationStage::Rejected => return Ok(op),
             OperationStage::Held | OperationStage::Approved => {}
@@ -604,7 +632,12 @@ impl Service {
         settle_hold(&tx, &op.id, "released")?;
         op.stage = OperationStage::Rejected;
         op.approved_digest = None;
-        save(&tx, &mut op, "owner_rejected", at, self.by(owner))?;
+        let step = if approver.is_some() {
+            "approver_rejected"
+        } else {
+            "owner_rejected"
+        };
+        save(&tx, &mut op, step, at, self.by(owner))?;
         tx.commit()?;
         Ok(op)
     }
@@ -618,7 +651,8 @@ impl Service {
         scenario: Scenario,
         at: i64,
     ) -> Result<Operation> {
-        actor.require(&[Role::Owner, Role::Planner, Role::Executor])?;
+        // An approver's approval is executed on the server right after it, as an owner's is.
+        actor.require(&[Role::Owner, Role::Planner, Role::Executor, Role::Approver])?;
         let (op, claimed) = {
             let mut db = storage::connect(&self.ledger, false)?;
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;

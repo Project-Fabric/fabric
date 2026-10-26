@@ -16,6 +16,8 @@ use crate::{
 pub struct Service {
     pub(crate) ledger: PathBuf,
     pub(crate) agent_scope: Option<String>,
+    /// The named approver this service acts for, if any (see `approvers`).
+    pub(crate) approver_scope: Option<String>,
     pub provider: Provider,
     pub rails: crate::rails::Rails,
 }
@@ -34,6 +36,7 @@ impl Service {
         Ok(Self {
             ledger,
             agent_scope: None,
+            approver_scope: None,
             provider: Provider::Fixture(FixtureProvider::open(&fixture)?),
             rails: crate::rails::Rails::fixture(&fixture)?,
         })
@@ -46,6 +49,7 @@ impl Service {
         Ok(Self {
             ledger,
             agent_scope: None,
+            approver_scope: None,
             provider: Provider::TestMerchant(provider),
             rails: crate::rails::Rails::none(),
         })
@@ -523,7 +527,11 @@ impl Service {
 impl Service {
     /// The evidence actor for a change made through this (possibly agent-scoped) service.
     pub(crate) fn by(&self, actor: &Actor) -> serde_json::Value {
-        evidence::by(actor, self.agent_scope.as_deref())
+        evidence::by(
+            actor,
+            self.agent_scope.as_deref(),
+            self.approver_scope.as_deref(),
+        )
     }
 }
 

@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 6, provider version 4)
+## Optional Cosigna agent development stores (ledger version 7, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 6 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds` |
+| `transactions.sqlite` | `0x43535458` | 7 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -326,13 +326,14 @@ Ledger version 2 added the three agent tables. Version 3 added `worker_jobs` and
 index. Version 4 added `evidence` (below). Version 5 added money operations, their holds and
 agent operation grants. Version 6 adds case binding: the nullable `operations.case_id` column
 with index `operations_case(owner, case_id)`, and the optional `case_id` request field and
-`require_case` grant field (below). Opening an application-matching v1-v5 ledger creates the
-missing tables and columns and updates `user_version` to 6 in one transaction. Existing
+`require_case` grant field (below). Version 7 adds the `approvers` table (named approvers,
+below). Opening an application-matching v1-v6 ledger creates the missing tables and columns and
+updates `user_version` to 7 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 6, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v6
+one transaction, and provider versions above 4 are refused. Versions above 7, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v7
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -507,10 +508,11 @@ Owner routes: `GET /gateway/v1/operations[?stage=held|unknown]`, `POST .../{id}/
 `.../reconcile`. Other agents cannot see an operation.
 
 Evidence kinds `gateway.operation.{auto_approved,held,denied,owner_approved,owner_rejected,
+approver_approved,approver_rejected,
 submission_started,rail_result,rail_rejected,rail_voided,submission_unknown}` record `by`,
 `operation`, `budget`, `agent`, `version`, `stage`, `decision`, `request` (with
 `reason_digest` instead of the reason text, and `case_id` from v6), `proposal` (`digest`, `facts`, `expires_at`),
-`approved_digest`, `approved_by` (`policy` or `owner`), `attempt_key`, `receipt`, `hold` and
+`approved_digest`, `approved_by` (`policy`, `owner` or, from v7, `approver`), `attempt_key`, `receipt`, `hold` and
 `operation_digest` (BLAKE3 of the stored operation JSON). `evidence verify` checks each
 operation and its hold against its latest record. An agent's `agent_digest` includes its
 operation grant only when one exists, so digests recorded before v5 remain valid.
@@ -569,6 +571,45 @@ HTTP response schema `cosigna.agent/v1`: success envelope has `schema`,
 Public health has `schema`, `simulated_provider: true` and `status`. Error envelope has
 `schema` and `error: {code, message}`. Input schemas reject unknown fields; purchase plan
 fields are only `offer_id`, `quantity`, `clarification`. No plan can contain spending authority.
+
+### Named approvers (ledger version 7, `cosigna.approver/v1`)
+
+People the owner authorizes to decide held money operations, each with their own credential and
+a limit. Table `approvers`: `id` (`approver_` + 64 hex) primary key, `owner`, `name` (1-100
+characters, no control characters), `currency` (three uppercase letters), `max_approval_minor`
+(1 to the maximum amount), `created_at` (Unix seconds), `revoked` (0/1), unique `token_hash`.
+The credential is `approverkey_` plus 64 random hex characters; only its BLAKE3 hex digest is
+stored, and the plaintext is returned once in the registration response. Revocation is
+permanent.
+
+Owner routes: `POST /gateway/v1/approvers {name, currency, max_approval_minor}` (unknown fields
+rejected) returns `{approver, token}`; `GET /gateway/v1/approvers` lists without credentials;
+`POST /gateway/v1/approvers/{id}/revoke`. Responses use envelope schema `cosigna.approver/v1`.
+
+An approver credential reaches only: `GET /gateway/v1/approvers/me`, `GET /gateway/v1/operations
+[?stage=held|unknown]`, `GET .../operations/{id}`, `POST .../{id}/approve {proposal_digest}`
+(which then executes, as for the owner) and `POST .../{id}/reject`, for the owner who registered
+them. Everything else is not found. Approval checks, inside the deciding transaction: the
+approver still exists and is not revoked (a revocation committed earlier wins even if the
+approver authenticated before it), the proposal currency equals the approver's currency and its
+amount is at most `max_approval_minor`; otherwise the conflict message starts with
+`above_approver_limit`. Rejection is allowed at any amount, since refusing never moves money.
+The owner's own authority is unchanged. An approver's approval sets `approved_by: "approver"`
+and the operation's `approver` field (omitted otherwise, so earlier operation JSON and digests
+are unchanged), and is recorded as `gateway.operation.approver_approved` or
+`approver_rejected`, with `by: {owner, role: "approver", agent: null, approver}`. The
+`approver` key in `by` appears only on an approver's records.
+
+Evidence kinds `gateway.approver.{registered,revoked}` record `by`, `approver`, `terms`
+(`owner`, `name`, `currency`, `max_approval_minor`, `created_at`, `revoked`) and
+`approver_digest` (BLAKE3 of the compact JSON array of the stored row, including the token
+hash). `evidence verify` checks every approver row against its latest record, so a limit raised
+or a revocation undone outside the service is reported. The independent verifier checks that
+each approver decision was made by an approver registered earlier in the chain, not revoked,
+of the same owner, and that an approval is in their currency and within their limit.
+
+Not yet: approver sign-in for the console (it still acts as the owner), approval by two people
+above a threshold, and approvers for purchase quotes (tasks).
 
 ### Worst-case exposure (`cosigna.exposure/v1`; no database migration)
 

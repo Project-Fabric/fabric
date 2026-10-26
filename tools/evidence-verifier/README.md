@@ -15,7 +15,8 @@ It checks two things:
 2. **The rules, replayed from the records alone:**
    - no budget is overspent, and no operation exceeds its limit;
    - automatic approvals stay within the agent's grant at that moment;
-   - only the owner approves or rejects;
+   - only the owner, or a named approver the owner registered and had not revoked, approves or
+     rejects, and an approver's approval is in their currency and within their limit;
    - holds match the requested amounts;
    - every paid operation has a matching receipt and spent hold;
    - every approval names the digest it approved.

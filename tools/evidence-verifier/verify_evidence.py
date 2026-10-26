@@ -12,6 +12,9 @@ both produce and accept a bad record. Short enough for an auditor to read.
    - an automatic approval is within the requesting agent's grant (kind, rail, auto limit) at
      that moment, and the agent was not revoked;
    - only the owner role approves, rejects or resolves; agents without a grant never get money;
+   - named approvers (ledger version 7): an approver's decision is made by an approver the owner
+     registered earlier in the chain and had not revoked; an approval is in the approver's
+     currency and within their limit, and the operation records them as its approver;
    - a succeeded operation has a receipt matching its proposal amount and currency, and its hold
      is spent; failed, denied and rejected operations never end with spent money;
    - an approval names the digest of the proposal it approved;
@@ -93,9 +96,28 @@ def check_case(seq, step, event, request, ops, grant, problems, stats):
             problems.append(f"record {seq}: automatic approval that does not match its case")
 
 
+def check_approver(seq, step, event, request, by, approvers, problems, stats):
+    """A named approver's decision, against the approver registry as recorded so far."""
+    stats["approver_decisions"] += 1
+    approver = approvers.get(by.get("approver"))
+    if by.get("role") != "approver" or by.get("agent"):
+        problems.append(f"record {seq}: {step} not made by a named approver")
+    elif approver is None:
+        problems.append(f"record {seq}: {step} by an unregistered approver")
+    elif approver.get("revoked"):
+        problems.append(f"record {seq}: {step} by a revoked approver")
+    elif approver.get("owner") != by.get("owner"):
+        problems.append(f"record {seq}: {step} by another owner's approver")
+    elif step == "approver_approved" and (request["currency"] != approver.get("currency")
+                                          or request["amount_minor"] > approver.get("max_approval_minor", 0)):
+        problems.append(f"record {seq}: approval above the approver's limit")
+    if step == "approver_approved" and event.get("approved_by") != "approver":
+        problems.append(f"record {seq}: an approver's approval is not recorded as theirs")
+
+
 def replay(records, problems):
-    budgets, agents, ops, tasks = {}, {}, {}, {}
-    stats = {"operations": 0, "auto_approved": 0, "owner_decisions": 0, "denied": 0}
+    budgets, agents, ops, tasks, approvers = {}, {}, {}, {}, {}
+    stats = {"operations": 0, "auto_approved": 0, "owner_decisions": 0, "approver_decisions": 0, "denied": 0}
     for record in records:
         event, seq = record.get("event", {}), record.get("seq")
         kind = event.get("kind", "")
@@ -104,6 +126,8 @@ def replay(records, problems):
             budgets[event["budget"]] = {"terms": event["terms"], "revoked": event["revoked"]}
         elif kind.startswith("gateway.agent."):
             agents[event["agent"]] = event["grant"]
+        elif kind.startswith("gateway.approver."):
+            approvers[event["approver"]] = event["terms"]
         elif kind.startswith("gateway.task."):
             tasks[event["task"]] = event
         elif kind.startswith("gateway.operation."):
@@ -142,7 +166,9 @@ def replay(records, problems):
                 stats["owner_decisions"] += 1
                 if by.get("role") != "owner" or by.get("agent"):
                     problems.append(f"record {seq}: {step} not made by the owner")
-            if step in ("owner_approved", "auto_approved"):
+            if step in ("approver_approved", "approver_rejected"):
+                check_approver(seq, step, event, request, by, approvers, problems, stats)
+            if step in ("owner_approved", "approver_approved", "auto_approved"):
                 proposal = event.get("proposal") or {}
                 if event.get("approved_digest") != proposal.get("digest"):
                     problems.append(f"record {seq}: approval does not name the proposal's digest")

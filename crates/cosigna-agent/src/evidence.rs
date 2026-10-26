@@ -69,13 +69,19 @@ pub(crate) fn append(db: &Connection, at: i64, event: Value) -> Result<()> {
 }
 
 /// Who made a change: the authenticated owner and role, and the agent grant if scoped.
-pub(crate) fn by(actor: &Actor, agent: Option<&str>) -> Value {
+pub(crate) fn by(actor: &Actor, agent: Option<&str>, approver: Option<&str>) -> Value {
     let role = match actor.role {
         Role::Owner => "owner",
         Role::Planner => "planner",
         Role::Executor => "executor",
+        Role::Approver => "approver",
     };
-    json!({"owner": actor.owner, "role": role, "agent": agent})
+    let mut by = json!({"owner": actor.owner, "role": role, "agent": agent});
+    // Present only for a named approver, so earlier records keep their exact shape.
+    if let (Some(approver), Some(map)) = (approver, by.as_object_mut()) {
+        map.insert("approver".into(), json!(approver));
+    }
+    by
 }
 
 /// The first record of a ledger: created empty, or upgraded with pre-existing state that has
@@ -206,6 +212,37 @@ pub(crate) fn agent(db: &Connection, kind: &str, id: &str, at: i64, by: Value) -
         at,
         json!({"kind": format!("gateway.agent.{kind}"), "by": by, "agent": id,
             "grant": state, "agent_digest": agent_digest}),
+    )
+}
+
+fn approver_state(db: &Connection, id: &str) -> Result<Option<(Value, String)>> {
+    Ok(db
+        .query_row(
+            "SELECT owner,name,currency,max_approval_minor,created_at,revoked,token_hash FROM approvers WHERE id=?1",
+            [id],
+            |r| {
+                let (owner, name, currency, max, created, revoked, token): (
+                    String, String, String, i64, i64, bool, String,
+                ) = (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?);
+                let row = json!([owner, name, currency, max, created, revoked, token]);
+                Ok((
+                    json!({"owner": owner, "name": name, "currency": currency,
+                        "max_approval_minor": max, "created_at": rfc3339(created), "revoked": revoked}),
+                    digest(&row.to_string()),
+                ))
+            },
+        )
+        .optional()?)
+}
+
+/// A named approver registered or revoked by the owner (ledger version 7).
+pub(crate) fn approver(db: &Connection, kind: &str, id: &str, at: i64, by: Value) -> Result<()> {
+    let (state, approver_digest) = approver_state(db, id)?.ok_or(Error::NotFound)?;
+    append(
+        db,
+        at,
+        json!({"kind": format!("gateway.approver.{kind}"), "by": by, "approver": id,
+            "terms": state, "approver_digest": approver_digest}),
     )
 }
 
@@ -391,6 +428,7 @@ fn verify_db(db: &Connection) -> Result<Report> {
                 ("budget", "budget", "budget_digest"),
                 ("agent", "agent", "agent_digest"),
                 ("operation", "operation", "operation_digest"),
+                ("approver", "approver", "approver_digest"),
             ] {
                 if event.get(digest_field).is_some()
                     && let Some(id) = event[field].as_str()
@@ -506,12 +544,37 @@ fn verify_db(db: &Connection) -> Result<Report> {
             ),
         }
     }
+    let approver_ids: Vec<String> = {
+        let mut stmt = db.prepare("SELECT id FROM approvers ORDER BY id")?;
+        stmt.query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?
+    };
+    for id in &approver_ids {
+        match last.get(&("approver", id.clone())) {
+            Some(event) => {
+                let current = approver_state(db, id)?.map(|(_, d)| d);
+                if event["approver_digest"] != json!(current) {
+                    mismatch(
+                        &mut check,
+                        format!("approver {id}"),
+                        "changed without a record",
+                    );
+                }
+            }
+            None => mismatch(
+                &mut check,
+                format!("approver {id}"),
+                "exists without any record",
+            ),
+        }
+    }
     // Recorded subjects must still exist: the service never deletes them.
     for (kind, id) in last.keys() {
         let table = match *kind {
             "task" => "tasks",
             "budget" => "budgets",
             "operation" => "operations",
+            "approver" => "approvers",
             _ => "agents",
         };
         let exists: Option<i64> = db

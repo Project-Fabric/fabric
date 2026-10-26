@@ -55,7 +55,7 @@ class Verifier(unittest.TestCase):
         db = sqlite3.connect(os.path.join(cls.dir, "fixture-provider.sqlite"))
         db.executemany("INSERT INTO fixture_payments(id,currency,amount_minor,customer) VALUES (?,?,?,?)",
                        [("pay_v_1", "USD", 2000, "a"), ("pay_v_2", "USD", 45000, "b"), ("pay_v_3", "USD", 30000, "c"),
-                        ("pay_v_4", "USD", 3000, "d")])
+                        ("pay_v_4", "USD", 3000, "d"), ("pay_v_5", "USD", 40000, "e")])
         db.execute("INSERT INTO fixture_cases(id,customer,source,currency,owed_minor) VALUES ('case_v_4','d','pay_v_4','USD',1000)")
         db.commit(); db.close()
         owner = "Bearer " + json.load(open(os.path.join(cls.dir, "credentials.json")))["owner"]
@@ -92,6 +92,15 @@ class Verifier(unittest.TestCase):
             bound("pay_v_4", 1000, "case_v_4", "case-ok")         # auto-approved: matches its case
             bound("pay_v_4", 1500, "case_v_4", "case-over")       # held: more than the case still owes
             bound("pay_v_4", 500, None, "case-missing")           # denied: the grant requires a case
+            approver = lambda name: http(port, owner, "POST", "/approvers",
+                                         {"name": name, "currency": "USD", "max_approval_minor": 45000})["data"]
+            sam = approver("Sam")                                   # registered, then revoked
+            http(port, owner, "POST", f"/approvers/{sam['approver']['id']}/revoke", {})
+            priya = approver("Priya")
+            cls.sam, cls.priya = sam["approver"]["id"], priya["approver"]["id"]
+            named = refund("pay_v_5", 40000, "named")              # held, then Priya approves
+            http(port, "Bearer " + priya["token"], "POST", f"/operations/{named['data']['id']}/approve",
+                 {"proposal_digest": named["proposal_digest"]})
         finally:
             server.kill(); server.wait()
         cls.genuine = os.path.join(cls.dir, "evidence.jsonl")
@@ -117,10 +126,11 @@ class Verifier(unittest.TestCase):
         code, report = self.verify()
         self.assertEqual(code, 0, report["problems"])
         self.assertEqual(report["hashes_checked"], report["records"])
-        self.assertEqual(report["rules"]["operations"], 7)
+        self.assertEqual(report["rules"]["operations"], 8)
         self.assertEqual(report["rules"]["auto_approved"], 2)
         self.assertEqual(report["rules"]["case_bound"], 2)
         self.assertEqual(report["rules"]["owner_decisions"], 2)
+        self.assertEqual(report["rules"]["approver_decisions"], 1)
         self.assertEqual(subprocess.run([BIN, "evidence", "verify", "--data-dir", self.dir], capture_output=True).returncode, 0)
 
     def test_an_edited_body_breaks_its_hash(self):
@@ -168,6 +178,23 @@ class Verifier(unittest.TestCase):
                 e = r["event"]
                 if e["kind"] == "gateway.operation.rail_result":
                     e["receipt"] = None
+        def approver_limit_lowered(records):
+            for r in records:
+                e = r["event"]
+                if e["kind"] == "gateway.approver.registered" and e["approver"] == self.priya:
+                    e["terms"]["max_approval_minor"] = 100
+        def revoked_approver_decides(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.operation.approver_approved":
+                    r["event"]["by"]["approver"] = self.sam
+        def unregistered_approver(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.operation.approver_approved":
+                    r["event"]["by"]["approver"] = "approver_" + "0" * 64
+        def approval_recorded_as_owner(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.operation.approver_approved":
+                    r["event"]["approved_by"] = "owner"
         def wrong_digest(records):
             for r in records:
                 if r["event"]["kind"] == "gateway.operation.owner_approved":
@@ -176,7 +203,11 @@ class Verifier(unittest.TestCase):
                                  (overspend, "exceeds its limit"), (inflated_hold, "hold differs from the requested amount"), (paid_without_receipt, "without a matching receipt"),
                                  (wrong_digest, "does not name the proposal's digest"),
                                  (case_rewritten, "does not match its case"), (case_dropped, "without the case its grant requires"),
-                                 (committed_forged, "committed amount differs")):
+                                 (committed_forged, "committed amount differs"),
+                                 (approver_limit_lowered, "above the approver's limit"),
+                                 (revoked_approver_decides, "by a revoked approver"),
+                                 (unregistered_approver, "by an unregistered approver"),
+                                 (approval_recorded_as_owner, "not recorded as theirs")):
             code, report = self.verify(self.forged(change))
             self.assertEqual(code, 5, change.__name__)
             self.assertEqual(report["hashes_checked"], report["records"], "the forged chain is internally consistent")

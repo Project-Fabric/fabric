@@ -656,7 +656,7 @@ fn a_v4_ledger_upgrades_with_its_agents_evidence_intact_and_no_new_rights() {
     // Reproduce a version 4 ledger in this synthetic store only.
     rusqlite::Connection::open(lab.directory.path().join("transactions.sqlite"))
         .unwrap()
-        .execute_batch("DROP TABLE operation_holds; DROP TABLE operations; ALTER TABLE agents DROP COLUMN operation_grant; PRAGMA user_version=4;")
+        .execute_batch("DROP TABLE approvers; DROP TABLE operation_holds; DROP TABLE operations; ALTER TABLE agents DROP COLUMN operation_grant; PRAGMA user_version=4;")
         .unwrap();
     let reopened = Service::open(lab.directory.path()).unwrap();
     assert!(

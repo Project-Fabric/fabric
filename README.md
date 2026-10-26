@@ -203,3 +203,5 @@ cargo fmt --all --check
 ```
 
 All four must pass before a change is merged; CI runs them on Windows, macOS and Linux.
+To check that a test really guards a line, break it with `python -I scripts/mutation_check.py`
+(it restores the file safely and confirms the test fails, then passes again).

@@ -14,6 +14,7 @@ pub mod pipeline;
 pub mod planner;
 pub mod provider;
 pub mod rails;
+pub mod replay;
 pub mod service;
 mod storage;
 pub mod stripe_rail;

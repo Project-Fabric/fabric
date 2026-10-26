@@ -74,6 +74,19 @@ enum Command {
         #[arg(long)]
         gateway_url: String,
     },
+    /// Replay a proposed policy over past refunds and payouts (a CSV), locally. Prints JSON
+    /// (`cosigna.replay/v1`), or a short summary with --text.
+    Replay {
+        #[arg(long)]
+        history: PathBuf,
+        #[arg(long)]
+        policy: PathBuf,
+        /// Optional case records CSV: id, customer, source, currency, owed_minor.
+        #[arg(long)]
+        cases: Option<PathBuf>,
+        #[arg(long)]
+        text: bool,
+    },
     /// Check or export the ledger's tamper-evident record of decisions.
     Evidence {
         #[command(subcommand)]
@@ -115,6 +128,35 @@ fn directory(path: Option<PathBuf>) -> Result<PathBuf> {
 fn run() -> Result<std::process::ExitCode> {
     let outcome: Result<()> = match Cli::parse().command {
         Command::Evidence { action } => return evidence(action),
+        Command::Replay {
+            history,
+            policy,
+            cases,
+            text,
+        } => {
+            use cosigna_agent::replay;
+            let policy: replay::Policy =
+                serde_json::from_slice(&std::fs::read(&policy)?).map_err(|_| {
+                    Error::Invalid("the policy file is not a valid replay policy".into())
+                })?;
+            let history = replay::read_history(&std::fs::read_to_string(&history)?)?;
+            let cases = match cases {
+                Some(path) => replay::read_cases(&std::fs::read_to_string(&path)?)?,
+                None => Vec::new(),
+            };
+            let report = replay::replay(policy, history, &cases)?;
+            if text {
+                print!("{}", replay::summary(&report));
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &json!({"schema": replay::API_VERSION, "data": report})
+                    )?
+                );
+            }
+            Ok(())
+        }
         Command::Mcp { gateway_url } => {
             let token = std::env::var("COSIGNA_AGENT_TOKEN").map_err(|_| {
                 Error::Invalid("set COSIGNA_AGENT_TOKEN to the agent's token".into())

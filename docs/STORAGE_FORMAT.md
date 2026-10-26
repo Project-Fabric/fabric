@@ -639,6 +639,37 @@ need one person keep their earlier shape. The independent verifier checks that n
 approval exceeds the threshold, and that each approval above it follows a `first_approved`
 record of the same operation by a different person, both within their limits.
 
+### Policy replay (`cosigna.replay/v1`; no database)
+
+`cosigna-agent replay --history <csv> --policy <json> [--cases <csv>] [--text]` runs a proposed
+policy over past operations, locally; it reads files only and opens no ledger or network
+connection. Each operation, in time order (then id), goes through the gateway's own
+`operations::decide` and `apply_case` with a synthetic budget and grant built from the policy,
+so replay and the live gateway decide identically (a test runs one history through both).
+Before deciding, a refund larger than its payment's amount less what replay has already paid on
+that payment is denied `exceeds_refundable`, as the rail would; this is checked only when the
+row gives `payment_amount_minor`. Operations held for a person are assumed approved (they
+happened) and draw on the budget and case like automatic ones; denied operations are not paid.
+
+Policy JSON (unknown fields rejected): `budget` `{currency, limit_minor, per_operation_minor,
+second_approval_above_minor?, renew_every_days? (1-3660; a fresh budget every N days from the
+first operation)}` and `grant` `{kinds, auto_approve_minor, require_case?}`.
+
+History CSV (RFC 4180, UTF-8, optional BOM; header names matter, column order does not):
+`id`, `at` (Unix seconds or RFC 3339 UTC `YYYY-MM-DDTHH:MM:SS[.fff]Z`), `kind` (`refund` with
+`source`, or `payout` with `payee`), `amount_minor`, `currency`, and optionally `customer`,
+`case_id`, `payment_amount_minor`, `mistake` (`yes`, `true` or `1`). Identifiers are 1-100 of
+`A-Z a-z 0-9 _ - . :`. Errors name the row and the field. Cases CSV: `id`, `customer`,
+`source`, `currency`, `owed_minor`.
+
+Output `{"schema":"cosigna.replay/v1","data":{...}}`: `policy`, `operations`, `from`, `to`,
+`automatic`, `held_for_a_person` and `denied` (`{count, amount_minor}`, amounts in the budget's
+currency only), `other_currency` (count), `held_per_week` (one decimal), `by_rule`
+(`{outcome, rule, count, amount_minor}`), `mistakes` when any row is labelled (`labelled`,
+`stopped`, `stopped_amount_minor`, `paid_automatically` ids), `replayed` (per operation: `id`,
+`at`, `amount_minor`, `currency`, `outcome`, `rule`) and three fixed `notes` stating the
+assumptions. `--text` prints a short summary instead. Example data: `examples/replay/`.
+
 ### Worst-case exposure (`cosigna.exposure/v1`; no database migration)
 
 `GET /gateway/v1/exposure` (owner only; agents get not found) reports the most money the

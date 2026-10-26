@@ -1,0 +1,14 @@
+{
+  "budget": {
+    "currency": "USD",
+    "limit_minor": 1500000,
+    "per_operation_minor": 50000,
+    "second_approval_above_minor": 30000,
+    "renew_every_days": 30
+  },
+  "grant": {
+    "kinds": ["refund"],
+    "auto_approve_minor": 10000,
+    "require_case": true
+  }
+}

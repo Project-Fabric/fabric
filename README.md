@@ -23,6 +23,11 @@ Not production software yet; see [what is missing](#not-yet-built).
   held until the payment system says what happened.
 - **Worst-case exposure.** The most the agents can still move with nobody signing, and what sets
   each agent's limit.
+- **Named approvers and two-person approval.** Each person signs in with their own key and
+  limit; above a set amount, two different people must approve.
+- **Replay before switching it on.** Run a proposed policy over past refunds (a CSV, locally)
+  with the gateway's own rules: what it would have paid, held or stopped, and which known
+  mistakes it would have caught.
 - **Evidence.** A hash-chained record of every decision, checkable by an
   [independent verifier](tools/evidence-verifier/README.md) that shares no code with the gateway.
 
@@ -45,6 +50,8 @@ No keys or accounts are needed; nothing here moves real money.
 cargo run -p cosigna-agent -- gateway-demo      # permissions, exact approval, revocation
 cd console && npm ci && npm run dev             # owner console with captured sample data
 node site/server.mjs                            # landing page at http://127.0.0.1:3091/next
+cargo run -p cosigna-agent -- replay --history examples/replay/refunds-90-days.csv   --policy examples/replay/policy.json --cases examples/replay/cases.csv --text
+                                                # a policy replayed over 90 days of refunds
 ```
 
 Before a demo, `node scripts/demo-check.mjs` plays the demo's story against the real gateway in a
@@ -60,7 +67,7 @@ Then read the [gateway API](docs/COSIGNA_GATEWAY.md), the
 - Production identity: named approvers, sign-in and per-person signatures (one owner key today).
 - A production server: the gateway is a loopback development server (eight concurrent requests).
 - Live connectors beyond Stripe test mode, and a real case source (help desk or store).
-- Replay of a proposed policy over past payments, and alerts.
+- Alerts, and connectors that export a company's history directly (replay reads a CSV today).
 
 Progress and order: the [roadmap board](https://github.com/orgs/Project-Fabric/projects/2).
 

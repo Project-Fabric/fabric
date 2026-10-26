@@ -193,6 +193,7 @@ pub fn error_response(error: &Error) -> (u16, Value) {
         Error::BudgetExceeded => (409, "budget_exceeded"),
         Error::Planner => (502, "planner_unavailable"),
         Error::Merchant => (503, "merchant_unavailable"),
+        Error::CaseSource(_) => (503, "case_records_unavailable"),
         _ => (500, "internal_error"),
     };
     (

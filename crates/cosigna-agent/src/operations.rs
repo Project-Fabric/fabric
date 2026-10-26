@@ -475,7 +475,7 @@ impl Service {
                 if let (Some(case), Some(map)) = (&case, facts.as_object_mut()) {
                     map.insert(
                         "case".into(),
-                        serde_json::json!({"id": case.id, "customer": case.customer,
+                        serde_json::json!({"id": case.id, "system": self.rails.case_source(), "customer": case.customer,
                             "source": case.source, "owed_minor": case.owed_minor,
                             "currency": case.currency, "committed_minor": committed}),
                     );

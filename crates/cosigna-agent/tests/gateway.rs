@@ -517,14 +517,14 @@ fn ledger_v1_upgrade_preserves_approved_tasks_and_reservations_and_refuses_futur
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        8
+        9
     );
     assert_eq!(
         db.query_row("SELECT COUNT(*) FROM agents", [], |r| r.get::<_, i64>(0))
             .unwrap(),
         0
     );
-    db.pragma_update(None, "user_version", 9).unwrap();
+    db.pragma_update(None, "user_version", 10).unwrap();
     drop(db);
     assert!(matches!(
         Service::open(s.directory.path()),

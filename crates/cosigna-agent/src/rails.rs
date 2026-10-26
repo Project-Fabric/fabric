@@ -33,6 +33,8 @@ pub enum Check {
 pub struct Rails {
     fixture: Option<FixtureRail>,
     stripe_test: Option<crate::stripe_rail::StripeRail>,
+    /// A connected case source; without one, the synthetic case book next to the fixture rail.
+    cases: Option<crate::cases::CaseSource>,
 }
 
 enum Rail<'a> {
@@ -45,6 +47,7 @@ impl Rails {
         Ok(Self {
             fixture: Some(FixtureRail::open(path)?),
             stripe_test: None,
+            cases: None,
         })
     }
 
@@ -52,6 +55,7 @@ impl Rails {
         Self {
             fixture: None,
             stripe_test: None,
+            cases: None,
         }
     }
 
@@ -59,6 +63,21 @@ impl Rails {
     pub fn with_stripe_test(mut self, rail: crate::stripe_rail::StripeRail) -> Self {
         self.stripe_test = Some(rail);
         self
+    }
+
+    /// Reads case records from `source` instead of the synthetic case book.
+    pub fn with_cases(mut self, source: crate::cases::CaseSource) -> Self {
+        self.cases = Some(source);
+        self
+    }
+
+    /// Which system case records are read from: `fixture`, `csv` or the configured name.
+    pub fn case_source(&self) -> Option<&str> {
+        match (&self.cases, &self.fixture) {
+            (Some(source), _) => Some(source.name()),
+            (None, Some(_)) => Some("fixture"),
+            (None, None) => None,
+        }
     }
 
     fn get(&self, rail: &str) -> Result<Rail<'_>> {
@@ -111,20 +130,23 @@ impl Rails {
         }
     }
 
-    /// The case a refund names, from the connected system of record. Today that is the
-    /// synthetic case book next to the fixture rail; a help-desk or store connector replaces it.
+    /// The case a refund names, from the connected system of record: the configured case
+    /// source, or else the synthetic case book next to the fixture rail.
     pub fn case(&self, id: &str) -> Result<Option<Case>> {
-        match &self.fixture {
-            Some(fixture) => fixture.case(id),
-            None => Err(Error::Invalid("no case records are connected".into())),
+        match (&self.cases, &self.fixture) {
+            (Some(source), _) => source.case(id),
+            (None, Some(fixture)) => fixture.case(id),
+            (None, None) => Err(Error::Invalid("no case records are connected".into())),
         }
     }
 
-    /// Every case in the connected system of record. None connected: no case can be paid.
-    pub fn cases(&self) -> Result<Vec<Case>> {
-        match &self.fixture {
-            Some(fixture) => fixture.cases(),
-            None => Ok(Vec::new()),
+    /// Every case in the connected system of record, or `None` when the source is read one
+    /// record at a time and cannot be listed. None connected: no case can be paid.
+    pub fn cases(&self) -> Result<Option<Vec<Case>>> {
+        match (&self.cases, &self.fixture) {
+            (Some(source), _) => Ok(source.cases()),
+            (None, Some(fixture)) => fixture.cases().map(Some),
+            (None, None) => Ok(Some(Vec::new())),
         }
     }
 

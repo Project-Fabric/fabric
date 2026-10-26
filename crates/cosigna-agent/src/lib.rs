@@ -3,6 +3,7 @@
 mod agents;
 pub mod api;
 pub mod approvers;
+pub mod cases;
 pub mod domain;
 pub mod evidence;
 pub mod exposure;
@@ -40,6 +41,9 @@ pub enum Error {
     Planner,
     #[error("test merchant is unavailable or returned an invalid response")]
     Merchant,
+    /// The connected case records could not be read; see `cases`.
+    #[error("case records unavailable: {0}")]
+    CaseSource(&'static str),
     #[error("unsupported transaction store format")]
     StoreFormat,
     #[error("storage operation failed")]

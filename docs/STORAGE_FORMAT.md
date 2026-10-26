@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 8, provider version 4)
+## Optional Cosigna agent development stores (ledger version 9, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 8 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers` |
+| `transactions.sqlite` | `0x43535458` | 9 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -328,14 +328,15 @@ agent operation grants. Version 6 adds case binding: the nullable `operations.ca
 with index `operations_case(owner, case_id)`, and the optional `case_id` request field and
 `require_case` grant field (below). Version 7 adds the `approvers` table (named approvers,
 below). Version 8 adds no tables: budget JSON may carry `second_approval_above_minor` and
-operation JSON `first_approval` (two-person approval, below). Opening an application-matching
-v1-v7 ledger creates the missing tables and columns and updates `user_version` to 8 in one
-transaction. Existing
+operation JSON `first_approval` (two-person approval, below). Version 9 adds no tables: a
+proposal's `facts.case` may carry `system`, the case source it was read from (case sources,
+below). Opening an application-matching v1-v8 ledger creates the missing tables and columns
+and updates `user_version` to 9 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 8, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v8
+one transaction, and provider versions above 4 are refused. Versions above 9, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v9
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -479,16 +480,17 @@ matches). A failed check is recorded as `denied` with the rail's reason (`source
 
 Case binding (v6) is then applied, and can only tighten that decision. A case is the
 business's own record of what a customer is owed: `id`, `customer`, `source` (the payment),
-`currency`, `owed_minor`. Today cases come from the synthetic `fixture_cases` table (provider
-version 4); a help-desk or store connector is the intended source. In order: a refund with no
+`currency`, `owed_minor`. Cases come from the gateway's one connected case source (below); by
+default that is the synthetic `fixture_cases` table (provider version 4). In order: a refund with no
 `case_id` from an agent whose grant has `require_case` is denied (`case_required`); a `case_id`
 with no case record is denied (`case_not_found`); a refund whose `source`, `currency` or the
 rail's verified `customer` differs from the case is held (`case_mismatch`); a refund larger
 than the case's `owed_minor` minus what earlier operations of this owner already hold or spent
 against the case (`committed_minor`) is held (`exceeds_case_owed`). A matching refund keeps the
 earlier decision, so the agent's limits and the budget still apply. When a case is named, the
-proposal's `facts.case` records `{id, customer, source, owed_minor, currency, committed_minor}`,
-so the owner signs what the case said. Case binding narrows, but does not remove, the class of
+proposal's `facts.case` records `{id, system, customer, source, owed_minor, currency,
+committed_minor}` (`system` from v9: `fixture`, `csv` or the configured name), so the owner
+signs what the case said and where it came from. Case binding narrows, but does not remove, the class of
 mistakes within an agent's limit: it catches a wrong payment or an amount above what is owed,
 not an amount below it, and it is only as correct as the case records.
 
@@ -690,6 +692,40 @@ plain-language `summary` that names the rule in words (for example "above the tw
 two different people must approve"). The summaries are derived text, not stored authority;
 the records they cite are the evidence.
 
+### Case sources (`cosigna.cases/v1` configuration; ledger version 9)
+
+`serve --cases <file>` and `worker --cases <file>` read case records from the source a JSON
+file describes, instead of the synthetic case book; without the flag nothing changes. One
+source is connected at a time. The file has `schema: "cosigna.cases/v1"` and `source`; unknown
+keys are refused.
+
+- `source: "csv"`, `path` (relative to the file): columns `id`, `customer`, `source`,
+  `currency`, `owed_minor`, as for replay. Read once at startup; a repeated `id` is refused.
+  Listable, so exposure counts its open cases. `system` is `csv`.
+- `source: "http"`: `name` (letters, digits, `_`, `-`; recorded as `system`), `url` with
+  `{id}` exactly once in its path, `auth`, optional `id_prefix`, and `fields`. `url` must be
+  `https://` with no user information (plain `http://` only on `127.0.0.1:<port>`, for
+  tests); redirects are not followed; responses are capped at 512 KiB and 10 seconds. `auth`
+  is `{scheme: "basic", username, secret_env}` (no `:` in the username), `{scheme: "bearer",
+  secret_env}` or `{scheme: "header", name, secret_env}`; the secret is read once from the
+  named environment variable at startup and is never written to files, logs or evidence. A
+  case id must start with `id_prefix`; the rest (already limited to letters, digits, `_`, `-`)
+  replaces `{id}`. Ids without the prefix are not looked up and count as missing.
+  `fields.customer`, `fields.source` and `fields.owed` are paths; `fields.owed_unit` is
+  `minor` (integer) or `major` (digits with at most two decimals, read exactly, no float);
+  exactly one of `fields.currency` (a path) and `fields.currency_fixed` (three uppercase
+  letters). Paths are JSON pointers whose segments may also be `[key=value]`: the one array
+  element whose `key`, as text, equals `value`. Two matches are ambiguous and not read.
+
+An HTTP answer of 404 is a missing case (`case_not_found`). Any other failure fails the
+request with `case_records_unavailable` (HTTP 503, `Error::CaseSource`) before anything is
+decided or recorded: no answer, any other status, a body that is not JSON, a missing or
+non-text value, an id-like value (`customer`, `source`) outside letters, digits, `_` and `-`,
+a currency that is not three letters, or an amount outside 1 to 10^12 minor units. An HTTP
+source cannot be listed: the exposure report then counts case-bound agents up to their budget
+and adds a fourth note saying so. The check is only as independent as the fields it reads:
+they must be fields the paying agent cannot write.
+
 ### Worst-case exposure (`cosigna.exposure/v1`; no database migration)
 
 `GET /gateway/v1/exposure` (owner only; agents get not found) reports the most money the
@@ -703,7 +739,8 @@ needs a payment with that much left), and new budgets, agents or cases can raise
 (tasks) always need the owner's signature and add nothing.
 
 Envelope `{"schema":"cosigna.exposure/v1","data":{...}}`; `data` has `at`, `notes` (three
-fixed sentences stating these limits), and:
+fixed sentences stating these limits, and a fourth when the case source cannot be listed),
+and:
 
 - `agents[]`: `agent_id`, `name`, `budget_id`, `currency`, `exposure_minor` (this agent alone;
   agents on one budget share it), `largest_single_minor` (`min(auto_approve_minor,

@@ -1,0 +1,4 @@
+id,customer,source,currency,owed_minor
+ord_1041,cus_fixture_ana,pay_fixture_2041,USD,2000
+ord_1045,cus_fixture_ben,pay_fixture_2045,USD,30000
+ord_1047,cus_fixture_chloe,pay_fixture_2047,USD,500

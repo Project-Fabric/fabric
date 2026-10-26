@@ -10,7 +10,7 @@ use crate::{Budget, Error, Event, Result, Task, evidence, rails};
 const LEDGER_APP: i64 = 0x43535458;
 const PROVIDER_APP: i64 = 0x43534658;
 /// Current ledger version, as recorded when an evidence chain starts.
-pub(crate) const LEDGER_VERSION: i64 = 8;
+pub(crate) const LEDGER_VERSION: i64 = 9;
 
 pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     let mut db = Connection::open(path)?;
@@ -136,6 +136,11 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     // operation JSON `first_approval`. The bump keeps older executables from misreading them.
     if !provider && version < 8 {
         tx.pragma_update(None, "user_version", 8)?;
+    }
+    // Version 9 adds no tables: a proposal's `facts.case` may carry `system`, the case source
+    // it was read from. The bump keeps older executables from misreading it.
+    if !provider && version < 9 {
+        tx.pragma_update(None, "user_version", 9)?;
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL;")?;

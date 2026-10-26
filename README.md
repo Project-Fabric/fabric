@@ -15,7 +15,8 @@ Not production software yet; see [what is missing](#not-yet-built).
   own revocable token; the gateway holds the payment credentials.
 - **Checks against real records first.** The payment exists, has that much left to refund, the
   payee is registered, and (when the agent names a case) the refund matches what the customer
-  is actually owed, even inside the agent's own limit.
+  is actually owed, even inside the agent's own limit. Case records come from a CSV export or a
+  help desk read live (a [switch at startup](examples/cases/README.md)).
 - **Limits per agent.** Small payments go through on their own; larger ones wait for a person;
   anything outside the agent's grant or budget is denied.
 - **Exact approval.** A person approves one exact payment (a digest of it); any change voids it.
@@ -64,9 +65,10 @@ Then read the [gateway API](docs/COSIGNA_GATEWAY.md), the
 
 ## Not yet built
 
-- Production identity: named approvers, sign-in and per-person signatures (one owner key today).
+- Production identity: single sign-on and per-person signatures (approvers use their own keys today).
 - A production server: the gateway is a loopback development server (eight concurrent requests).
-- Live connectors beyond Stripe test mode, and a real case source (help desk or store).
+- Live connectors beyond Stripe test mode. The help-desk case source is tested against a local
+  stand-in of Zendesk's API, not yet a real account.
 - Alerts, and connectors that export a company's history directly (replay reads a CSV today).
 
 Progress and order: the [roadmap board](https://github.com/orgs/Project-Fabric/projects/2).

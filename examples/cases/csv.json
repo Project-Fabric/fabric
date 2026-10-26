@@ -1,0 +1,5 @@
+{
+  "schema": "cosigna.cases/v1",
+  "source": "csv",
+  "path": "cases.csv"
+}

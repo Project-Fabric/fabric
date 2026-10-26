@@ -45,6 +45,10 @@ enum Command {
         /// COSIGNA_STRIPE_TEST_SECRET_KEY or the engine's stored `stripe-test` credential).
         #[arg(long)]
         stripe_test: bool,
+        /// Read case records from this `cosigna.cases/v1` file (a CSV export or a help desk
+        /// over HTTPS) instead of the synthetic case book. See examples/cases.
+        #[arg(long)]
+        cases: Option<PathBuf>,
     },
     /// Run the opt-in durable scheduler. Only explicitly owner-enrolled tasks are processed.
     Worker {
@@ -61,6 +65,8 @@ enum Command {
         once: bool,
         #[arg(long)]
         stripe_test: bool,
+        #[arg(long)]
+        cases: Option<PathBuf>,
     },
     /// Run an isolated, deterministic end-to-end demo; no API key or real purchase.
     Demo,
@@ -184,13 +190,18 @@ fn run() -> Result<std::process::ExitCode> {
             model,
             test_merchant_url,
             stripe_test,
+            cases,
         } => {
             if port == 0 {
                 return Err(Error::Invalid("port must be nonzero".into()));
             }
             let directory = directory(data_dir)?;
             let credentials = Credentials::load(&directory.join("credentials.json"))?;
-            let service = with_rails(open_service(&directory, test_merchant_url)?, stripe_test)?;
+            let service = with_rails(
+                open_service(&directory, test_merchant_url)?,
+                stripe_test,
+                cases.as_deref(),
+            )?;
             let planner = make_planner(planner, model)?;
             api::serve(&service, planner.as_ref(), &credentials, port)
         }
@@ -201,11 +212,16 @@ fn run() -> Result<std::process::ExitCode> {
             test_merchant_url,
             once,
             stripe_test,
+            cases,
         } => {
             let directory = directory(data_dir)?;
             // Refuse an accidental new store: initialize this profile explicitly.
             Credentials::load(&directory.join("credentials.json"))?;
-            let service = with_rails(open_service(&directory, test_merchant_url)?, stripe_test)?;
+            let service = with_rails(
+                open_service(&directory, test_merchant_url)?,
+                stripe_test,
+                cases.as_deref(),
+            )?;
             let mut worker = cosigna_agent::worker::Worker::open(&service)?;
             let planner = make_planner(planner, model)?;
             eprintln!(
@@ -280,8 +296,20 @@ fn make_planner(mode: PlannerMode, model: Option<String>) -> Result<Box<dyn Plan
     })
 }
 
-/// Connects optional live-API rails. The Stripe key is read once and never printed.
-fn with_rails(mut service: Service, stripe_test: bool) -> Result<Service> {
+/// Connects optional live-API rails and case records. Keys are read once and never printed.
+fn with_rails(
+    mut service: Service,
+    stripe_test: bool,
+    cases: Option<&std::path::Path>,
+) -> Result<Service> {
+    if let Some(path) = cases {
+        let source = cosigna_agent::cases::CaseSource::load(path)?;
+        eprintln!(
+            "Cosigna case records: {} (secrets not shown)",
+            source.name()
+        );
+        service.rails = service.rails.clone().with_cases(source);
+    }
     if stripe_test {
         let key = match std::env::var("COSIGNA_STRIPE_TEST_SECRET_KEY") {
             Ok(key) => key,

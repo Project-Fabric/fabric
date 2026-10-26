@@ -27,6 +27,9 @@ pub const NOTES: [&str; 3] = [
     "An upper bound: rails can refuse more than it counts, such as a refund larger than what is left on the payment.",
 ];
 
+/// Added when the case source is read one record at a time and cannot be listed.
+pub const UNLISTED_CASES: &str = "Case records are read one at a time from the connected system and cannot be totalled here, so agents that must name a case are counted up to their budget.";
+
 /// One budget as it stands.
 pub struct BudgetState {
     pub budget: Budget,
@@ -112,21 +115,25 @@ pub struct Exposure {
     pub currencies: Vec<CurrencyExposure>,
     pub budgets: Vec<BudgetExposure>,
     pub agents: Vec<AgentExposure>,
-    pub notes: [&'static str; 3],
+    pub notes: Vec<&'static str>,
 }
 
-/// Pure computation over one consistent snapshot.
+/// Pure computation over one consistent snapshot. `cases` is `None` when the case source
+/// cannot be listed: case-bound agents are then bounded by their budgets alone.
 pub fn compute(
     at: i64,
     budgets: &[BudgetState],
     agents: &[RegisteredAgent],
-    cases: &[CaseState],
+    cases: Option<&[CaseState]>,
 ) -> Exposure {
     let mut open_cases: BTreeMap<&str, i64> = BTreeMap::new();
-    for state in cases {
+    for state in cases.unwrap_or_default() {
         *open_cases.entry(&state.case.currency).or_default() += state.remaining_minor.max(0);
     }
-    let room = |currency: &str| open_cases.get(currency).copied().unwrap_or(0);
+    let room = |currency: &str| match cases {
+        Some(_) => open_cases.get(currency).copied().unwrap_or(0),
+        None => i64::MAX,
+    };
     let agents: Vec<AgentExposure> = agents
         .iter()
         .filter_map(|agent| {
@@ -178,7 +185,7 @@ pub fn compute(
             |(currency, (free, case_bound, approved))| CurrencyExposure {
                 without_a_person_minor: free + case_bound.min(room(&currency)),
                 approved_minor: approved,
-                open_cases_minor: room(&currency),
+                open_cases_minor: open_cases.get(currency.as_str()).copied().unwrap_or(0),
                 currency,
             },
         )
@@ -188,7 +195,10 @@ pub fn compute(
         currencies,
         budgets: out,
         agents,
-        notes: NOTES,
+        notes: NOTES
+            .into_iter()
+            .chain(cases.is_none().then_some(UNLISTED_CASES))
+            .collect(),
     }
 }
 
@@ -288,15 +298,20 @@ impl Service {
             .collect::<Result<Vec<_>>>()?;
         let agents = crate::agents::owned(&tx, &owner.owner)?;
         let cases = cases
-            .into_iter()
-            .map(|case| {
-                let committed = crate::operations::committed_to_case(&tx, &owner.owner, &case.id)?;
-                Ok(CaseState {
-                    remaining_minor: (case.owed_minor - committed).max(0),
-                    case,
-                })
+            .map(|cases| {
+                cases
+                    .into_iter()
+                    .map(|case| {
+                        let committed =
+                            crate::operations::committed_to_case(&tx, &owner.owner, &case.id)?;
+                        Ok(CaseState {
+                            remaining_minor: (case.owed_minor - committed).max(0),
+                            case,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()
             })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(compute(at, &budgets, &agents, &cases))
+            .transpose()?;
+        Ok(compute(at, &budgets, &agents, cases.as_deref()))
     }
 }

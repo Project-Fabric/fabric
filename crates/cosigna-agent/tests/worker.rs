@@ -477,7 +477,7 @@ fn v2_migration_preserves_approval_and_hold_and_does_not_enroll_historical_tasks
         s.db()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        8
+        9
     );
     assert!(
         Worker::open(&reopened)

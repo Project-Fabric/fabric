@@ -1,0 +1,19 @@
+{
+  "schema": "cosigna.cases/v1",
+  "source": "http",
+  "name": "zendesk",
+  "url": "https://YOUR-SUBDOMAIN.zendesk.com/api/v2/tickets/{id}.json",
+  "auth": {
+    "scheme": "basic",
+    "username": "you@yourcompany.com/token",
+    "secret_env": "COSIGNA_CASES_SECRET"
+  },
+  "id_prefix": "zd_",
+  "fields": {
+    "customer": "/ticket/custom_fields/[id=1000000001]/value",
+    "source": "/ticket/custom_fields/[id=1000000002]/value",
+    "owed": "/ticket/custom_fields/[id=1000000003]/value",
+    "owed_unit": "major",
+    "currency_fixed": "USD"
+  }
+}

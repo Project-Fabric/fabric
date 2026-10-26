@@ -51,6 +51,10 @@ jobs:
       - run: python -m unittest discover -s testbeds/pipeline-lab/tests
       - run: rustup show
       - run: cargo test -p cosigna-agent --locked
+      - name: Agent refund demo boundaries and combined adapters (scripted, no inference)
+        run: |
+          cargo build -p cosigna-agent --locked
+          python3 -I -W error::ResourceWarning -m unittest discover -s experiments/agent-refund-demo -p 'test_*.py'
       - run: cargo run -p cosigna-agent --locked -- pipeline-demo
       - run: node scripts/check-gateway-service.mjs
       - name: Independent Python evidence verifier (rules replay, consistent-forgery tests)

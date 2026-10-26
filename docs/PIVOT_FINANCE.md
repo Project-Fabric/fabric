@@ -2,6 +2,22 @@
 
 **Status:** decided 20 October 2026, to be validated by interviews · **Owner:** Ashok
 
+## Current gateway delivery, 26 October 2026
+
+The historical pivot rationale below predates the Cosigna gateway. The current prototype
+has named approvers, console sign-in, replay, CSV/HTTP case sources, an operator timeline
+and lookup-only refund recovery. Separate checks passed against a real Zendesk trial and
+Stripe test account, as recorded in [Claude's handover](HANDOVER_CODEX_2026-10-26.md).
+
+The next [agent refund demo](../experiments/agent-refund-demo/README.md) uses the signed-in
+Codex CLI and the current Rust gateway. Its combined scripted adapter checks and a real
+Codex smoke run against loopback payment/case stand-ins passed. The runner prepares Stripe
+test payments with attached customers, requires matching Zendesk case fields and fresh
+per-run comments, isolates agent credentials, verifies provider outcomes and separates
+human review from agent action. The combined real Zendesk + Stripe run and its recording
+are pending owner-entered credentials and manual ticket updates. No live funds, commercial
+adoption, independently verified human identity or competitive advantage are established.
+
 ## Why we are pivoting
 
 - **Developers do not pay for undo.** At least seven open-source "undo for agents" tools have

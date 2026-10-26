@@ -1069,3 +1069,38 @@ directory (a dedicated Compose volume in Docker). Rails never opens or changes t
 ledger, provider store, project manifests or Python consent database. Their versions and
 existing wire contracts are unchanged. This is a local development API, not a tenant identity
 or signed spending-authority contract.
+
+## Agent refund demo artifacts (v1)
+
+`experiments/agent-refund-demo` adds optional demonstration artifacts outside the repository,
+under the user's local Cosigna data directory. No gateway, ledger, case-source or provider
+schema changes. These are synthetic-customer Stripe test-mode demonstrations, not live funds.
+
+- `cosigna.agent-demo-config/v1`: Zendesk subdomain/OAuth client identifier, three ticket ids
+  and mapped customer/payment/owed field ids. Credentials and unknown fields are refused.
+- `cosigna.agent-refund-demo/v1` (`manifest.json`): run id, creation time, preparing/prepared
+  status, configuration and three cases, each with role, ticket id, attached Stripe customer,
+  PaymentIntent, authorized owed amount and requested amount in USD minor units.
+- `cosigna.agent-refund-demo-report/v1`: run id/time, execution mode, real-funds=false,
+  complete/stopped/passed state, evidence-verification result, minimal per-agent usage and
+  per-case expected/provider-committed amounts, refund counts, errors, observed MCP calls,
+  gateway stages, and operation id/stage/amount/rule summaries. Modes distinguish scripted
+  offline probes, real Codex with loopback stand-ins, and real Codex with actual Zendesk and
+  Stripe test APIs. Pending provider amounts count as committed but remain unresolved.
+
+Auxiliary local files are `ticket-updates.md` (field updates and per-run synthetic comment),
+`cases.json` (existing `cosigna.cases/v1`), bounded per-case MCP traces, `agent-run.started`
+(exclusive no-retry marker), `progress.json` (interrupted-run verification context),
+`review.json` (explicit manual owner decision and operation id), and `report.md`. `latest.txt`
+points to the most recently completed preparation; it does not resume agent execution.
+
+MCP traces retain only allowlisted structured fields and stage/operation results. Free-text
+reasons, raw idempotency strings, raw model output, reasoning and ticket bodies are not
+retained. Provider/case credentials are environment-only and scanned for in run files.
+The gateway's existing private role-credential file and local runtime state are not shareable
+reports. These artifacts are local observations, not signed independent attestations.
+
+Historical files are never overwritten by a new run. Verification updates the current run's
+report from provider records. A manual-review marker alone does not establish authority: the
+report also checks the gateway's recorded owner approval. The combined service run needs
+explicit owner-entered credentials; imports, offline tests and CI make no model calls.

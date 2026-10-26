@@ -1,0 +1,9 @@
+{
+  "schema": "cosigna.agent-demo-config/v1",
+  "zendesk_subdomain": "fintech-93589",
+  "oauth_client_id": "cosigna_test",
+  "ticket_ids": [2, 3, 5],
+  "customer_field": 31329385749148,
+  "payment_field": 31329450259996,
+  "owed_field": 31329423031068
+}

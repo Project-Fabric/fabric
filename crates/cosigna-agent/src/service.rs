@@ -193,7 +193,7 @@ impl Service {
     }
 
     pub fn task(&self, actor: &Actor, id: &str) -> Result<Task> {
-        actor.require(&[Role::Owner, Role::Planner, Role::Executor])?;
+        actor.require(&[Role::Owner, Role::Planner, Role::Executor, Role::Approver])?;
         let db = storage::connect(&self.ledger, false)?;
         let task = storage::task(&db, id)?;
         actor.owns(&task.owner)?;
@@ -311,13 +311,16 @@ impl Service {
         Ok(task)
     }
 
+    /// Exact approval of a purchase quote by the owner, or by a named approver within their
+    /// currency and limit (checked inside this transaction, so a revocation always wins).
     pub fn approve(&self, actor: &Actor, id: &str, digest: &str, at: i64) -> Result<Task> {
         self.require_unscoped()?;
-        actor.require(&[Role::Owner])?;
+        actor.require(&[Role::Owner, Role::Approver])?;
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut task = storage::task(&tx, id)?;
         actor.owns(&task.owner)?;
+        let approver = crate::approvers::authority(&tx, self, actor)?;
         self.check_agent_task(
             &tx,
             actor,
@@ -342,6 +345,14 @@ impl Service {
         if task.stage == Stage::Approved {
             return Ok(task);
         }
+        if let Some(approver) = &approver
+            && (quote.offer.currency != approver.currency
+                || quote.total_minor > approver.max_approval_minor)
+        {
+            return Err(Error::Conflict(
+                "above_approver_limit: this purchase needs an approver with a higher limit".into(),
+            ));
+        }
         let (held, spent) = storage::totals(&tx, &budget.id)?;
         if quote.total_minor > budget.terms.limit_minor - held - spent {
             return Err(Error::BudgetExceeded);
@@ -353,7 +364,12 @@ impl Service {
         )?;
         task.stage = Stage::Approved;
         task.approved_digest = Some(digest.to_string());
-        storage::save(&tx, &mut task, "owner_approved", at, self.by(actor))?;
+        let step = if approver.is_some() {
+            "approver_approved"
+        } else {
+            "owner_approved"
+        };
+        storage::save(&tx, &mut task, step, at, self.by(actor))?;
         tx.commit()?;
         Ok(task)
     }

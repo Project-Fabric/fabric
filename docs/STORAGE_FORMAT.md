@@ -591,7 +591,9 @@ rejected) returns `{approver, token}`; `GET /gateway/v1/approvers` lists without
 An approver credential reaches only: `GET /gateway/v1/approvers/me`, `GET /gateway/v1/agents`
 (each agent's `id` and `name` only, so an inbox can say which agent asked), `GET /gateway/v1/operations
 [?stage=held|unknown]`, `GET .../operations/{id}`, `POST .../{id}/approve {proposal_digest}`
-(which then executes, as for the owner) and `POST .../{id}/reject`, for the owner who registered
+(which then executes, as for the owner) and `POST .../{id}/reject`, and for purchases
+`GET /gateway/v1/tasks/{id}` and `POST .../tasks/{id}/approve {quote_digest}` (approval only;
+the agent or worker executes, as after an owner's approval), for the owner who registered
 them. Everything else is not found. Approval checks, inside the deciding transaction: the
 approver still exists and is not revoked (a revocation committed earlier wins even if the
 approver authenticated before it), the proposal currency equals the approver's currency and its
@@ -611,8 +613,10 @@ or a revocation undone outside the service is reported. The independent verifier
 each approver decision was made by an approver registered earlier in the chain, not revoked,
 of the same owner, and that an approval is in their currency and within their limit.
 
-The console signs approvers in with their own key (see `console/README.md`). Not yet: approvers
-for purchase quotes (tasks).
+A purchase quote approved by an approver is checked the same way (the quote's currency and
+total against the approver's) and recorded as `gateway.task.approver_approved`; the task JSON
+is unchanged. The two-person threshold applies to money operations, not to purchase quotes.
+The console signs approvers in with their own key (see `console/README.md`).
 
 ### Two-person approval (ledger version 8)
 

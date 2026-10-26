@@ -14,7 +14,8 @@ both produce and accept a bad record. Short enough for an auditor to read.
    - only the owner role approves, rejects or resolves; agents without a grant never get money;
    - named approvers (ledger version 7): an approver's decision is made by an approver the owner
      registered earlier in the chain and had not revoked; an approval is in the approver's
-     currency and within their limit, and the operation records them as its approver;
+     currency and within their limit, and the operation records them as its approver; the same
+     holds for an approver's approval of a purchase quote (its total and currency);
    - two-person approval (ledger version 8): above a budget's `second_approval_above_minor`
      nothing is approved automatically, and a person's approval completes an operation only
      after a first approval of it by a different person, each within their own limit;
@@ -111,7 +112,7 @@ def check_approver(seq, step, event, request, by, approvers, problems, stats):
         problems.append(f"record {seq}: {step} by a revoked approver")
     elif approver.get("owner") != by.get("owner"):
         problems.append(f"record {seq}: {step} by another owner's approver")
-    elif step in ("approver_approved", "first_approved") and (request["currency"] != approver.get("currency")
+    elif step in ("approver_approved", "first_approved", "task_approved") and (request["currency"] != approver.get("currency")
                                           or request["amount_minor"] > approver.get("max_approval_minor", 0)):
         problems.append(f"record {seq}: approval above the approver's limit")
     if step == "approver_approved" and event.get("approved_by") != "approver":
@@ -134,6 +135,11 @@ def replay(records, problems):
             approvers[event["approver"]] = event["terms"]
         elif kind.startswith("gateway.task."):
             tasks[event["task"]] = event
+            if kind == "gateway.task.approver_approved":
+                quote = event.get("quote") or {}
+                check_approver(seq, "task_approved", event,
+                               {"currency": quote.get("currency"), "amount_minor": quote.get("total_minor", 0)},
+                               by, approvers, problems, stats)
         elif kind.startswith("gateway.operation."):
             step = kind.rsplit(".", 1)[1]
             op_id, request = event["operation"], event["request"]

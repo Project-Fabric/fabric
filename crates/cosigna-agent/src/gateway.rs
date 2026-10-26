@@ -229,6 +229,16 @@ fn approver_routes(
             empty(body)?;
             operation_view(&service.reject_operation(&actor, id, at)?)
         }
+        // Purchase quotes: read one and approve its exact digest. Execution stays with the
+        // agent or worker, as after an owner's approval.
+        ("GET", ["", "gateway", "v1", "tasks", id]) => Ok(
+            json!({"schema": API_VERSION, "simulated_provider": true, "data": service.task(&actor, id)?}),
+        ),
+        ("POST", ["", "gateway", "v1", "tasks", id, "approve"]) => {
+            let input: Approval = decode(body)?;
+            let task = service.approve(&actor, id, &input.quote_digest, at)?;
+            Ok(json!({"schema": API_VERSION, "simulated_provider": true, "data": task}))
+        }
         _ => Err(Error::NotFound),
     }
 }

@@ -335,3 +335,69 @@ fn approver_registration_is_validated() {
         ));
     }
 }
+
+#[test]
+fn an_approver_can_approve_a_purchase_quote_within_their_limit() {
+    let lab = Lab::new();
+    let (priya, token) = lab.approver("Priya", "USD", 5000);
+    let (_, small) = lab.approver("Sam", "USD", 100);
+    let shopper = format!(
+        "Bearer {}",
+        lab.call(
+            &lab.owner,
+            "POST",
+            "/agents",
+            json!({"name":"shopper","budget_id":lab.budget,"permissions":["plan","execute"],
+                "expires_at":AT+86400}),
+        )
+        .unwrap()["data"]["token"]
+            .as_str()
+            .unwrap()
+    );
+    let task = lab
+        .call(
+            &shopper,
+            "POST",
+            "/tasks",
+            json!({"budget_id":lab.budget,"request":"Order one oat latte","idempotency_key":"latte"}),
+        )
+        .unwrap();
+    let id = task["data"]["id"].as_str().unwrap().to_string();
+    let quoted = lab
+        .call(&shopper, "POST", &format!("/tasks/{id}/plan"), json!({}))
+        .unwrap();
+    let digest = quoted["approval_digest"].as_str().unwrap().to_string();
+    let approve = |auth: &str| {
+        lab.call(
+            auth,
+            "POST",
+            &format!("/tasks/{id}/approve"),
+            json!({"quote_digest":digest}),
+        )
+    };
+    assert!(
+        matches!(approve(&small), Err(Error::Conflict(ref m)) if m.starts_with("above_approver_limit"))
+    );
+    assert_eq!(
+        lab.call(&token, "GET", &format!("/tasks/{id}"), json!({}))
+            .unwrap()["data"]["stage"],
+        "quoted"
+    );
+    assert_eq!(approve(&token).unwrap()["data"]["stage"], "approved");
+    // The agent completes it, as after an owner's approval; the approver cannot execute.
+    assert!(
+        lab.call(&token, "POST", &format!("/tasks/{id}/execute"), json!({}))
+            .is_err()
+    );
+    let done = lab
+        .call(&shopper, "POST", &format!("/tasks/{id}/execute"), json!({}))
+        .unwrap();
+    assert_eq!(done["data"]["stage"], "confirmed");
+    let approval = lab
+        .events()
+        .into_iter()
+        .find(|e| e["kind"] == "gateway.task.approver_approved")
+        .unwrap();
+    assert_eq!(approval["by"]["approver"], priya);
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}

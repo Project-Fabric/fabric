@@ -110,6 +110,14 @@ class Verifier(unittest.TestCase):
                        "source": "pay_v_6", "amount_minor": 45000, "currency": "USD", "reason": "r", "idempotency_key": "two"})
             for person in ("Bearer " + priya["token"], owner):     # held: needs two people; Priya, then the owner
                 http(port, person, "POST", f"/operations/{two['data']['id']}/approve", {"proposal_digest": two["proposal_digest"]})
+            shop = http(port, owner, "POST", "/budgets", {"currency": "USD", "limit_minor": 10000, "per_purchase_minor": 10000,
+                        "merchants": ["fixture-cafe"], "expires_at": now + 3600})["data"]["id"]
+            shopper = "Bearer " + http(port, owner, "POST", "/agents", {"name": "shopper", "budget_id": shop,
+                                       "permissions": ["plan", "execute"], "expires_at": now + 1800})["data"]["token"]
+            task = http(port, shopper, "POST", "/tasks", {"budget_id": shop, "request": "Order one oat latte",
+                        "idempotency_key": "latte"})["data"]["id"]
+            quote = http(port, shopper, "POST", f"/tasks/{task}/plan", {})["approval_digest"]
+            http(port, "Bearer " + priya["token"], "POST", f"/tasks/{task}/approve", {"quote_digest": quote})  # Priya approves a purchase
         finally:
             server.kill(); server.wait()
         cls.genuine = os.path.join(cls.dir, "evidence.jsonl")
@@ -139,7 +147,7 @@ class Verifier(unittest.TestCase):
         self.assertEqual(report["rules"]["auto_approved"], 2)
         self.assertEqual(report["rules"]["case_bound"], 2)
         self.assertEqual(report["rules"]["owner_decisions"], 3)
-        self.assertEqual(report["rules"]["approver_decisions"], 2)
+        self.assertEqual(report["rules"]["approver_decisions"], 3)
         self.assertEqual(report["rules"]["first_approvals"], 1)
         self.assertEqual(subprocess.run([BIN, "evidence", "verify", "--data-dir", self.dir], capture_output=True).returncode, 0)
 
@@ -217,6 +225,14 @@ class Verifier(unittest.TestCase):
                 if e["kind"] == "gateway.budget.created" and "second_approval_above_minor" not in e["terms"]:
                     e["terms"]["second_approval_above_minor"] = 1000
                     break
+        def purchase_by_revoked_approver(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.task.approver_approved":
+                    r["event"]["by"]["approver"] = self.sam
+        def purchase_above_limit(records):
+            for r in records:
+                if r["event"]["kind"] == "gateway.task.approver_approved":
+                    r["event"]["quote"]["total_minor"] = 99999
         def wrong_digest(records):
             for r in records:
                 if r["event"]["kind"] == "gateway.operation.owner_approved":
@@ -232,7 +248,9 @@ class Verifier(unittest.TestCase):
                                  (approval_recorded_as_owner, "not recorded as theirs"),
                                  (first_approval_removed, "without a first approval"),
                                  (same_person_twice, "the same person gave both approvals"),
-                                 (threshold_lowered, "automatic approval above the two-person threshold")):
+                                 (threshold_lowered, "automatic approval above the two-person threshold"),
+                                 (purchase_by_revoked_approver, "by a revoked approver"),
+                                 (purchase_above_limit, "approval above the approver's limit")):
             code, report = self.verify(self.forged(change))
             self.assertEqual(code, 5, change.__name__)
             self.assertEqual(report["hashes_checked"], report["records"], "the forged chain is internally consistent")

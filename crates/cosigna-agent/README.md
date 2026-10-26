@@ -228,6 +228,14 @@ cargo run -p cosigna-agent -- serve --data-dir <profile> --stripe-test
 Every refund uses an idempotency key derived from its single attempt and is confirmed by
 retrieving it from Stripe. Details are in [STORAGE_FORMAT.md](../../docs/STORAGE_FORMAT.md).
 
+`scripts/stripe-test-check.mjs` runs the rail against a real Stripe test account, with the key
+in `COSIGNA_STRIPE_TEST_SECRET_KEY` (live keys are refused). It makes two test-card payments,
+then checks: a refund within the agent's limit is made once, even when the agent repeats it; a
+refund above what is left is denied; one above the limit is held with nothing sent to Stripe,
+then made when the owner approves; an unknown payment is denied; a live key is refused; the
+evidence verifies; and the key is in no gateway file. It passed by hand on 26 October 2026. It
+is not part of `cargo test`, which uses a local stand-in.
+
 ## Agent tools (MCP)
 
 `cosigna-agent mcp --gateway-url http://127.0.0.1:<port>` serves the money operations as MCP

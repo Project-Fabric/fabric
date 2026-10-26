@@ -180,6 +180,17 @@ fn replay_decides_every_operation_exactly_as_the_live_gateway() {
     // r10 was paid automatically with no case: allowed, but nothing confirmed it was owed.
     assert_eq!(report.paid_without_a_record.count, 1);
     assert_eq!(report.paid_without_a_record.amount_minor, 9000);
+    // Each row says whether a business record checked it; r10 had none.
+    let check = |id: &str| {
+        report
+            .replayed
+            .iter()
+            .find(|r| r.id == id)
+            .unwrap()
+            .case_check
+    };
+    assert_eq!(check("r10"), "unknown");
+    assert_eq!(check("r02"), "checked");
     assert_eq!(report.held_for_a_person.count, 5);
     assert_eq!(report.denied.count, 3);
 }

@@ -674,7 +674,9 @@ currency only), `other_currency` (count), `paid_without_a_record` (`{count, amou
 operations paid automatically with no `case_id` to check them against), `held_per_week` (one decimal), `by_rule`
 (`{outcome, rule, count, amount_minor}`), `mistakes` when any row is labelled (`labelled`,
 `stopped`, `stopped_amount_minor`, `paid_automatically` ids), `replayed` (per operation: `id`,
-`at`, `amount_minor`, `currency`, `outcome`, `rule`) and three fixed `notes` stating the
+`at`, `amount_minor`, `currency`, `outcome`, `rule`, `case_check`: `checked` when it names a
+case found in the case records, else `unknown`, meaning whether it was owed cannot be told from
+the data, whatever the outcome) and three fixed `notes` stating the
 assumptions. `--text` prints a short summary instead. Example data: `examples/replay/`.
 
 ### Operation timeline (`cosigna.timeline/v1`; no database migration)

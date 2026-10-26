@@ -99,6 +99,10 @@ pub struct Replayed {
     pub currency: String,
     pub outcome: &'static str,
     pub rule: String,
+    /// `checked`: it named a case found in the case records, so it was checked against what
+    /// the business said was owed. `unknown`: no record to check, so whether it was owed is
+    /// unknown, whatever the outcome.
+    pub case_check: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -249,6 +253,10 @@ pub fn replay(policy: Policy, mut history: Vec<Past>, cases: &[Case]) -> Result<
                 )
             }
         };
+        let case_check = match &past.case_id {
+            Some(id) if cases.iter().any(|c| &c.id == id) => "checked",
+            _ => "unknown",
+        };
         let (outcome, rule, paid) = match decision {
             Decision::AutoApproved(rule) => ("automatic", rule, true),
             Decision::Held(rule) => ("held_for_a_person", rule, true),
@@ -298,6 +306,7 @@ pub fn replay(policy: Policy, mut history: Vec<Past>, cases: &[Case]) -> Result<
             currency: past.currency.clone(),
             outcome,
             rule,
+            case_check,
         });
     }
     let (from, to) = (start, history.last().map_or(0, |p| p.at));
@@ -566,7 +575,7 @@ pub fn summary(report: &Report) -> String {
     );
     if report.paid_without_a_record.count > 0 {
         out += &format!(
-            "Paid automatically with no business record to check against: {} ({})
+            "Paid automatically with no business record to check against: {} ({}); whether these were owed is unknown.
 ",
             report.paid_without_a_record.count,
             money(report.paid_without_a_record.amount_minor)

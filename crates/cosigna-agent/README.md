@@ -68,7 +68,8 @@ for the rest of the minute (`--refusals-per-minute`, default 30), and some slots
 people so agents cannot crowd out approvals (see STORAGE_FORMAT.md). Production identity
 remains work. A separate opt-in durable `worker`
 process now schedules owner-enrolled tasks, waits for exact approval and reconciles unknown
-outcomes. See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
+outcomes. With `--alerts`, it also tells people in Slack or through a signed webhook when a
+payment is held, needs a second approver, or has an unknown result (`examples/alerts`). See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
 queue controls, recovery limits and private Linux systemd templates. No server is provisioned.
 
 ## Hosted planner

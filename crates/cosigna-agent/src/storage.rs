@@ -10,7 +10,7 @@ use crate::{Budget, Error, Event, Result, Task, evidence, rails};
 const LEDGER_APP: i64 = 0x43535458;
 const PROVIDER_APP: i64 = 0x43534658;
 /// Current ledger version, as recorded when an evidence chain starts.
-pub(crate) const LEDGER_VERSION: i64 = 11;
+pub(crate) const LEDGER_VERSION: i64 = 12;
 
 pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     let mut db = Connection::open(path)?;
@@ -150,6 +150,12 @@ pub fn connect(path: &Path, provider: bool) -> Result<Connection> {
     if !provider && version < 11 {
         tx.execute_batch(crate::identity::BINDING_SCHEMA)?;
         tx.pragma_update(None, "user_version", 11)?;
+    }
+    // Alerts: a cursor into the evidence and a queue of deliveries. Notifications only; no
+    // decision or payment reads them.
+    if !provider && version < 12 {
+        tx.execute_batch(crate::alerts::SCHEMA)?;
+        tx.pragma_update(None, "user_version", 12)?;
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL;")?;

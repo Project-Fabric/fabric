@@ -1,6 +1,7 @@
 //! Optional application layer. No model or merchant can grant itself spending authority.
 //! This first increment executes synthetic merchant orders only; see this crate's README.
 mod agents;
+pub mod alerts;
 pub mod api;
 pub mod approvers;
 pub mod cases;

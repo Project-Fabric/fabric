@@ -1,0 +1,54 @@
+# Cosigna, self-hosted: the gateway API, the worker (scheduled tasks and lookup-only refund
+# recovery) and a TLS proxy. Only the proxy is published. Synthetic fixture rail by default;
+# add compose.stripe-test.yaml for Stripe test mode. See deploy/docker/README.md.
+name: cosigna
+
+x-gateway: &gateway
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile
+  image: cosigna-gateway:local
+  volumes:
+    - cosigna-data:/data
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+services:
+  gateway:
+    <<: *gateway
+    command: ["serve", "--listen", "0.0.0.0:3092", "--public-host", "${COSIGNA_PUBLIC_HOST:-localhost}"]
+
+  worker:
+    <<: *gateway
+    command: ["worker"]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
+  proxy:
+    image: caddy:2.8.4-alpine
+    environment:
+      COSIGNA_PUBLIC_HOST: ${COSIGNA_PUBLIC_HOST:-localhost}
+    ports:
+      - "${COSIGNA_HTTPS_PORT:-443}:443"
+      - "${COSIGNA_HTTP_PORT:-80}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  cosigna-data:
+  caddy-data:
+  caddy-config:

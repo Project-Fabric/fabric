@@ -202,25 +202,103 @@ pub fn error_response(error: &Error) -> (u16, Value) {
     )
 }
 
+/// Where the API listens. Without a public host it serves this machine only, at
+/// `127.0.0.1:<port>`. With one, it serves behind a TLS-terminating reverse proxy: requests
+/// must name that host and arrive with `X-Forwarded-Proto: https`.
+#[derive(Debug, Clone)]
+pub struct Listen {
+    address: std::net::SocketAddr,
+    public_host: Option<String>,
+}
+
+impl Listen {
+    pub fn loopback(port: u16) -> Result<Self> {
+        Self::new((std::net::Ipv4Addr::LOCALHOST, port).into(), None)
+    }
+
+    pub fn new(address: std::net::SocketAddr, public_host: Option<String>) -> Result<Self> {
+        if address.port() == 0 {
+            return Err(Error::Invalid("port must be nonzero".into()));
+        }
+        if let Some(host) = &public_host {
+            let valid = (1..=253).contains(&host.len())
+                && host.split('.').all(|label| {
+                    (1..=63).contains(&label.len())
+                        && !label.starts_with('-')
+                        && !label.ends_with('-')
+                        && label
+                            .bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                });
+            if !valid {
+                return Err(Error::Invalid(
+                    "--public-host must be a lowercase host name, without scheme or port".into(),
+                ));
+            }
+        } else if !address.ip().is_loopback() {
+            return Err(Error::Invalid(
+                "listening beyond this machine needs --public-host: the name clients use through                  the TLS proxy"
+                    .into(),
+            ));
+        }
+        Ok(Self {
+            address,
+            public_host,
+        })
+    }
+
+    fn local_host(&self) -> String {
+        format!("127.0.0.1:{}", self.address.port())
+    }
+
+    /// Whether a request may proceed, judged by its `Host` and `X-Forwarded-Proto` headers.
+    /// Health checks may also come from the machine itself (container probes).
+    fn admits(&self, host: Option<&str>, forwarded_proto: Option<&str>, health: bool) -> bool {
+        let local = host == Some(self.local_host().as_str());
+        match &self.public_host {
+            None => local,
+            Some(_) if health && local => true,
+            Some(public) => {
+                // The proxy's published port may be any port; the name is what is checked.
+                let named = host.is_some_and(|h| {
+                    h == public
+                        || h.strip_prefix(public.as_str())
+                            .and_then(|rest| rest.strip_prefix(':'))
+                            .is_some_and(|port| port.parse::<u16>().is_ok_and(|p| p > 0))
+                });
+                named && forwarded_proto.is_some_and(|p| p.eq_ignore_ascii_case("https"))
+            }
+        }
+    }
+}
+
 pub fn serve(
     service: &Service,
     planner: &dyn Planner,
     credentials: &Credentials,
-    port: u16,
+    listen: &Listen,
 ) -> Result<()> {
-    let server = Server::http((std::net::Ipv4Addr::LOCALHOST, port))
-        .map_err(|_| Error::Invalid("cannot bind the loopback service port".into()))?;
-    println!(
-        "Cosigna agent · http://127.0.0.1:{port} · planner: {} · SIMULATED merchant",
-        planner.name()
-    );
+    let server = Server::http(listen.address)
+        .map_err(|_| Error::Invalid("cannot bind the service address".into()))?;
+    match &listen.public_host {
+        None => println!(
+            "Cosigna agent · http://{} · planner: {} · SIMULATED merchant",
+            listen.local_host(),
+            planner.name()
+        ),
+        Some(host) => println!(
+            "Cosigna agent · listening on {} for https://{host} (behind a TLS proxy) · planner: {}",
+            listen.address,
+            planner.name()
+        ),
+    }
     // A small pool: a slow rail or planner call holds one worker, not the whole gateway, so
     // status, approvals and revocation stay responsive. Each request opens its own connection.
     std::thread::scope(|scope| {
         for _ in 0..WORKERS {
             scope.spawn(|| {
                 while let Ok(request) = server.recv() {
-                    handle(service, planner, credentials, port, request);
+                    handle(service, planner, credentials, listen, request);
                 }
             });
         }
@@ -235,7 +313,7 @@ fn handle(
     service: &Service,
     planner: &dyn Planner,
     credentials: &Credentials,
-    port: u16,
+    listen: &Listen,
     mut request: tiny_http::Request,
 ) {
     let gateway_request = request.url().starts_with("/gateway/");
@@ -245,14 +323,17 @@ fn handle(
         if headers.iter().any(|h| h.field.equiv("Origin")) {
             return Err(Error::Forbidden);
         }
-        let host = headers
-            .iter()
-            .find(|h| h.field.equiv("Host"))
-            .map(|h| h.value.as_str());
-        if host != Some(format!("127.0.0.1:{port}").as_str()) {
+        let header = |name: &'static str| {
+            headers
+                .iter()
+                .find(|h| h.field.equiv(name))
+                .map(|h| h.value.as_str())
+        };
+        let health = request.method() == &Method::Get && request.url() == "/v1/health";
+        if !listen.admits(header("Host"), header("X-Forwarded-Proto"), health) {
             return Err(Error::Forbidden);
         }
-        if request.method() == &Method::Get && request.url() == "/v1/health" {
+        if health {
             return Ok(json!({"schema":API_VERSION,"simulated_provider":true,"status":"ok"}));
         }
         let authorization = headers

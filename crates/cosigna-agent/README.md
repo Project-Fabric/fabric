@@ -46,8 +46,12 @@ private role credentials and requests. Existing credentials are preserved, not p
 On Unix the credential file is created with mode 0600; on Windows it inherits directory
 ACLs. Custom directories need appropriate local access restrictions.
 
-The API listens only on `127.0.0.1:3092`. It rejects browser `Origin` headers and unexpected
-`Host` headers. It has no CORS support and is not currently a mobile/public deployment.
+By default the API listens only on `127.0.0.1:3092`. It rejects browser `Origin` headers and
+unexpected `Host` headers, and has no CORS support. To self-host it behind a TLS proxy, use
+`serve --listen 0.0.0.0:3092 --public-host <name>`: requests must then name that host and
+arrive with `X-Forwarded-Proto: https`, or they are refused. A non-loopback address without
+`--public-host` is refused at startup. `deploy/docker` runs it this way with Docker Compose
+(gateway, worker and a Caddy TLS proxy); secrets can come from files (`<NAME>_FILE`).
 The HTTP server processes requests sequentially; production identity, TLS termination,
 rate limiting and robust request timeouts remain work. A separate opt-in durable `worker`
 process now schedules owner-enrolled tasks, waits for exact approval and reconciles unknown

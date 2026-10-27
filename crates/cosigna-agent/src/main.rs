@@ -29,12 +29,21 @@ enum Command {
         #[arg(long)]
         test_merchant_url: Option<String>,
     },
-    /// Bind an authenticated API to 127.0.0.1. No real merchant is connected.
+    /// Serve the authenticated API: on 127.0.0.1 by default, or with `--listen` and
+    /// `--public-host` behind a TLS-terminating reverse proxy. No real merchant is connected.
     Serve {
         #[arg(long)]
         data_dir: Option<PathBuf>,
         #[arg(long, default_value_t = 3092)]
         port: u16,
+        /// Listen on this address instead of 127.0.0.1:<port>, e.g. 0.0.0.0:3092 in a
+        /// container. A non-loopback address requires --public-host.
+        #[arg(long, conflicts_with = "port")]
+        listen: Option<std::net::SocketAddr>,
+        /// The host name clients use through the TLS proxy. Requests must carry it as Host and
+        /// arrive with X-Forwarded-Proto: https; anything else is refused.
+        #[arg(long)]
+        public_host: Option<String>,
         #[arg(long, value_enum, default_value_t = PlannerMode::Fixtures)]
         planner: PlannerMode,
         #[arg(long)]
@@ -49,6 +58,12 @@ enum Command {
         /// over HTTPS) instead of the synthetic case book. See examples/cases.
         #[arg(long)]
         cases: Option<PathBuf>,
+    },
+    /// Check that a gateway on this machine answers its health endpoint (container probes).
+    /// Exit code 0 when healthy, 1 otherwise.
+    Probe {
+        #[arg(long, default_value_t = 3092)]
+        port: u16,
     },
     /// Run the opt-in durable scheduler. Only explicitly owner-enrolled tasks are processed.
     Worker {
@@ -186,15 +201,21 @@ fn run() -> Result<std::process::ExitCode> {
         Command::Serve {
             data_dir,
             port,
+            listen,
+            public_host,
             planner,
             model,
             test_merchant_url,
             stripe_test,
             cases,
         } => {
-            if port == 0 {
-                return Err(Error::Invalid("port must be nonzero".into()));
-            }
+            let listen = match listen {
+                Some(address) => api::Listen::new(address, public_host)?,
+                None if public_host.is_some() => {
+                    api::Listen::new((std::net::Ipv4Addr::LOCALHOST, port).into(), public_host)?
+                }
+                None => api::Listen::loopback(port)?,
+            };
             let directory = directory(data_dir)?;
             let credentials = Credentials::load(&directory.join("credentials.json"))?;
             let service = with_rails(
@@ -203,7 +224,20 @@ fn run() -> Result<std::process::ExitCode> {
                 cases.as_deref(),
             )?;
             let planner = make_planner(planner, model)?;
-            api::serve(&service, planner.as_ref(), &credentials, port)
+            api::serve(&service, planner.as_ref(), &credentials, &listen)
+        }
+        Command::Probe { port } => {
+            let healthy = ureq::Agent::config_builder()
+                .timeout_global(Some(std::time::Duration::from_secs(3)))
+                .build()
+                .new_agent()
+                .get(format!("http://127.0.0.1:{port}/v1/health"))
+                .call()
+                .is_ok_and(|response| response.status() == 200);
+            if !healthy {
+                std::process::exit(1);
+            }
+            Ok(())
         }
         Command::Worker {
             data_dir,
@@ -317,9 +351,9 @@ fn with_rails(
         service.rails = service.rails.clone().with_cases(source);
     }
     if stripe_test {
-        let key = match std::env::var("COSIGNA_STRIPE_TEST_SECRET_KEY") {
-            Ok(key) => key,
-            Err(_) => {
+        let key = match cosigna_agent::env_secret("COSIGNA_STRIPE_TEST_SECRET_KEY") {
+            Some(key) => key,
+            None => {
                 // The credential stored with `fabric secret set stripe-test`.
                 let home = std::env::var_os("FABRIC_HOME")
                     .map(PathBuf::from)

@@ -842,7 +842,10 @@ approval_digest,data}`. `agent_id` is populated for associated task responses, o
 null; `approval_digest` is populated for a task quote, otherwise null. Errors have `schema`
 and `error:{code,message}` with the gateway schema. All POST input schemas reject unknown
 fields and are bounded to 16 KiB. The loopback server retains exact Host, browser-Origin,
-JSON content-type and no-store response controls. It serves up to eight requests at once, so
+JSON content-type and no-store response controls. Behind a TLS proxy (`serve --listen
+<address> --public-host <name>`), the exact-Host rule becomes: the Host is `<name>` or
+`<name>:<port>`, and `X-Forwarded-Proto` is `https`; only `GET /v1/health` also accepts the
+local `127.0.0.1:<port>` Host, for container probes. Requests and responses are unchanged. It serves up to eight requests at once, so
 a slow client, rail or planner call holds one worker rather than the whole gateway; SQLite still
 serializes writes. A connection to a store already at the current version opens without a write
 lock; creation and upgrades take it. Eight clients that stall mid-request can still occupy every

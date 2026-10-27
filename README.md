@@ -63,6 +63,8 @@ that would fail on stage.
 Then read the [gateway API](docs/COSIGNA_GATEWAY.md), the
 [agent tools](crates/cosigna-agent/README.md) and the [storage and API formats](docs/STORAGE_FORMAT.md).
 
+For IT and security reviewers: [security overview and production checklist](docs/SECURITY_OVERVIEW.md).
+
 ## Not yet built
 
 - Production identity: single sign-on and per-person signatures (approvers use their own keys today).

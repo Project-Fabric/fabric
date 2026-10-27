@@ -111,3 +111,9 @@ keeping inside the Rust gateway, then retire the Python service:
 
 Until step 3 ships, three permission systems still exist (engine mandates, AgentAuth consents,
 gateway budgets), and none of them should be described as the single authority.
+
+27 October increment: Rails verifies a configured issuer's signed access tokens and maps
+enrolled subjects to application users and active organization memberships. Its new reads
+cover only application identity/organization metadata. The [identity and authority contract](IDENTITY_AND_AUTHORITY_CONTRACT.md)
+defines the next trusted gateway-instance/owner binding; no such binding, customer transaction
+read or delegated spending authority is implemented yet. G3 and the consolidation remain open.

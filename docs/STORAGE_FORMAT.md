@@ -1053,19 +1053,44 @@ and confirmation commands in extras cannot authorize payment. Continuing the dra
 an explicit voice-session action and processing permissions; actual approval still requires
 a fresh spoken turn after the exact quote has finished reading.
 
-## Rails application foundation: `cosigna.backend/v1`
+## Rails application: metadata v2 and identity v1
 
-The separate `backend` Rails API introduces a new metadata envelope, `cosigna.backend/v1`.
-`GET /api/v1/platform` reports the product, foundation phase, Rails application backend,
-Rust transaction authority, unimplemented customer authentication and absent write endpoints.
-`GET /api/v1/gateway/health` returns that schema and a whitelisted verified
+The original Rails metadata envelope was `cosigna.backend/v1`. `GET /api/v1/platform`
+now returns `cosigna.backend/v2`: product, development-identity phase, Rails backend,
+Rust transaction authority, external-access-token verification, operator-only enrollment,
+membership-scoped organization reads, and unimplemented gateway owner mapping/transaction writes.
+`GET /api/v1/gateway/health` retains its existing `cosigna.backend/v1` envelope and a whitelisted verified
 `cosigna.agent/v1` sandbox health object, or HTTP 503 and one of `gateway_unconfigured`,
 `gateway_configuration_invalid`, `gateway_unavailable`, or `gateway_unverified`. It accepts
 no client-selected destination and forwards no credentials. `/up` is Rails' own health route.
 
-This increment adds no customer tables, payment records or financial migrations. Active
-Record's local development/test databases live under the Rails app's separate `storage`
-directory (a dedicated Compose volume in Docker). Rails never opens or changes the Rust
-ledger, provider store, project manifests or Python consent database. Their versions and
-existing wire contracts are unchanged. This is a local development API, not a tenant identity
-or signed spending-authority contract.
+`cosigna.identity/v1` envelopes the new authenticated read-only application API:
+
+- `GET /api/v1/me`: `user: {id, display_name}` with an opaque `usr_` public id.
+- `GET /api/v1/organizations`: `organizations: [{id, name, role}]` and nullable `next_cursor`.
+  Pages have at most 50 active memberships; optional `after` is an opaque `org_` cursor.
+- `GET /api/v1/organizations/:id`: the same membership view under `organization`, selected
+  only from the current user's active memberships and active organizations.
+- Errors contain `error` with a fixed safe code: `invalid_token` (401), `insufficient_scope`
+  (403), `not_found` (404), `invalid_cursor` (400), or `identity_unconfigured`,
+  `identity_configuration_invalid`, `identity_unavailable` (503). No tokens/raw claims or
+  remote exception bodies appear. Responses use `Cache-Control: no-store`.
+
+Rails migration `20261027010000` adds only application identity tables:
+
+- `application_users`: unique `public_id`, `display_name`, `active`, timestamps.
+- `external_identities`: user foreign key, unique `(issuer, subject)`, `revoked_at`, timestamps.
+- `organizations`: unique `public_id`, `name`, `active`, timestamps.
+- `organization_memberships`: user/organization foreign keys, unique pair, `role`,
+  `revoked_at`, timestamps. A check restricts role to owner/admin/member/viewer.
+
+Public ids are generated as a prefix plus 16 random bytes in hex. There are no public
+identity/membership mutation endpoints. Enrollment is operator-controlled; email and token
+role/organization claims do not create membership. Raw access tokens and private signing
+keys are not stored. Trusted issuer/audience/client ids/public JWKS path come from operator
+configuration, outside this database. See [the identity contract](IDENTITY_AND_AUTHORITY_CONTRACT.md).
+
+Active Record's local development/test databases remain under the Rails app's own `storage`
+directory (a dedicated Compose volume in Docker). Rails never opens the Rust ledger, provider
+store, project manifests or Python consent database. Their versions are unchanged. There are
+no gateway ownership bindings, financial records or signed spending permits in this migration.

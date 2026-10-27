@@ -1,0 +1,13 @@
+# Optional override. All values are operator supplied; only the PUBLIC JWKS is mounted.
+services:
+  web:
+    environment:
+      COSIGNA_IDENTITY_ISSUER: "${COSIGNA_IDENTITY_ISSUER:?Set the exact trusted issuer}"
+      COSIGNA_IDENTITY_AUDIENCE: "${COSIGNA_IDENTITY_AUDIENCE:?Set this API audience}"
+      COSIGNA_IDENTITY_CLIENT_IDS: "${COSIGNA_IDENTITY_CLIENT_IDS:?Set a JSON array of permitted client ids}"
+      COSIGNA_IDENTITY_JWKS_PATH: /run/cosigna/identity-jwks.json
+    volumes:
+      - type: bind
+        source: "${COSIGNA_IDENTITY_JWKS_HOST_PATH:?Set the absolute host path of the PUBLIC JWKS file}"
+        target: /run/cosigna/identity-jwks.json
+        read_only: true

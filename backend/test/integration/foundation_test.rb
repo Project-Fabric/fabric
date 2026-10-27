@@ -8,9 +8,11 @@ class FoundationTest < ActionDispatch::IntegrationTest
     assert_response :success
     get "/api/v1/platform"
     assert_response :success
-    assert_equal "cosigna.backend/v1", response.parsed_body["schema"]
+    assert_equal "cosigna.backend/v2", response.parsed_body["schema"]
     assert_equal "rust_gateway", response.parsed_body["transaction_authority"]
-    assert_equal "not_implemented", response.parsed_body["customer_authentication"]
+    assert_equal "external_access_token_verification", response.parsed_body["customer_authentication"]
+    assert_equal "operator_only", response.parsed_body["customer_enrollment"]
+    assert_equal "not_implemented", response.parsed_body["gateway_owner_mapping"]
     assert_equal "not_exposed", response.parsed_body["transaction_writes"]
     assert_equal "no-store", response.headers["Cache-Control"]
   end

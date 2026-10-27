@@ -33,6 +33,7 @@ jobs:
           bundler-cache: true
           working-directory: backend
       - run: bundle exec rails zeitwerk:check
+      - run: bundle exec rails db:prepare
       - run: bundle exec rails test
 
   gateway:

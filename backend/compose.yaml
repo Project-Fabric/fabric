@@ -27,6 +27,6 @@ services:
     profiles: ["verify"]
     environment:
       RAILS_ENV: test
-    command: ["bundle", "exec", "rails", "test"]
+    command: ["bundle", "exec", "rails", "db:prepare", "test"]
 volumes:
   rails-storage:

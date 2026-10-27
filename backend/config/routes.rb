@@ -10,6 +10,8 @@ Rails.application.routes.draw do
     namespace :v1 do
       get "platform", to: "platform#show"
       get "gateway/health", to: "gateway_health#show"
+      get "me", to: "identities#show"
+      resources :organizations, only: [ :index, :show ]
     end
   end
 

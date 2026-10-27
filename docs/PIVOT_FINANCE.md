@@ -111,6 +111,19 @@ Decided before the interviews (`INTERVIEWS_FINANCE.md`):
 - **Stop:** SOX-subject teams ban agents and do not plan to change, and auditors do not ask
   about them.
 
+## Customer identity increment, 27 October 2026
+
+Rails now verifies a configured issuer's signed access tokens and provides operator-enrolled
+users, organizations and membership-scoped metadata reads. The founder selected a
+provider-neutral boundary; no real identity provider/sign-in flow has been configured or
+validated. Token roles, organization claims and matching emails do not grant membership.
+The [identity/authority contract](IDENTITY_AND_AUTHORITY_CONTRACT.md) records the current
+API, key/identity revocation and required next gateway-instance/owner binding.
+
+This increment adds no gateway transaction access, payment records or spending authority.
+G3/#72 and Rails #78 remain open for real provider validation, owner mapping, signed permits,
+customer lifecycle and the unified financial authority path.
+
 ## Sources
 
 - [Kognitos: what your SOX auditor will ask about AI automation](https://www.kognitos.com/blog/sox-auditor-questions-ai-automation/)

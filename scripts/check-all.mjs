@@ -165,7 +165,8 @@ for (const suite of chosen) {
 const count = (status) => results.filter((r) => r.status === status).length;
 const failed = count('FAILED');
 const skipped = count('SKIPPED');
-const dirty = git('status', '--porcelain') !== '';
+// A copy of this script added to an older branch to check it does not count as a change.
+const dirty = git('status', '--porcelain').split('\n').some((line) => line && line !== '?? scripts/check-all.mjs');
 const verdict = failed ? 'FAILED' : skipped ? 'PASSED, INCOMPLETE (some steps skipped)' : 'PASSED';
 const summary = [
   `### Local checks: ${verdict}`,

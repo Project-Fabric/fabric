@@ -51,6 +51,14 @@ enum Command {
         /// as a payment being sent, still finishes and is recorded.
         #[arg(long, default_value_t = 120)]
         request_timeout: u64,
+        /// Requests per second allowed for each credential (bursts up to twice that); beyond
+        /// it, 429 `rate_limited` with Retry-After. Other credentials are not affected.
+        #[arg(long, default_value_t = 20)]
+        rate_limit: u32,
+        /// Refused requests (403, such as a wrong token) one address may make per minute
+        /// before it is blocked with 429 for the rest of that minute.
+        #[arg(long, default_value_t = 30)]
+        refusals_per_minute: u32,
         #[arg(long, value_enum, default_value_t = PlannerMode::Fixtures)]
         planner: PlannerMode,
         #[arg(long)]
@@ -212,6 +220,8 @@ fn run() -> Result<std::process::ExitCode> {
             public_host,
             max_concurrent,
             request_timeout,
+            rate_limit,
+            refusals_per_minute,
             planner,
             model,
             test_merchant_url,
@@ -221,6 +231,8 @@ fn run() -> Result<std::process::ExitCode> {
             let limits = api::Limits {
                 concurrent: max_concurrent,
                 request_timeout: std::time::Duration::from_secs(request_timeout),
+                per_credential: rate_limit,
+                refusals_per_minute,
             };
             let listen = match listen {
                 Some(address) => api::Listen::new(address, public_host)?,

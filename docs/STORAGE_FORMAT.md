@@ -892,7 +892,21 @@ checks never count toward that limit. A request that has not been fully sent and
 within `--request-timeout` seconds (default 120) gets HTTP 504 with error code `timed_out`; work
 it had already started, such as a payment being sent, is not abandoned: it finishes and is
 recorded, and keeps its slot until then, so the client should look the operation up before
-retrying. Both errors use the usual error envelope. On Ctrl-C or SIGTERM the server stops
+retrying. Both errors use the usual error envelope.
+
+Each credential may make `--rate-limit` requests per second (default 20, bursts up to twice
+that); beyond it the answer is HTTP 429 with error code `rate_limited` and a `Retry-After`
+header, and other credentials are not affected. A request without a credential is counted by
+its address. An address that receives `--refusals-per-minute` refusals (HTTP 403, such as a
+wrong token; default 30) gets 429 for every request until that minute ends. Behind the TLS
+proxy the address is the last entry of `X-Forwarded-For`, the one the proxy appended; earlier
+entries come from the client and are ignored. One eighth of the concurrency slots (at least
+one, when there are two or more) is kept for requests whose credential is not an agent token
+(`agentkey_`), so agents filling the gateway cannot stop a person from approving, rejecting or
+revoking; the token's prefix only chooses the pool, and authentication is unchanged. Health
+checks are exempt from all of these limits. The counters are in memory: a restart resets them.
+
+On Ctrl-C or SIGTERM the server stops
 accepting connections and lets requests in progress finish before exiting. SQLite still
 serializes writes. A connection to a store already at the current version opens without a
 write lock; creation and upgrades take it.

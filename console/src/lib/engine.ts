@@ -23,6 +23,8 @@ const files = { approvals: 'inbox_approvals.json', calls: 'evidence_calls.json',
 const readArgs = { approvals: ['approvals', '--all'], calls: ['evidence', 'calls', '-n', '200'],
   agents: ['agent', 'list'], mandates: ['mandate', 'list'], verification: ['evidence', 'verify'], declarations: ['payments', 'list'] };
 export const fixtureMode = () => process.env.CONSOLE_FIXTURES === '1';
+/** A server deployment may have a gateway and no Fabric project: its sections are then left out, not errors. */
+export const fabricConfigured = () => fixtureMode() || !!process.env.CONSOLE_PROJECT;
 
 function safeMessage(message: string) {
   let safe = redactText(message);
@@ -137,6 +139,7 @@ export async function snapshot(session: Session): Promise<Snapshot> {
   if (isApprover(session)) return approverSnapshot(session);
   const errors: Record<string, string> = {};
   async function load<T>(name: keyof typeof files, schema: z.ZodType<T>): Promise<T | null> {
+    if (!fabricConfigured()) return null;
     try {
       const override = fixtureMode() && name in state(session.id) ? state(session.id)[name as keyof FixtureState] : undefined;
       return validate(schema, override || await read(name));

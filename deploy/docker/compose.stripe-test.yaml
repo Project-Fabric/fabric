@@ -5,7 +5,7 @@
 services:
   gateway:
     command: ["serve", "--listen", "0.0.0.0:3092", "--public-host", "${COSIGNA_PUBLIC_HOST:-localhost}",
-              "--stripe-test", "--cases", "/config/cases.json"]
+              "--trust-local-clients", "--stripe-test", "--cases", "/config/cases.json"]
     environment: &secrets
       COSIGNA_STRIPE_TEST_SECRET_KEY_FILE: /run/secrets/stripe_test_key
       COSIGNA_CASES_SECRET_FILE: /run/secrets/cases_secret

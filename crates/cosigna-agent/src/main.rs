@@ -44,6 +44,11 @@ enum Command {
         /// arrive with X-Forwarded-Proto: https; anything else is refused.
         #[arg(long)]
         public_host: Option<String>,
+        /// With --public-host, also serve a client on this machine's own loopback address
+        /// under the local name without the proxy (a console sharing the gateway's network
+        /// namespace, as in deploy/docker). Off by default.
+        #[arg(long)]
+        trust_local_clients: bool,
         /// Requests handled at once; beyond this, clients get 503 `busy` immediately.
         #[arg(long, default_value_t = 32)]
         max_concurrent: usize,
@@ -222,6 +227,7 @@ fn run() -> Result<std::process::ExitCode> {
             port,
             listen,
             public_host,
+            trust_local_clients,
             max_concurrent,
             request_timeout,
             rate_limit,
@@ -244,6 +250,11 @@ fn run() -> Result<std::process::ExitCode> {
                     api::Listen::new((std::net::Ipv4Addr::LOCALHOST, port).into(), public_host)?
                 }
                 None => api::Listen::loopback(port)?,
+            };
+            let listen = if trust_local_clients {
+                listen.trust_local_clients()?
+            } else {
+                listen
             };
             let directory = directory(data_dir)?;
             let credentials = Credentials::load(&directory.join("credentials.json"))?;

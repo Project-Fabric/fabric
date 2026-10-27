@@ -57,7 +57,8 @@ By default the API listens only on `127.0.0.1:3092`. It rejects browser `Origin`
 unexpected `Host` headers, and has no CORS support. To self-host it behind a TLS proxy, use
 `serve --listen 0.0.0.0:3092 --public-host <name>`: requests must then name that host and
 arrive with `X-Forwarded-Proto: https`, or they are refused. A non-loopback address without
-`--public-host` is refused at startup. `deploy/docker` runs it this way with Docker Compose
+`--public-host` is refused at startup. `--trust-local-clients` additionally lets a client on
+the gateway's own loopback address (the console in `deploy/docker`) use the local name. `deploy/docker` runs it this way with Docker Compose
 (gateway, worker and a Caddy TLS proxy); secrets can come from files (`<NAME>_FILE`).
 The server handles up to `--max-concurrent` requests at once (default 32) and answers
 503 `busy` beyond that; a request slower than `--request-timeout` seconds (default 120) gets 504

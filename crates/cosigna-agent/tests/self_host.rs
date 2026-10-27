@@ -386,3 +386,44 @@ fn zero_limits_are_refused() {
         assert!(!output.status.success(), "{args:?} was accepted");
     }
 }
+
+#[test]
+fn a_console_beside_the_gateway_reaches_it_only_with_the_option() {
+    let (directory, owner) = init();
+    let auth = format!("Bearer {owner}");
+    for (trust, expected) in [(true, 200), (false, 403)] {
+        let port = free_port();
+        let mut args = vec![
+            "--listen".to_string(),
+            format!("127.0.0.1:{port}"),
+            "--public-host".to_string(),
+            "cosigna.example.test".to_string(),
+        ];
+        if trust {
+            args.push("--trust-local-clients".to_string());
+        }
+        let child = Command::new(BINARY)
+            .args(["serve", "--data-dir"])
+            .arg(directory.path())
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let _process = Process(child);
+        wait_for(port);
+        let local = format!("127.0.0.1:{port}");
+        assert_eq!(
+            status(
+                port,
+                "/gateway/v1/operations",
+                &[("Host", &local), ("Authorization", &auth)]
+            ),
+            expected,
+            "trust {trust}"
+        );
+    }
+    // The option means nothing without a proxy, so it is refused there.
+    let output = serve(directory.path(), &["--trust-local-clients"]);
+    assert!(!output.status.success());
+}

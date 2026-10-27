@@ -208,6 +208,10 @@ pub fn error_response(error: &Error) -> (u16, Value) {
 pub struct Listen {
     address: std::net::SocketAddr,
     public_host: Option<String>,
+    /// Behind the proxy, also serve clients connecting from this machine's own loopback
+    /// address under the local name, without the proxy's headers: a console sharing the
+    /// gateway's network namespace. No one outside that namespace can connect from there.
+    trust_local: bool,
 }
 
 impl Listen {
@@ -236,27 +240,47 @@ impl Listen {
             }
         } else if !address.ip().is_loopback() {
             return Err(Error::Invalid(
-                "listening beyond this machine needs --public-host: the name clients use through                  the TLS proxy"
+                "listening beyond this machine needs --public-host: the name clients use through \
+                 the TLS proxy"
                     .into(),
             ));
         }
         Ok(Self {
             address,
             public_host,
+            trust_local: false,
         })
+    }
+
+    /// See `trust_local`. Only meaningful behind the proxy; refused without a public host.
+    pub fn trust_local_clients(mut self) -> Result<Self> {
+        if self.public_host.is_none() {
+            return Err(Error::Invalid(
+                "--trust-local-clients only applies with --public-host".into(),
+            ));
+        }
+        self.trust_local = true;
+        Ok(self)
     }
 
     fn local_host(&self) -> String {
         format!("127.0.0.1:{}", self.address.port())
     }
 
-    /// Whether a request may proceed, judged by its `Host` and `X-Forwarded-Proto` headers.
-    /// Health checks may also come from the machine itself (container probes).
-    fn admits(&self, host: Option<&str>, forwarded_proto: Option<&str>, health: bool) -> bool {
+    /// Whether a request may proceed, judged by its `Host` and `X-Forwarded-Proto` headers and
+    /// whether it came from this machine's loopback address. Health checks may also come from
+    /// the machine itself (container probes).
+    fn admits(
+        &self,
+        host: Option<&str>,
+        forwarded_proto: Option<&str>,
+        health: bool,
+        loopback_peer: bool,
+    ) -> bool {
         let local = host == Some(self.local_host().as_str());
         match &self.public_host {
             None => local,
-            Some(_) if health && local => true,
+            Some(_) if local && (health || (self.trust_local && loopback_peer)) => true,
             Some(public) => {
                 // The proxy's published port may be any port; the name is what is checked.
                 let named = host.is_some_and(|h| {
@@ -515,7 +539,14 @@ async fn handle(
             // really ends, even if the client has already been told it timed out.
             tokio::task::spawn_blocking(move || {
                 let _permit = permit;
-                respond(&app, parts.method.as_str(), &url, &parts.headers, body)
+                respond(
+                    &app,
+                    parts.method.as_str(),
+                    &url,
+                    &parts.headers,
+                    body,
+                    peer.ip().is_loopback(),
+                )
             })
             .await
         }
@@ -549,6 +580,7 @@ fn respond(
     url: &str,
     headers: &axum::http::HeaderMap,
     body: Option<Vec<u8>>,
+    loopback_peer: bool,
 ) -> (u16, Value) {
     let gateway_request = url.starts_with("/gateway/");
     let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
@@ -558,10 +590,12 @@ fn respond(
             return Err(Error::Forbidden);
         }
         let health = method == "GET" && url == "/v1/health";
-        if !app
-            .listen
-            .admits(header("host"), header("x-forwarded-proto"), health)
-        {
+        if !app.listen.admits(
+            header("host"),
+            header("x-forwarded-proto"),
+            health,
+            loopback_peer,
+        ) {
             return Err(Error::Forbidden);
         }
         if health {
@@ -725,5 +759,35 @@ mod tests {
             ),
             Err(Error::Forbidden)
         ));
+    }
+
+    #[test]
+    fn only_loopback_connections_are_trusted_under_the_local_name() {
+        let address: std::net::SocketAddr = "0.0.0.0:3092".parse().unwrap();
+        let public = Some("cosigna.example.test".to_string());
+        let trusting = Listen::new(address, public.clone())
+            .unwrap()
+            .trust_local_clients()
+            .unwrap();
+        let strict = Listen::new(address, public).unwrap();
+        let local = Some("127.0.0.1:3092");
+        // The console in the gateway's network namespace: loopback peer, local name.
+        assert!(trusting.admits(local, None, false, true));
+        // The same request arriving from elsewhere (through Docker's network) is refused.
+        assert!(!trusting.admits(local, None, false, false));
+        assert!(!trusting.admits(local, Some("https"), false, false));
+        // Without the option, the local name stays limited to health checks.
+        assert!(!strict.admits(local, None, false, true));
+        assert!(strict.admits(local, None, true, true));
+        // Requests through the proxy are unchanged.
+        assert!(trusting.admits(Some("cosigna.example.test"), Some("https"), false, false));
+        assert!(!trusting.admits(Some("cosigna.example.test"), None, false, true));
+        // The option needs a public host.
+        assert!(
+            Listen::loopback(3092)
+                .unwrap()
+                .trust_local_clients()
+                .is_err()
+        );
     }
 }

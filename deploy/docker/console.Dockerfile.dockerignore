@@ -1,0 +1,7 @@
+# The console image needs only the console's source; never local state or build output.
+*
+!console/
+console/node_modules
+console/.next
+console/tsconfig.tsbuildinfo
+console/.env*

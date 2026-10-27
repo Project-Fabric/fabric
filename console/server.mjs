@@ -11,11 +11,27 @@ if (process.argv.includes('--fixtures')) process.env.CONSOLE_FIXTURES = '1';
 const fixtures = process.env.CONSOLE_FIXTURES === '1';
 if (fixtures && !process.env.CONSOLE_USER) process.env.CONSOLE_USER = 'priya@northwind.test';
 if (!process.env.CONSOLE_USER?.trim()) throw new Error('Configure CONSOLE_USER before starting live mode.');
-if (!fixtures && !process.env.CONSOLE_PROJECT) throw new Error('Configure CONSOLE_PROJECT before starting live mode.');
+// Live mode reads a Fabric project, a Cosigna gateway, or both (a server deployment has only the gateway).
+if (!fixtures && !process.env.CONSOLE_PROJECT && !process.env.CONSOLE_GATEWAY_URL)
+  throw new Error('Configure CONSOLE_PROJECT or CONSOLE_GATEWAY_URL before starting live mode.');
 const port = Number(process.env.CONSOLE_PORT || 3090);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid CONSOLE_PORT.');
+// Behind a TLS proxy (deploy/docker), the address people open, such as https://cosigna.example.com.
+// Requests must then name that host and arrive with X-Forwarded-Proto: https; cookies are Secure.
+let publicOrigin = null;
+if (process.env.CONSOLE_PUBLIC_ORIGIN) {
+  let url;
+  try { url = new URL(process.env.CONSOLE_PUBLIC_ORIGIN); } catch { url = null; }
+  if (!url || url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash)
+    throw new Error('CONSOLE_PUBLIC_ORIGIN must be https://<host>[:port], with no path.');
+  publicOrigin = url;
+}
+const expectedHost = publicOrigin ? publicOrigin.host : `127.0.0.1:${port}`;
+const listenHost = publicOrigin ? '0.0.0.0' : '127.0.0.1';
+const cookieFlags = `Path=/; HttpOnly; SameSite=Strict${publicOrigin ? '; Secure' : ''}`;
+const admitted = req => req.headers.host === expectedHost && (!publicOrigin || req.headers['x-forwarded-proto'] === 'https');
 process.env.CONSOLE_INTERNAL_KEY = randomBytes(64).toString('hex');
-process.env.CONSOLE_ORIGIN = `http://127.0.0.1:${port}`;
+process.env.CONSOLE_ORIGIN = publicOrigin ? publicOrigin.origin : `http://127.0.0.1:${port}`;
 // Next dev restores its initial environment while preparing/reloading the app.
 // Preserve our server-only runtime configuration in that snapshot as well, so
 // the HTTP wrapper and compiled route handlers use the same session key/mode.
@@ -56,14 +72,14 @@ const server = createServer(async (req, res) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
   const deny = (code, message) => { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(message); };
-  if (req.headers.host !== `127.0.0.1:${port}`) return deny(403, 'Invalid local host.');
+  if (!admitted(req)) return deny(403, publicOrigin ? 'Invalid host, or not through the HTTPS proxy.' : 'Invalid local host.');
   const url = new URL(req.url || '/', process.env.CONSOLE_ORIGIN);
   if (url.searchParams.has('token')) {
     if (req.method !== 'GET' || url.pathname !== '/' || used || Date.now() > bootstrapExpires || !equal(url.searchParams.get('token'), token))
       return deny(403, 'This access link is invalid, expired or already used. Restart the console for a new link.');
     used = true;
     const issued = issueSession(process.env.CONSOLE_USER);
-    res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200`);
+    res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; ${cookieFlags}; Max-Age=43200`);
     res.writeHead(303, { Location: '/approvals' }); res.end(); return;
   }
   const html = ([status, page]) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(page); };
@@ -77,14 +93,14 @@ const server = createServer(async (req, res) => {
     if (!approver) { signInFailed(); return html(signInPage('That key was not accepted. Check it with the owner who issued it.', 401)); }
     const issued = issueSession(approver.name, Date.now(), 'approver');
     remember(issued.session.id, approver);
-    res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200`);
+    res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; ${cookieFlags}; Max-Age=43200`);
     res.writeHead(303, { Location: '/approvals' }); res.end(); return;
   }
   if (url.pathname === '/signout' && req.method === 'POST') {
     if (req.headers.origin !== process.env.CONSOLE_ORIGIN) return deny(403, 'Request rejected: origin check failed.');
     const session = readSession(req.headers.cookie);
     if (session) forget(session.id);
-    res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+    res.setHeader('Set-Cookie', `${COOKIE}=; ${cookieFlags}; Max-Age=0`);
     res.writeHead(303, { Location: '/signin' }); res.end(); return;
   }
   try {
@@ -100,13 +116,13 @@ const server = createServer(async (req, res) => {
 });
 server.on('upgrade', (req, socket, head) => {
   try {
-    if (req.headers.host !== `127.0.0.1:${port}` || req.headers.origin !== process.env.CONSOLE_ORIGIN || !readSession(req.headers.cookie)) {
+    if (!admitted(req) || req.headers.origin !== process.env.CONSOLE_ORIGIN || !readSession(req.headers.cookie)) {
       socket.destroy(); return;
     }
     void app.getUpgradeHandler()(req, socket, head);
   } catch { socket.destroy(); }
 });
-server.listen(port, '127.0.0.1', () => {
+server.listen(port, listenHost, () => {
   console.log(`Cosigna Console · ${fixtures ? 'FIXTURES — actions are simulated' : 'LIVE — decisions are recorded'} · ${process.env.CONSOLE_USER}`);
   console.log(`Open once (expires in 10 minutes): ${process.env.CONSOLE_ORIGIN}/?token=${token}`);
 });

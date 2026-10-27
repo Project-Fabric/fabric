@@ -22,6 +22,20 @@ recording remain outstanding.
 diagnostics. Run checks setup before requesting permission to start Codex; setup failures
 and existing payment attempts give different retry guidance. This addresses the repeated
 manual ticket setup failures observed in the combined trial, without changing gateway policy.
+**27 October — Identity-backed money approvals (E18, second increment):** explicit operator
+bindings now connect one organization/owner namespace and enrolled memberships to existing
+named approvers. Rust checks token scope/expiry, authority revocation, exact proposals and
+limits in the deciding transaction; new submission claims recheck recorded identity grants
+even for another executor. Binding evidence and provider/subject decision attribution use
+ledger v11. Tests remain synthetic; browser console sign-in, a real IdP check and production
+review are still open. See [the implemented boundary](GATEWAY_IDENTITY_APPROVALS.md).
+
+**27 October — Rust identity foundation (E18, partial):** following the one-backend decision,
+the gateway now verifies configured RS256 access tokens and reads operator-enrolled users,
+organizations and memberships from ledger v10. Revocation and registry evidence checks are
+tested with synthetic identities. Membership grants no payment authority. Identity-backed
+approvals, console browser sign-in and a real IdP check remain open; Rails is frozen and PR #97
+remains a reference. See [the implementation boundary](GATEWAY_IDENTITY.md).
 
 ## Why we are pivoting
 

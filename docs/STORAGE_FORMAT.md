@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 9, provider version 4)
+## Optional Cosigna agent development stores (ledger version 12, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 9 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers` |
+| `transactions.sqlite` | `0x43535458` | 12 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships`, `identity_gateway_bindings`, `identity_approver_bindings`, `alert_cursor`, `alert_outbox` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -330,13 +330,15 @@ with index `operations_case(owner, case_id)`, and the optional `case_id` request
 below). Version 8 adds no tables: budget JSON may carry `second_approval_above_minor` and
 operation JSON `first_approval` (two-person approval, below). Version 9 adds no tables: a
 proposal's `facts.case` may carry `system`, the case source it was read from (case sources,
-below). Opening an application-matching v1-v8 ledger creates the missing tables and columns
-and updates `user_version` to 9 in one transaction. Existing
+below). Version 10 adds identity metadata tables; version 11 adds explicit organization/owner
+and identity/approver bindings (below); version 12 adds the alert cursor and queue (alerts,
+below). Opening an application-matching v1-v11 ledger creates the missing tables and columns
+and updates `user_version` to 12 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 9, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v9
+one transaction, and provider versions above 4 are refused. Versions above 12, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v12
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -576,6 +578,102 @@ Public health has `schema`, `simulated_provider: true` and `status`. Error envel
 `schema` and `error: {code, message}`. Input schemas reject unknown fields; purchase plan
 fields are only `offer_id`, `quantity`, `clarification`. No plan can contain spending authority.
 
+### Gateway identity metadata (ledger version 10, `cosigna.identity/v1`)
+
+Identity tokens are verified locally against operator-configured public RSA keys. The optional
+resource-server profile and routes are specified in [Gateway identity](GATEWAY_IDENTITY.md).
+No identity token, email/role/owner claim or membership grants financial authority in this
+increment. Existing owner, agent and named-approver credentials are unchanged.
+
+Four additive tables, empty on migration (no inferred enrollment):
+
+- `identity_users`: `id` (`usr_` + 64 random lowercase hex) primary key, `owner`, `display_name`,
+  `revoked` (0/1); unique `(owner,id)`.
+- `identity_subjects`: `id` (`idn_` + 64 random lowercase hex) primary key, `owner`, `user_id`,
+  `issuer`, `subject`, `revoked` (0/1); globally unique `(issuer,subject)`; composite foreign key
+  `(owner,user_id)` references `identity_users(owner,id)`.
+- `identity_organizations`: `id` (`org_` + 64 random lowercase hex) primary key, `owner`, `name`,
+  `revoked` (0/1); unique `(owner,id)`.
+- `identity_memberships`: `id` (`mem_` + 64 random lowercase hex) primary key, `owner`, `user_id`,
+  `organization_id`, `role` (`owner`/`admin`/`member`/`viewer`), `revoked` (0/1); unique
+  `(user_id,organization_id)`; owner-bound composite foreign keys to users and organizations;
+  index `(user_id,organization_id)`.
+
+All fields above are non-null. The installed owner enrolls/revokes records in `BEGIN IMMEDIATE`
+transactions; subject pairing is trusted operator input, never automatic email matching.
+Membership creation checks both targets are active and owned by the authenticated operator.
+No update/delete/reactivation API exists. Role names are application metadata, not spending
+permissions. Identity reads use one read transaction and scope all organization queries to the
+verified subject's active user/membership. Revocation affects subsequent requests.
+
+Each inserted row and each first revocation appends `gateway.identity.enrolled` or
+`gateway.identity.revoked` in the same transaction. Fields: `by` (existing operator actor),
+`resource` (`users`/`subjects`/`organizations`/`memberships`), `identity_record` (id),
+`identity_digest`. The digest is BLAKE3 lowercase hex of SQLite `json_array(...)` text, with
+columns in exactly the order listed for that table above, including `id`, `owner` and `revoked`.
+No issuer/subject, credential, JWT or raw claims are repeated in evidence. Current-state evidence
+verification compares every identity row with its latest digest and flags unrecorded changes,
+inserts and missing rows. Existing evidence envelopes retain v1; v10 prevents older ledger
+executables from ignoring the identity state. Provider format and money-operation JSON/digests
+are unchanged. Back up a stopped profile before upgrading; downgrades are unsupported.
+
+### Identity-backed money approval (ledger version 11)
+
+Adds two empty tables, with no inferred enrollment or legacy-credential migration:
+
+- `identity_gateway_bindings`: `id` (`gbo_` + 64 random lowercase hex) primary key, `owner`
+  unique, `organization_id` unique, `revoked` (0/1). Composite foreign key
+  `(owner,organization_id)` references `identity_organizations(owner,id)`.
+- `identity_approver_bindings`: `id` (`iab_` + 64 random lowercase hex) primary key, `owner`,
+  `user_id`, `membership_id`, unique `approver_id`, `gateway_binding_id`, `revoked` (0/1).
+  Unique `(owner,user_id)`; composite foreign key `(owner,user_id)` to
+  `identity_users(owner,id)`; foreign keys on `membership_id`, `approver_id` and
+  `gateway_binding_id` reference the corresponding table's `id`.
+
+All columns are non-null. The owner explicitly exposes its financial namespace to one
+organization. Binding an approver requires active, same-owner membership/user/organization,
+gateway binding and named approver in one IMMEDIATE transaction. Uniqueness includes revoked
+rows; no reassignment/reactivation/deletion API exists. A bound approver's former key is
+permanently refused. Unbound keys retain their existing behavior. Membership role names alone
+grant no financial authority.
+
+The existing `gateway.identity.enrolled`/`revoked` events now also support resources
+`gateway_bindings` and `approver_bindings`. Row digests use SQLite `json_array(...)`, with
+columns in exactly the order listed above. Every binding mutation and event commit atomically;
+current-state evidence verification includes both tables and detects unrecorded insertion,
+mutation and deletion. Ledger v11 prevents older executables from ignoring bindings and
+reactivating a legacy key. Existing record/envelope versions are unchanged.
+
+Identity-backed operation events add optional `by.identity` with exact verified provider
+`issuer` and `subject`, plus `subject_id`, `user_id`, `organization_id`, `membership_id`,
+`gateway_binding_id`, `approver_binding_id`, `verified_at` (integer Unix seconds) and
+`token_expires_at` (integer Unix seconds). The existing `by.approver` records the named grant.
+These fields are retained in private financial evidence, including subsequent submission and
+outcome events initiated through that identity. No JWT, signing key or provider secret is
+stored. Identity-read responses still do not expose provider subjects. Operation JSON,
+proposal digests, first-approval shape, attempts and provider-store versions are unchanged.
+
+At approval/rejection and identity submission claims, exact subject, membership, user,
+organization, bindings, named approver, token scope/expiry and existing financial constraints
+are checked within the deciding transaction. Counting a second person rechecks the recorded
+first identity. Before any new claim, recorded first/final identity approvals are revalidated
+for all executors against their still-active exact bindings. Original token expiry does not
+invalidate a durable recorded approval; new identity requests require a current verified token.
+Revocation cannot undo an already-claimed/sent payment. A blocked unsubmitted approved request
+keeps its hold pending operator review/rejection and a fresh proposal, never automatic retry.
+
+The optional routes and exact limits are in [Identity-backed money approvals](GATEWAY_IDENTITY_APPROVALS.md).
+`POST /gateway/v1/identity/{gateway_bindings,approver_bindings}` and their `/id/revoke`
+forms require the installed owner credential and reject unknown fields. Identity-token money
+reads/decisions use `/identity/v1/organizations/:org/...`; approval/rejection additionally
+require `cosigna:approve`. New scope error `insufficient_approval_scope` is 403 with a Bearer
+challenge naming that scope. Identity metadata stays `cosigna.identity/v1`; existing operation
+and timeline envelopes retain their versions. No browser login/session issuance is added.
+
+The Rust verifier checks the evidence chain and current identity/binding row digests; existing
+independent financial replay remains. Neither re-authenticates historical JWT signatures from
+identity metadata. Standalone SSO attestation and independent identity replay are not claimed.
+
 ### Named approvers (ledger version 7, `cosigna.approver/v1`)
 
 People the owner authorizes to decide held money operations, each with their own credential and
@@ -792,6 +890,57 @@ synthetic order count and existing balance object. No bearer/hash/payment creden
 `cosigna.roadmap-sync/v1` is a timestamped repository project snapshot (`captured_at`, project
 URL and item title/state/URL/item ID), not payment state or evidence of feature completeness.
 
+### Alerts (ledger version 12, `cosigna.alerts/v1` configuration, `cosigna.alert/v1` webhook)
+
+`worker --alerts <file>` tells people when money is waiting for them. Ledger v12 adds two
+tables: `alert_cursor` (one row: the last evidence `seq` read) and `alert_outbox` (one row per
+evidence record and destination: `evidence_seq`, `destination`, `operation_id`, `event`,
+`due_at`, `attempts`, `state` in `pending`/`sent`/`skipped`/`failed`, `updated_at`; primary key
+`(evidence_seq, destination)`). No decision, approval or payment reads them, and they are not
+part of the evidence chain.
+
+Each worker pass reads evidence after the cursor and queues an alert per destination for
+`gateway.operation.held` (event `held`), `gateway.operation.first_approved`
+(`first_approved`) and `gateway.operation.submission_unknown` (`unknown`). The first pass on a
+ledger starts the cursor at the current end: earlier records are not alerted. `held` and
+`first_approved` are due at once; `unknown` is due `unknown_after_seconds` (default 120) after
+it is queued, since a lookup often settles it first. When an alert is due, it is sent only if
+the operation is still waiting (`held` for the first two, `unknown` or `submitting` for the
+third); otherwise it is marked `skipped`. Up to 20 are sent per pass. A failed send (no 2xx
+answer, timeout, redirect) is retried after 30 s, 2, 8 and 32 minutes, then hourly; after 6
+attempts the alert is `failed`. Delivery is at least once: a crash after sending and before
+recording repeats the alert. Destinations are independent.
+
+Configuration (unknown fields refused, at most 64 KiB):
+
+```json
+{"schema": "cosigna.alerts/v1",
+ "console_url": "https://cosigna.example.com",
+ "unknown_after_seconds": 120,
+ "destinations": [
+   {"kind": "slack", "name": "finance-slack", "url_env": "COSIGNA_ALERT_SLACK_URL"},
+   {"kind": "webhook", "name": "ops", "url": "https://hooks.example.com/cosigna",
+    "secret_env": "COSIGNA_ALERT_WEBHOOK_SECRET"}]}
+```
+
+One to ten destinations with unique names (letters, digits, `-`, `_`). A Slack incoming
+webhook URL is itself a secret, so it is read from the named environment variable (or its
+`_FILE` form) and must start with `https://hooks.slack.com/`. A webhook `url` must be
+`https://` with no user information; its signing secret (at least 16 characters) comes from
+`secret_env`. `http://127.0.0.1:<port>` is accepted for tests. `console_url` must be
+`https://` or a local `http://127.0.0.1:`/`http://localhost:` address. Error messages never
+contain the secrets.
+
+Slack receives `{"text": ...}`: what is waiting, the amount, why (for `held`), the agent's
+name, the case id, the operation id and `console_url`. `&`, `<` and `>` are escaped, so names
+and case ids cannot mention a channel or form links. A webhook receives `cosigna.alert/v1`:
+`event`, `operation_id`, `kind`, `amount_minor`, `currency`, `rule`, `reason` (for `held`),
+`agent` (name), `case_id`, `recorded_at`, `evidence_seq`, `console_url` and the same `text`,
+with headers `X-Cosigna-Timestamp` (Unix seconds) and `X-Cosigna-Signature`: `v1=` and the
+lowercase hex HMAC-SHA256, keyed with the secret, of `<timestamp>.<body>`. Receivers should
+compare it in constant time and reject old timestamps. Neither carries a credential, the
+agent's free-text reason or the payment's customer.
+
 ### Worker API version 1
 
 Owner-only GET/POST `/gateway/v1/pipelines/{id}/worker` uses `cosigna.worker/v1`.
@@ -842,11 +991,35 @@ approval_digest,data}`. `agent_id` is populated for associated task responses, o
 null; `approval_digest` is populated for a task quote, otherwise null. Errors have `schema`
 and `error:{code,message}` with the gateway schema. All POST input schemas reject unknown
 fields and are bounded to 16 KiB. The loopback server retains exact Host, browser-Origin,
-JSON content-type and no-store response controls. It serves up to eight requests at once, so
-a slow client, rail or planner call holds one worker rather than the whole gateway; SQLite still
-serializes writes. A connection to a store already at the current version opens without a write
-lock; creation and upgrades take it. Eight clients that stall mid-request can still occupy every
-worker: a shared deployment needs a front proxy with request timeouts (G13).
+JSON content-type and no-store response controls. Behind a TLS proxy (`serve --listen
+<address> --public-host <name>`), the exact-Host rule becomes: the Host is `<name>` or
+`<name>:<port>`, and `X-Forwarded-Proto` is `https`; only `GET /v1/health` also accepts the
+local `127.0.0.1:<port>` Host, for container probes. Requests and responses are unchanged.
+
+The server (axum on tokio) handles up to `--max-concurrent` requests at once (default 32);
+beyond that it answers at once with HTTP 503 and error code `busy` rather than queueing. Health
+checks never count toward that limit. A request that has not been fully sent and answered
+within `--request-timeout` seconds (default 120) gets HTTP 504 with error code `timed_out`; work
+it had already started, such as a payment being sent, is not abandoned: it finishes and is
+recorded, and keeps its slot until then, so the client should look the operation up before
+retrying. Both errors use the usual error envelope.
+
+Each credential may make `--rate-limit` requests per second (default 20, bursts up to twice
+that); beyond it the answer is HTTP 429 with error code `rate_limited` and a `Retry-After`
+header, and other credentials are not affected. A request without a credential is counted by
+its address. An address that receives `--refusals-per-minute` refusals (HTTP 401 or 403, such as a
+wrong token; default 30) gets 429 for every request until that minute ends. Behind the TLS
+proxy the address is the last entry of `X-Forwarded-For`, the one the proxy appended; earlier
+entries come from the client and are ignored. One eighth of the concurrency slots (at least
+one, when there are two or more) is kept for requests whose credential is not an agent token
+(`agentkey_`), so agents filling the gateway cannot stop a person from approving, rejecting or
+revoking; the token's prefix only chooses the pool, and authentication is unchanged. Health
+checks are exempt from all of these limits. The counters are in memory: a restart resets them.
+
+On Ctrl-C or SIGTERM the server stops
+accepting connections and lets requests in progress finish before exiting. SQLite still
+serializes writes. A connection to a store already at the current version opens without a
+write lock; creation and upgrades take it.
 
 Owner control endpoints create budgets, register/list/read/revoke agents, and approve or
 cancel tasks. Registration input is `{name,budget_id,permissions,expires_at}` and returns

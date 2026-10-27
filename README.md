@@ -66,11 +66,13 @@ Then read the [gateway API](docs/COSIGNA_GATEWAY.md), the
 ## Not yet built
 
 - Production identity: single sign-on and per-person signatures (approvers use their own keys today).
-- A production server: the gateway is a loopback development server (eight concurrent requests).
+- A production server cluster: the gateway self-hosts behind a TLS proxy (`deploy/docker`), but on
+  one SQLite node, with development role credentials (no SSO yet).
 - Live connectors beyond Stripe test mode. The help-desk case source is tested against a local
   stand-in of Zendesk's API and was run once by hand on a real Zendesk trial account
   (`examples/cases/README.md`); refreshing expiring OAuth tokens is not built.
-- Alerts, and connectors that export a company's history directly (replay reads a CSV today).
+- Email alerts (Slack and signed webhooks exist), and connectors that export a company's history
+  directly (replay reads a CSV today).
 
 Progress and order: the [roadmap board](https://github.com/orgs/Project-Fabric/projects/2).
 

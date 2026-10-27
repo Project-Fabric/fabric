@@ -175,7 +175,7 @@ fn empty(body: &[u8]) -> Result<()> {
 }
 
 /// A named approver's only routes: who am I, agent names, the operations, and deciding them.
-fn approver_routes(
+pub(crate) fn approver_routes(
     service: &Service,
     approver: &crate::approvers::RegisteredApprover,
     method: &str,
@@ -299,6 +299,9 @@ pub(crate) fn dispatch_authenticated(
             );
         }
     };
+    if path.starts_with("/gateway/v1/identity/") {
+        return crate::identity::admin(&service, &actor, method, path, body, at);
+    }
     let executor = Actor {
         owner: actor.owner.clone(),
         role: Role::Executor,

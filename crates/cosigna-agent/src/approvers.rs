@@ -74,6 +74,12 @@ pub(crate) fn authority(
     if approver.revoked {
         return Err(Error::Forbidden);
     }
+    if let Some(identity) = &service.identity_scope {
+        crate::identity::check_authority(db, identity, &approver)?;
+    } else if crate::identity::has_binding(db, id)? {
+        // An old key authenticated before binding cannot race the binding transaction.
+        return Err(Error::Forbidden);
+    }
     Ok(Some(approver))
 }
 
@@ -170,6 +176,9 @@ impl Service {
             .ok_or(Error::Forbidden)?;
         let approver = load(&db, &id)?;
         if approver.revoked {
+            return Err(Error::Forbidden);
+        }
+        if crate::identity::has_binding(&db, &id)? {
             return Err(Error::Forbidden);
         }
         Ok(approver)

@@ -147,9 +147,7 @@ impl CaseSource {
                     cases,
                 })
             }
-            SourceConfig::Http(http) => {
-                Ok(HttpCases::new(*http, |name| std::env::var(name).ok())?.into())
-            }
+            SourceConfig::Http(http) => Ok(HttpCases::new(*http, crate::env_secret)?.into()),
         }
     }
 

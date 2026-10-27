@@ -1,5 +1,12 @@
 # Cosigna intelligence and transaction service
 
+**Identity, 27 October 2026:** the first provider-neutral identity boundary now lives in Rust:
+verified JWT access tokens, operator-enrolled users, organizations, memberships and scoped
+identity reads. [Explicit identity-to-approver bindings](../../docs/GATEWAY_IDENTITY_APPROVALS.md)
+now authorize organization-scoped money approval with transaction-time revocation, scope and
+limit checks. Membership alone grants no payment authority; browser sign-in and real IdP
+validation remain pending. See [the identity contract](../../docs/GATEWAY_IDENTITY.md).
+
 **Gateway priority, 23 October 2026:** [Cosigna Gateway](../../docs/COSIGNA_GATEWAY.md)
 now adds registered, budget-bound agents and a separate headless `/gateway/v1/` API.
 Run `cargo run -p cosigna-agent -- gateway-demo` to exercise agent planning, owner-only
@@ -46,12 +53,23 @@ private role credentials and requests. Existing credentials are preserved, not p
 On Unix the credential file is created with mode 0600; on Windows it inherits directory
 ACLs. Custom directories need appropriate local access restrictions.
 
-The API listens only on `127.0.0.1:3092`. It rejects browser `Origin` headers and unexpected
-`Host` headers. It has no CORS support and is not currently a mobile/public deployment.
-The HTTP server processes requests sequentially; production identity, TLS termination,
-rate limiting and robust request timeouts remain work. A separate opt-in durable `worker`
+By default the API listens only on `127.0.0.1:3092`. It rejects browser `Origin` headers and
+unexpected `Host` headers, and has no CORS support. To self-host it behind a TLS proxy, use
+`serve --listen 0.0.0.0:3092 --public-host <name>`: requests must then name that host and
+arrive with `X-Forwarded-Proto: https`, or they are refused. A non-loopback address without
+`--public-host` is refused at startup. `deploy/docker` runs it this way with Docker Compose
+(gateway, worker and a Caddy TLS proxy); secrets can come from files (`<NAME>_FILE`).
+The server handles up to `--max-concurrent` requests at once (default 32) and answers
+503 `busy` beyond that; a request slower than `--request-timeout` seconds (default 120) gets 504
+`timed_out`, while work it started still finishes and is recorded. On Ctrl-C or SIGTERM it stops
+accepting and finishes requests in progress. Each credential has its own request budget
+(`--rate-limit`, default 20 per second), an address that keeps sending wrong tokens is blocked
+for the rest of the minute (`--refusals-per-minute`, default 30), and some slots are kept for
+people so agents cannot crowd out approvals (see STORAGE_FORMAT.md). Production identity
+remains work. A separate opt-in durable `worker`
 process now schedules owner-enrolled tasks, waits for exact approval and reconciles unknown
-outcomes. See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
+outcomes. With `--alerts`, it also tells people in Slack or through a signed webhook when a
+payment is held, needs a second approver, or has an unknown result (`examples/alerts`). See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
 queue controls, recovery limits and private Linux systemd templates. No server is provisioned.
 
 ## Hosted planner

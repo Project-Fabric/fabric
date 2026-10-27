@@ -18,6 +18,8 @@ pub struct Service {
     pub(crate) agent_scope: Option<String>,
     /// The named approver this service acts for, if any (see `approvers`).
     pub(crate) approver_scope: Option<String>,
+    /// Verified identity context for an explicitly bound approver, never a raw token.
+    pub(crate) identity_scope: Option<crate::identity::Context>,
     pub provider: Provider,
     pub rails: crate::rails::Rails,
 }
@@ -37,6 +39,7 @@ impl Service {
             ledger,
             agent_scope: None,
             approver_scope: None,
+            identity_scope: None,
             provider: Provider::Fixture(FixtureProvider::open(&fixture)?),
             rails: crate::rails::Rails::fixture(&fixture)?,
         })
@@ -50,6 +53,7 @@ impl Service {
             ledger,
             agent_scope: None,
             approver_scope: None,
+            identity_scope: None,
             provider: Provider::TestMerchant(provider),
             rails: crate::rails::Rails::none(),
         })
@@ -543,11 +547,15 @@ impl Service {
 impl Service {
     /// The evidence actor for a change made through this (possibly agent-scoped) service.
     pub(crate) fn by(&self, actor: &Actor) -> serde_json::Value {
-        evidence::by(
+        let mut by = evidence::by(
             actor,
             self.agent_scope.as_deref(),
             self.approver_scope.as_deref(),
-        )
+        );
+        if let Some(identity) = &self.identity_scope {
+            by["identity"] = identity.evidence();
+        }
+        by
     }
 }
 

@@ -1,0 +1,10 @@
+{
+  "schema": "cosigna.alerts/v1",
+  "console_url": "https://cosigna.example.com",
+  "unknown_after_seconds": 120,
+  "destinations": [
+    {"kind": "slack", "name": "finance-slack", "url_env": "COSIGNA_ALERT_SLACK_URL"},
+    {"kind": "webhook", "name": "ops", "url": "https://hooks.example.com/cosigna",
+     "secret_env": "COSIGNA_ALERT_WEBHOOK_SECRET"}
+  ]
+}

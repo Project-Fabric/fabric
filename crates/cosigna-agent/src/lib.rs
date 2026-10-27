@@ -9,6 +9,7 @@ pub mod evidence;
 pub mod exposure;
 pub mod gateway;
 pub mod identity;
+pub mod limits;
 pub mod mcp;
 pub mod merchant;
 pub mod operations;

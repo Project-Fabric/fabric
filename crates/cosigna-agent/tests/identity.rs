@@ -729,9 +729,34 @@ fn forged_algorithm_id_token_and_remote_key_headers_are_refused() {
 }
 
 #[test]
+fn access_token_lifetime_accepts_one_hour_and_refuses_one_second_more() {
+    let v = verifier(&keys()).unwrap();
+    let at = now();
+    // Issued in the past so a failure cannot be caused by the future-iat check.
+    let issued = at - 60;
+    let mut valid = claims();
+    valid["iat"] = json!(issued);
+    valid["exp"] = json!(issued + 3600);
+    assert!(v.verify(&signed(&valid, &header(), key()), at).is_ok());
+
+    let mut too_long = valid;
+    too_long["exp"] = json!(issued + 3601);
+    assert!(
+        matches!(
+            v.verify(&signed(&too_long, &header(), key()), at),
+            Err(E::InvalidToken)
+        ),
+        "An otherwise valid token with a 3,601-second lifetime must be rejected"
+    );
+}
+
+#[test]
 fn required_claims_and_integer_time_boundaries_fail_closed() {
     let v = verifier(&keys()).unwrap();
     let at = now();
+    let mut baseline = claims();
+    baseline["iat"] = json!(at - 60);
+    baseline["exp"] = json!(at + 300);
     for field in [
         "iss",
         "sub",
@@ -742,7 +767,7 @@ fn required_claims_and_integer_time_boundaries_fail_closed() {
         "client_id",
         "scope",
     ] {
-        let mut c = claims();
+        let mut c = baseline.clone();
         c.as_object_mut().unwrap().remove(field);
         assert!(
             matches!(
@@ -773,7 +798,7 @@ fn required_claims_and_integer_time_boundaries_fail_closed() {
         ("aud", json!([])),
         ("scope", json!("cosigna:read\ncosigna:pay")),
     ] {
-        let mut c = claims();
+        let mut c = baseline.clone();
         c[field] = bad;
         assert!(
             matches!(

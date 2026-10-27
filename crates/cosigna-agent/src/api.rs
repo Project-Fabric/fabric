@@ -281,6 +281,12 @@ pub struct Limits {
     /// started (a payment being sent) is not abandoned: it finishes and is recorded, and the
     /// client gets 504 and should look the operation up.
     pub request_timeout: std::time::Duration,
+    /// Requests per second for each credential (bursts up to twice that). A client without a
+    /// credential is counted by its address.
+    pub per_credential: u32,
+    /// Refused requests (403) a source address may make per minute before it is blocked for
+    /// the rest of that minute.
+    pub refusals_per_minute: u32,
 }
 
 impl Default for Limits {
@@ -288,6 +294,20 @@ impl Default for Limits {
         Self {
             concurrent: 32,
             request_timeout: std::time::Duration::from_secs(120),
+            per_credential: 20,
+            refusals_per_minute: 30,
+        }
+    }
+}
+
+impl Limits {
+    /// Slots kept for people (owner, approvers and other non-agent credentials), so a flood
+    /// of agent requests cannot stop someone from approving, rejecting or revoking.
+    fn reserved_for_people(&self) -> usize {
+        if self.concurrent < 2 {
+            0
+        } else {
+            (self.concurrent / 8).max(1)
         }
     }
 }
@@ -298,7 +318,11 @@ struct App {
     credentials: Credentials,
     listen: Listen,
     limits: Limits,
+    /// Slots anyone may use, and slots only people may use.
     slots: std::sync::Arc<tokio::sync::Semaphore>,
+    people_slots: std::sync::Arc<tokio::sync::Semaphore>,
+    rates: crate::limits::RateLimiter,
+    refusals: crate::limits::FailureLimiter,
 }
 
 /// Serves until Ctrl-C or SIGTERM, then stops accepting connections and lets requests in
@@ -310,9 +334,13 @@ pub fn serve(
     listen: Listen,
     limits: Limits,
 ) -> Result<()> {
-    if limits.concurrent == 0 || limits.request_timeout.is_zero() {
+    if limits.concurrent == 0
+        || limits.request_timeout.is_zero()
+        || limits.per_credential == 0
+        || limits.refusals_per_minute == 0
+    {
         return Err(Error::Invalid(
-            "concurrency and request timeout must be nonzero".into(),
+            "concurrency, request timeout and rate limits must be nonzero".into(),
         ));
     }
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -336,8 +364,14 @@ pub fn serve(
                 planner.name()
             ),
         }
+        let reserved = limits.reserved_for_people();
         let app = std::sync::Arc::new(App {
-            slots: std::sync::Arc::new(tokio::sync::Semaphore::new(limits.concurrent)),
+            slots: std::sync::Arc::new(tokio::sync::Semaphore::new(
+                limits.concurrent - reserved,
+            )),
+            people_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(reserved)),
+            rates: crate::limits::RateLimiter::new(limits.per_credential),
+            refusals: crate::limits::FailureLimiter::new(limits.refusals_per_minute),
             service,
             planner,
             credentials,
@@ -345,8 +379,11 @@ pub fn serve(
             limits,
         });
         let router = axum::Router::new().fallback(handle).with_state(app);
-        axum::serve(listener, router)
-            .with_graceful_shutdown(shutdown())
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown())
             .await?;
         Ok(())
     })
@@ -376,8 +413,43 @@ async fn shutdown() {
 
 const BODY_LIMIT: usize = 16_384;
 
+/// The client's address: the connection's peer, or behind the TLS proxy the address the proxy
+/// appended last to `X-Forwarded-For` (earlier entries come from the client and prove nothing).
+fn source(
+    listen: &Listen,
+    peer: std::net::SocketAddr,
+    headers: &axum::http::HeaderMap,
+) -> std::net::IpAddr {
+    if listen.public_host.is_some()
+        && let Some(forwarded) = headers
+            .get_all("x-forwarded-for")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .next_back()
+            .and_then(|last| last.trim().parse().ok())
+    {
+        return forwarded;
+    }
+    peer.ip()
+}
+
+fn too_many(url: &str, wait: std::time::Duration, why: &str) -> axum::response::Response {
+    let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+    let mut response = reply(
+        url,
+        429,
+        json!({"schema":API_VERSION,"error":{"code":"rate_limited","message":format!("{why}; retry in {seconds} s")}}),
+    );
+    if let Ok(value) = axum::http::HeaderValue::from_str(&seconds.max(1).to_string()) {
+        response.headers_mut().insert("retry-after", value);
+    }
+    response
+}
+
 async fn handle(
     axum::extract::State(app): axum::extract::State<std::sync::Arc<App>>,
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     request: axum::extract::Request,
 ) -> axum::response::Response {
     let url = request.uri().path_and_query().map_or_else(
@@ -387,10 +459,39 @@ async fn handle(
     // Health checks never count as load, so a busy gateway is not reported unhealthy and
     // restarted in the middle of a payment.
     let health = request.method() == axum::http::Method::GET && url == "/v1/health";
+    let from = source(&app.listen, peer, request.headers());
+    let authorization = request
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if !health {
+        let now = std::time::Instant::now();
+        if let Some(wait) = app.refusals.blocked(from, now) {
+            return too_many(&url, wait, "too many refused requests from this address");
+        }
+        // Each credential has its own budget; a client without one is counted by address.
+        let key = match &authorization {
+            Some(value) => value.as_bytes().to_vec(),
+            None => from.to_string().into_bytes(),
+        };
+        if let Err(wait) = app.rates.check(&key, now) {
+            return too_many(&url, wait, "request rate limit reached for this credential");
+        }
+    }
+    // Only the token's prefix is read here, to choose a pool; authentication comes later.
+    let agent = authorization
+        .as_deref()
+        .is_some_and(|value| value.starts_with("Bearer agentkey_"));
     let permit = match app.slots.clone().try_acquire_owned() {
         Ok(permit) => Some(permit),
-        Err(_) if health => None,
-        Err(_) => {
+        Err(_) if !agent => app.people_slots.clone().try_acquire_owned().ok(),
+        Err(_) => None,
+    };
+    let permit = match permit {
+        Some(permit) => Some(permit),
+        None if health => None,
+        None => {
             return reply(
                 &url,
                 503,
@@ -420,7 +521,12 @@ async fn handle(
         }
     };
     match tokio::time::timeout(deadline, work).await {
-        Ok(Ok((status, value))) => reply(&url, status, value),
+        Ok(Ok((status, value))) => {
+            if status == 403 {
+                app.refusals.record(from, std::time::Instant::now());
+            }
+            reply(&url, status, value)
+        }
         Ok(Err(_)) => {
             let (status, value) = error_response(&Error::Invalid("request failed".into()));
             reply(&url, status, value)

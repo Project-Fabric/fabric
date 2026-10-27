@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 9, provider version 4)
+## Optional Cosigna agent development stores (ledger version 10, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 9 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers` |
+| `transactions.sqlite` | `0x43535458` | 10 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -330,13 +330,13 @@ with index `operations_case(owner, case_id)`, and the optional `case_id` request
 below). Version 8 adds no tables: budget JSON may carry `second_approval_above_minor` and
 operation JSON `first_approval` (two-person approval, below). Version 9 adds no tables: a
 proposal's `facts.case` may carry `system`, the case source it was read from (case sources,
-below). Opening an application-matching v1-v8 ledger creates the missing tables and columns
-and updates `user_version` to 9 in one transaction. Existing
+below). Version 10 adds identity metadata tables (below). Opening an application-matching
+v1-v9 ledger creates the missing tables and columns and updates `user_version` to 10 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 9, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v9
+one transaction, and provider versions above 4 are refused. Versions above 10, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v10
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -575,6 +575,45 @@ HTTP response schema `cosigna.agent/v1`: success envelope has `schema`,
 Public health has `schema`, `simulated_provider: true` and `status`. Error envelope has
 `schema` and `error: {code, message}`. Input schemas reject unknown fields; purchase plan
 fields are only `offer_id`, `quantity`, `clarification`. No plan can contain spending authority.
+
+### Gateway identity metadata (ledger version 10, `cosigna.identity/v1`)
+
+Identity tokens are verified locally against operator-configured public RSA keys. The optional
+resource-server profile and routes are specified in [Gateway identity](GATEWAY_IDENTITY.md).
+No identity token, email/role/owner claim or membership grants financial authority in this
+increment. Existing owner, agent and named-approver credentials are unchanged.
+
+Four additive tables, empty on migration (no inferred enrollment):
+
+- `identity_users`: `id` (`usr_` + 64 random lowercase hex) primary key, `owner`, `display_name`,
+  `revoked` (0/1); unique `(owner,id)`.
+- `identity_subjects`: `id` (`idn_` + 64 random lowercase hex) primary key, `owner`, `user_id`,
+  `issuer`, `subject`, `revoked` (0/1); globally unique `(issuer,subject)`; composite foreign key
+  `(owner,user_id)` references `identity_users(owner,id)`.
+- `identity_organizations`: `id` (`org_` + 64 random lowercase hex) primary key, `owner`, `name`,
+  `revoked` (0/1); unique `(owner,id)`.
+- `identity_memberships`: `id` (`mem_` + 64 random lowercase hex) primary key, `owner`, `user_id`,
+  `organization_id`, `role` (`owner`/`admin`/`member`/`viewer`), `revoked` (0/1); unique
+  `(user_id,organization_id)`; owner-bound composite foreign keys to users and organizations;
+  index `(user_id,organization_id)`.
+
+All fields above are non-null. The installed owner enrolls/revokes records in `BEGIN IMMEDIATE`
+transactions; subject pairing is trusted operator input, never automatic email matching.
+Membership creation checks both targets are active and owned by the authenticated operator.
+No update/delete/reactivation API exists. Role names are application metadata, not spending
+permissions. Identity reads use one read transaction and scope all organization queries to the
+verified subject's active user/membership. Revocation affects subsequent requests.
+
+Each inserted row and each first revocation appends `gateway.identity.enrolled` or
+`gateway.identity.revoked` in the same transaction. Fields: `by` (existing operator actor),
+`resource` (`users`/`subjects`/`organizations`/`memberships`), `identity_record` (id),
+`identity_digest`. The digest is BLAKE3 lowercase hex of SQLite `json_array(...)` text, with
+columns in exactly the order listed for that table above, including `id`, `owner` and `revoked`.
+No issuer/subject, credential, JWT or raw claims are repeated in evidence. Current-state evidence
+verification compares every identity row with its latest digest and flags unrecorded changes,
+inserts and missing rows. Existing evidence envelopes retain v1; v10 prevents older ledger
+executables from ignoring the identity state. Provider format and money-operation JSON/digests
+are unchanged. Back up a stopped profile before upgrading; downgrades are unsupported.
 
 ### Named approvers (ledger version 7, `cosigna.approver/v1`)
 

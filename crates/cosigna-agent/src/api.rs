@@ -181,6 +181,9 @@ pub fn dispatch(
 }
 
 pub fn error_response(error: &Error) -> (u16, Value) {
+    if let Error::Identity(error) = error {
+        return error.response();
+    }
     let (status, code) = match error {
         Error::Invalid(_) => (400, "invalid_request"),
         Error::Forbidden => (403, "forbidden"),
@@ -456,6 +459,19 @@ fn respond(
         if health {
             return Ok(json!({"schema":API_VERSION,"simulated_provider":true,"status":"ok"}));
         }
+        if url.starts_with("/identity/") {
+            if headers.get_all("authorization").iter().count() > 1 {
+                return Err(crate::identity::IdentityError::InvalidToken.into());
+            }
+            return crate::identity::dispatch(
+                &app.service,
+                header("authorization"),
+                method,
+                url,
+                now(),
+            )
+            .map_err(Error::Identity);
+        }
         let authorization = header("authorization").ok_or(Error::Forbidden)?;
         let (actor, principal) = if gateway_request {
             (
@@ -530,6 +546,21 @@ fn reply(url: &str, status: u16, mut value: Value) -> axum::response::Response {
         ("x-content-type-options", "nosniff"),
     ] {
         headers.insert(name, axum::http::HeaderValue::from_static(value));
+    }
+    if url.starts_with("/identity/") {
+        if status == 401 {
+            headers.insert(
+                "www-authenticate",
+                axum::http::HeaderValue::from_static("Bearer error=\"invalid_token\""),
+            );
+        } else if status == 403 && value["error"] == "insufficient_scope" {
+            headers.insert(
+                "www-authenticate",
+                axum::http::HeaderValue::from_static(
+                    "Bearer error=\"insufficient_scope\", scope=\"cosigna:read\"",
+                ),
+            );
+        }
     }
     response
 }

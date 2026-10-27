@@ -1,5 +1,10 @@
 # Cosigna Rails application backend
 
+**Frozen, 27 October 2026:** the founder selected one backend in the Rust gateway. No new Rails
+features should be added. PR #97's identity contract/test cases are a porting reference; the
+first implemented Rust boundary is described in [Gateway identity](../docs/GATEWAY_IDENTITY.md).
+The paragraphs below describe the earlier Rails foundation and are historical context.
+
 First increment, 24 October 2026: a Rails 8.1.4 API application over the existing Rust
 transaction foundation. Rails is selected for future customer accounts, organizations,
 agent setup, integration management, notifications and application APIs. The current

@@ -1,5 +1,10 @@
 # Cosigna intelligence and transaction service
 
+**Identity, 27 October 2026:** the first provider-neutral identity boundary now lives in Rust:
+verified JWT access tokens, operator-enrolled users, organizations, memberships and scoped
+identity reads. Membership grants no payment authority; browser sign-in and identities bound
+to named approvers are still pending. See [the exact contract](../../docs/GATEWAY_IDENTITY.md).
+
 **Gateway priority, 23 October 2026:** [Cosigna Gateway](../../docs/COSIGNA_GATEWAY.md)
 now adds registered, budget-bound agents and a separate headless `/gateway/v1/` API.
 Run `cargo run -p cosigna-agent -- gateway-demo` to exercise agent planning, owner-only

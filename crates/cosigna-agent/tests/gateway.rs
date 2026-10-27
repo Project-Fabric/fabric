@@ -495,7 +495,7 @@ fn ledger_v1_upgrade_preserves_approved_tasks_and_reservations_and_refuses_futur
         .unwrap();
     // Reproduce the old schema only in this synthetic store; never downgrade user data.
     let db = rusqlite::Connection::open(s.directory.path().join("transactions.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE approvers; DROP TABLE operation_holds; DROP TABLE operations; DROP TABLE evidence; DROP TABLE worker_jobs; DROP TABLE task_agents; DROP TABLE agent_events; DROP TABLE agents; PRAGMA user_version=1;").unwrap();
+    db.execute_batch("DROP TABLE identity_memberships; DROP TABLE identity_subjects; DROP TABLE identity_organizations; DROP TABLE identity_users; DROP TABLE approvers; DROP TABLE operation_holds; DROP TABLE operations; DROP TABLE evidence; DROP TABLE worker_jobs; DROP TABLE task_agents; DROP TABLE agent_events; DROP TABLE agents; PRAGMA user_version=1;").unwrap();
     drop(db);
     let upgraded = Service::open(s.directory.path()).unwrap();
     assert_eq!(
@@ -517,14 +517,14 @@ fn ledger_v1_upgrade_preserves_approved_tasks_and_reservations_and_refuses_futur
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
     assert_eq!(
         db.query_row("SELECT COUNT(*) FROM agents", [], |r| r.get::<_, i64>(0))
             .unwrap(),
         0
     );
-    db.pragma_update(None, "user_version", 10).unwrap();
+    db.pragma_update(None, "user_version", 11).unwrap();
     drop(db);
     assert!(matches!(
         Service::open(s.directory.path()),

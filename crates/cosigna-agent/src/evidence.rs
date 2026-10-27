@@ -430,6 +430,7 @@ fn verify_db(db: &Connection) -> Result<Report> {
                 ("agent", "agent", "agent_digest"),
                 ("operation", "operation", "operation_digest"),
                 ("approver", "approver", "approver_digest"),
+                ("identity", "identity_record", "identity_digest"),
             ] {
                 if event.get(digest_field).is_some()
                     && let Some(id) = event[field].as_str()
@@ -569,8 +570,29 @@ fn verify_db(db: &Connection) -> Result<Report> {
             ),
         }
     }
+    for id in crate::identity::record_ids(db)? {
+        match last.get(&("identity", id.clone())) {
+            Some(event)
+                if event["identity_digest"] == json!(crate::identity::record_digest(db, &id)?) => {}
+            _ => mismatch(
+                &mut check,
+                format!("identity {id}"),
+                "identity state changed or exists without a record",
+            ),
+        }
+    }
     // Recorded subjects must still exist: the service never deletes them.
     for (kind, id) in last.keys() {
+        if *kind == "identity" {
+            if crate::identity::record_digest(db, id)?.is_none() {
+                mismatch(
+                    &mut check,
+                    format!("identity {id}"),
+                    "recorded but missing from the ledger",
+                );
+            }
+            continue;
+        }
         let table = match *kind {
             "task" => "tasks",
             "budget" => "budgets",

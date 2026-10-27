@@ -55,7 +55,7 @@ enum Command {
         /// it, 429 `rate_limited` with Retry-After. Other credentials are not affected.
         #[arg(long, default_value_t = 20)]
         rate_limit: u32,
-        /// Refused requests (403, such as a wrong token) one address may make per minute
+        /// Refused requests (401 or 403, such as a wrong token) one address may make per minute
         /// before it is blocked with 429 for the rest of that minute.
         #[arg(long, default_value_t = 30)]
         refusals_per_minute: u32,

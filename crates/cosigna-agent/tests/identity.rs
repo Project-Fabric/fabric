@@ -1584,3 +1584,55 @@ fn real_http_gateway_uses_identity_status_codes_no_store_and_no_payment_authorit
         200
     );
 }
+
+#[test]
+fn guessing_identity_tokens_is_blocked_like_guessing_gateway_tokens() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = Service::open(dir.path()).unwrap();
+    enroll(&s, "subject-a");
+    Credentials::initialize(&dir.path().join("credentials.json")).unwrap();
+    let public = dir.path().join("public.json");
+    std::fs::write(&public, serde_json::to_vec(&keys()).unwrap()).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let child = Command::new(env!("CARGO_BIN_EXE_cosigna-agent"))
+        .args(["serve", "--data-dir"])
+        .arg(dir.path())
+        .args(["--port", &port.to_string(), "--refusals-per-minute", "3"])
+        .env("COSIGNA_IDENTITY_ISSUER", ISSUER)
+        .env("COSIGNA_IDENTITY_AUDIENCE", AUDIENCE)
+        .env("COSIGNA_IDENTITY_CLIENT_IDS", "[\"console\"]")
+        .env("COSIGNA_IDENTITY_JWKS_PATH", &public)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _process = Process(child);
+    let started = Instant::now();
+    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(started.elapsed() < Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let client = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_global(Some(Duration::from_secs(4)))
+        .build()
+        .new_agent();
+    let me = format!("http://127.0.0.1:{port}/identity/v1/me");
+    let call = |authorization: &str| {
+        client
+            .get(&me)
+            .header("Authorization", authorization)
+            .call()
+            .unwrap()
+            .status()
+            .as_u16()
+    };
+    // A valid token works until the address has guessed three times.
+    assert_eq!(call(&auth()), 200);
+    for guess in ["Bearer a.b.c", "Bearer x.y.z", "Bearer q.r.s"] {
+        assert_eq!(call(guess), 401);
+    }
+    assert_eq!(call(&auth()), 429);
+}

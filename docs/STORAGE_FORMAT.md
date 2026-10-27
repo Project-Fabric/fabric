@@ -955,7 +955,7 @@ retrying. Both errors use the usual error envelope.
 Each credential may make `--rate-limit` requests per second (default 20, bursts up to twice
 that); beyond it the answer is HTTP 429 with error code `rate_limited` and a `Retry-After`
 header, and other credentials are not affected. A request without a credential is counted by
-its address. An address that receives `--refusals-per-minute` refusals (HTTP 403, such as a
+its address. An address that receives `--refusals-per-minute` refusals (HTTP 401 or 403, such as a
 wrong token; default 30) gets 429 for every request until that minute ends. Behind the TLS
 proxy the address is the last entry of `X-Forwarded-For`, the one the proxy appended; earlier
 entries come from the client and are ignored. One eighth of the concurrency slots (at least

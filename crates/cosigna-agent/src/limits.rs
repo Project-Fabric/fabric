@@ -71,7 +71,7 @@ fn refill(bucket: &mut Bucket, per_second: f64, burst: f64, now: Instant) -> f64
     bucket.tokens
 }
 
-/// Counts refused requests (HTTP 403) per source address in fixed one-minute windows. A source
+/// Counts refused requests (HTTP 401 or 403) per source address in fixed one-minute windows. A source
 /// that reaches `per_minute` refusals is blocked until its window ends, which makes guessing
 /// tokens slow without affecting other sources.
 pub struct FailureLimiter {

@@ -284,7 +284,7 @@ pub struct Limits {
     /// Requests per second for each credential (bursts up to twice that). A client without a
     /// credential is counted by its address.
     pub per_credential: u32,
-    /// Refused requests (403) a source address may make per minute before it is blocked for
+    /// Refused requests (401 or 403) a source address may make per minute before it is blocked for
     /// the rest of that minute.
     pub refusals_per_minute: u32,
 }
@@ -522,7 +522,9 @@ async fn handle(
     };
     match tokio::time::timeout(deadline, work).await {
         Ok(Ok((status, value))) => {
-            if status == 403 {
+            // 403 from the gateway's own credentials, 401 from identity tokens: both are
+            // refusals a token guesser collects.
+            if status == 401 || status == 403 {
                 app.refusals.record(from, std::time::Instant::now());
             }
             reply(&url, status, value)

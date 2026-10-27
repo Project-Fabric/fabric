@@ -301,7 +301,7 @@ fn provider_secrets_can_come_from_mounted_files() {
     assert!(stderr.contains("stripe_test"));
     assert!(!stderr.contains(key), "the key was printed");
     // A live key in the file is refused as it would be from the environment.
-    let (exited, stderr) = start("sk_live_51NotAllowedEvenFromAFile\n");
+    let (exited, stderr) = start("sk_live_mounted\n");
     assert_eq!(exited, Some(false));
     assert!(stderr.contains("test-mode"));
     // An empty file counts as no key at all, not as an invalid one.

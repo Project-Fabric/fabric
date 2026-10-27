@@ -62,7 +62,7 @@ const suites = {
   ],
   console: [
     step('console install', ['npm', 'ci', '--no-audit', '--no-fund'], { cwd: 'console', needs: ['npm'] }),
-    ...['test', 'typecheck', 'lint', 'build', 'test:integration', 'test:dev', 'test:gateway'].map((script) =>
+    ...['test', 'typecheck', 'lint', 'build', 'test:integration', 'test:dev', 'test:gateway', 'test:public'].map((script) =>
       step(`console ${script}`, ['npm', 'run', script], { cwd: 'console', needs: ['npm'] })),
     step('site check', ['npm', 'run', 'check'], { cwd: 'site', needs: ['npm'] }),
     step('site tests', ['npm', 'test'], { cwd: 'site', needs: ['npm'] }),
@@ -92,6 +92,7 @@ const suites = {
   // Not in CI yet: the self-hosted image must still build.
   docker: [
     step('gateway image build', ['docker', 'build', '-q', '-f', 'deploy/docker/Dockerfile', '-t', 'cosigna-gateway:check', '.'], { needs: ['docker'], when: exists('deploy/docker/Dockerfile') }),
+    step('console image build', ['docker', 'build', '-q', '-f', 'deploy/docker/console.Dockerfile', '-t', 'cosigna-console:check', '.'], { needs: ['docker'], when: exists('deploy/docker/console.Dockerfile') }),
   ],
 };
 

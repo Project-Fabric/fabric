@@ -994,7 +994,9 @@ fields and are bounded to 16 KiB. The loopback server retains exact Host, browse
 JSON content-type and no-store response controls. Behind a TLS proxy (`serve --listen
 <address> --public-host <name>`), the exact-Host rule becomes: the Host is `<name>` or
 `<name>:<port>`, and `X-Forwarded-Proto` is `https`; only `GET /v1/health` also accepts the
-local `127.0.0.1:<port>` Host, for container probes. Requests and responses are unchanged.
+local `127.0.0.1:<port>` Host, for container probes, unless `--trust-local-clients` is set:
+then any request from the gateway's own loopback address may use the local Host without the
+proxy's header (a console in the same network namespace). Requests and responses are unchanged.
 
 The server (axum on tokio) handles up to `--max-concurrent` requests at once (default 32);
 beyond that it answers at once with HTTP 503 and error code `busy` rather than queueing. Health

@@ -130,7 +130,15 @@ $env:CONSOLE_GATEWAY_DIR = 'C:\path\to\gateway-profile'  # holds the gateway's c
 ```
 
 The owner credential is read server-side for each call and never sent to the browser. The
-gateway address must be loopback. In fixtures mode the section shows `fixtures/gateway_operations.json`,
+gateway address must be loopback. With a gateway and no `CONSOLE_PROJECT`, the console runs in
+gateway-only mode: the Fabric sections are left out instead of showing errors.
+
+**Behind a TLS proxy** (the server deployment in `deploy/docker`), set `CONSOLE_PUBLIC_ORIGIN`
+to the address people open, such as `https://cosigna.example.com` (with the port if it is not
+443). The console then listens on all interfaces, accepts only requests for that host that
+arrive with `X-Forwarded-Proto: https`, checks the `Origin` of every change against it, marks
+cookies `Secure`, and prints its one-time link with that origin. Live check:
+`npm run test:public`. In fixtures mode the section shows `fixtures/gateway_operations.json`,
 which was captured from a real gateway. Decisions are recorded by the gateway as its owner role. Per-person
 approver identity on the gateway is still planned (G3). Live check: `npm run test:gateway`.
 

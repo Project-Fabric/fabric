@@ -1,7 +1,15 @@
-# TLS in front of the gateway. Caddy keeps the Host header and sets X-Forwarded-Proto, which
-# the gateway requires. For a public DNS name Caddy obtains a certificate automatically
-# (ports 80 and 443 must be reachable); `localhost` uses Caddy's own local CA. For an internal
-# name, add `tls internal` or `tls /certs/cert.pem /certs/key.pem` inside the block.
+# TLS in front of Cosigna. Caddy keeps the Host header and sets X-Forwarded-Proto, which the
+# gateway and console both require. The gateway's API paths go to the gateway; everything else
+# is the console. For a public DNS name Caddy obtains a certificate automatically (ports 80 and
+# 443 must be reachable); `localhost` uses Caddy's own local CA. For an internal name, add
+# `tls internal` or `tls /certs/cert.pem /certs/key.pem` inside the block.
 {$COSIGNA_PUBLIC_HOST} {
-	reverse_proxy gateway:3092
+	@gateway path /gateway/* /v1/* /identity/*
+	handle @gateway {
+		reverse_proxy gateway:3092
+	}
+	# The console shares the gateway container's network, so it is reached at the same name.
+	handle {
+		reverse_proxy gateway:3090
+	}
 }

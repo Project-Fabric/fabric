@@ -90,6 +90,8 @@ jobs:
       - run: npm run test:dev
       - name: Live gateway decisions through the console
         run: cargo build -p cosigna-agent --locked && npm run test:gateway
+      - name: Server deployment: console behind the TLS proxy, gateway-only
+        run: npm run test:public
       - run: npm run check && npm test
         working-directory: site
 

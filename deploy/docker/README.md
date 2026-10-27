@@ -83,7 +83,9 @@ docker compose exec gateway cosigna-agent evidence verify --data-dir /data
 
 ## What this is not yet
 
-- **One server.** SQLite on one volume, eight requests at a time; no clustering or failover.
+- **One server.** SQLite on one volume; no clustering or failover. The gateway handles 32
+  requests at once by default (`--max-concurrent`) and answers `busy` beyond that; there are no
+  per-client rate limits yet.
 - **Development credentials.** Role tokens in a file; no single sign-on yet. Rate limiting,
   alerts and the console are not part of this stack yet.
 - **Test mode only** for Stripe. Live payment rails are not connected.
@@ -94,5 +96,7 @@ the owner listed operations; an agent's refund within its limit succeeded and on
 what was refundable was denied; plain HTTP redirected to HTTPS; the gateway port was not
 reachable from the host; no credential appeared in the logs; operations survived a restart;
 the evidence verified; the Stripe-test overlay read both secret files without printing them.
+After the move to axum (same day), `docker compose stop` made the gateway log that it was
+finishing requests in progress and exit with code 0 in about half a second.
 The automated tests (`crates/cosigna-agent/tests/self_host.rs`) cover the host and HTTPS
 checks, the listen refusals, the probe and secrets read from files, without Docker.

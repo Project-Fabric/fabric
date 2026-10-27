@@ -44,6 +44,13 @@ enum Command {
         /// arrive with X-Forwarded-Proto: https; anything else is refused.
         #[arg(long)]
         public_host: Option<String>,
+        /// Requests handled at once; beyond this, clients get 503 `busy` immediately.
+        #[arg(long, default_value_t = 32)]
+        max_concurrent: usize,
+        /// Seconds a request may take before the client gets 504. Work already started, such
+        /// as a payment being sent, still finishes and is recorded.
+        #[arg(long, default_value_t = 120)]
+        request_timeout: u64,
         #[arg(long, value_enum, default_value_t = PlannerMode::Fixtures)]
         planner: PlannerMode,
         #[arg(long)]
@@ -203,12 +210,18 @@ fn run() -> Result<std::process::ExitCode> {
             port,
             listen,
             public_host,
+            max_concurrent,
+            request_timeout,
             planner,
             model,
             test_merchant_url,
             stripe_test,
             cases,
         } => {
+            let limits = api::Limits {
+                concurrent: max_concurrent,
+                request_timeout: std::time::Duration::from_secs(request_timeout),
+            };
             let listen = match listen {
                 Some(address) => api::Listen::new(address, public_host)?,
                 None if public_host.is_some() => {
@@ -224,7 +237,7 @@ fn run() -> Result<std::process::ExitCode> {
                 cases.as_deref(),
             )?;
             let planner = make_planner(planner, model)?;
-            api::serve(&service, planner.as_ref(), &credentials, &listen)
+            api::serve(service, planner, credentials, listen, limits)
         }
         Command::Probe { port } => {
             let healthy = ureq::Agent::config_builder()

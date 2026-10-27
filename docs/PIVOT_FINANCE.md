@@ -2,6 +2,13 @@
 
 **Status:** decided 20 October 2026, to be validated by interviews · **Owner:** Ashok
 
+**27 October — Rust identity foundation (E18, partial):** following the one-backend decision,
+the gateway now verifies configured RS256 access tokens and reads operator-enrolled users,
+organizations and memberships from ledger v10. Revocation and registry evidence checks are
+tested with synthetic identities. Membership grants no payment authority. Identity-backed
+approvals, console browser sign-in and a real IdP check remain open; Rails is frozen and PR #97
+remains a reference. See [the implementation boundary](GATEWAY_IDENTITY.md).
+
 ## Why we are pivoting
 
 - **Developers do not pay for undo.** At least seven open-source "undo for agents" tools have

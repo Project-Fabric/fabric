@@ -299,6 +299,9 @@ pub(crate) fn dispatch_authenticated(
             );
         }
     };
+    if path.starts_with("/gateway/v1/identity/") {
+        return crate::identity::admin(&service, &actor, method, path, body, at);
+    }
     let executor = Actor {
         owner: actor.owner.clone(),
         role: Role::Executor,

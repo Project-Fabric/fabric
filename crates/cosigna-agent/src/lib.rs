@@ -8,6 +8,7 @@ pub mod domain;
 pub mod evidence;
 pub mod exposure;
 pub mod gateway;
+pub mod identity;
 pub mod limits;
 pub mod mcp;
 pub mod merchant;
@@ -28,6 +29,8 @@ pub use service::Service;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("identity request refused")]
+    Identity(#[from] identity::IdentityError),
     #[error("invalid request: {0}")]
     Invalid(String),
     #[error("not authorized for this operation")]

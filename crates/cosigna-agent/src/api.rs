@@ -569,14 +569,23 @@ fn respond(
             if headers.get_all("authorization").iter().count() > 1 {
                 return Err(crate::identity::IdentityError::InvalidToken.into());
             }
+            let body = body.ok_or_else(|| Error::Invalid("body exceeds 16 KiB".into()))?;
+            if method == "POST"
+                && !header("content-type")
+                    .is_some_and(|v| v.split(';').next() == Some("application/json"))
+            {
+                return Err(Error::Invalid(
+                    "Content-Type must be application/json".into(),
+                ));
+            }
             return crate::identity::dispatch(
                 &app.service,
                 header("authorization"),
                 method,
                 url,
+                &body,
                 now(),
-            )
-            .map_err(Error::Identity);
+            );
         }
         let authorization = header("authorization").ok_or(Error::Forbidden)?;
         let (actor, principal) = if gateway_request {
@@ -664,6 +673,13 @@ fn reply(url: &str, status: u16, mut value: Value) -> axum::response::Response {
                 "www-authenticate",
                 axum::http::HeaderValue::from_static(
                     "Bearer error=\"insufficient_scope\", scope=\"cosigna:read\"",
+                ),
+            );
+        } else if status == 403 && value["error"] == "insufficient_approval_scope" {
+            headers.insert(
+                "www-authenticate",
+                axum::http::HeaderValue::from_static(
+                    "Bearer error=\"insufficient_scope\", scope=\"cosigna:approve\"",
                 ),
             );
         }

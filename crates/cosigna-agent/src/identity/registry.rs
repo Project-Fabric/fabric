@@ -68,6 +68,8 @@ fn table(resource: &str) -> Result<&'static str> {
         "subjects" => Ok("identity_subjects"),
         "organizations" => Ok("identity_organizations"),
         "memberships" => Ok("identity_memberships"),
+        "gateway_bindings" => Ok("identity_gateway_bindings"),
+        "approver_bindings" => Ok("identity_approver_bindings"),
         _ => Err(Error::NotFound),
     }
 }
@@ -82,6 +84,10 @@ pub(crate) fn record_digest(db: &Connection, id: &str) -> Result<Option<String>>
         "SELECT json_array(id,owner,name,revoked) FROM identity_organizations WHERE id=?1"
     } else if id_valid(id, "mem_") {
         "SELECT json_array(id,owner,user_id,organization_id,role,revoked) FROM identity_memberships WHERE id=?1"
+    } else if id_valid(id, "gbo_") {
+        "SELECT json_array(id,owner,organization_id,revoked) FROM identity_gateway_bindings WHERE id=?1"
+    } else if id_valid(id, "iab_") {
+        "SELECT json_array(id,owner,user_id,membership_id,approver_id,gateway_binding_id,revoked) FROM identity_approver_bindings WHERE id=?1"
     } else {
         return Ok(None);
     };
@@ -90,13 +96,20 @@ pub(crate) fn record_digest(db: &Connection, id: &str) -> Result<Option<String>>
 }
 
 pub(crate) fn record_ids(db: &Connection) -> Result<Vec<String>> {
-    let mut stmt = db.prepare("SELECT id FROM identity_users UNION ALL SELECT id FROM identity_subjects UNION ALL SELECT id FROM identity_organizations UNION ALL SELECT id FROM identity_memberships ORDER BY id")?;
+    let mut stmt = db.prepare("SELECT id FROM identity_users UNION ALL SELECT id FROM identity_subjects UNION ALL SELECT id FROM identity_organizations UNION ALL SELECT id FROM identity_memberships UNION ALL SELECT id FROM identity_gateway_bindings UNION ALL SELECT id FROM identity_approver_bindings ORDER BY id")?;
     Ok(stmt
         .query_map([], |r| r.get(0))?
         .collect::<std::result::Result<_, _>>()?)
 }
 
-fn record(db: &Connection, id: &str, resource: &str, kind: &str, at: i64, by: Value) -> Result<()> {
+pub(super) fn record(
+    db: &Connection,
+    id: &str,
+    resource: &str,
+    kind: &str,
+    at: i64,
+    by: Value,
+) -> Result<()> {
     evidence::append(
         db,
         at,
@@ -336,6 +349,12 @@ pub(crate) fn admin(
         }
         ("POST", ["", "gateway", "v1", "identity", "memberships"]) => {
             service.create_identity_membership(actor, decode(body)?, at)?
+        }
+        ("POST", ["", "gateway", "v1", "identity", "gateway_bindings"]) => {
+            service.bind_identity_gateway(actor, decode(body)?, at)?
+        }
+        ("POST", ["", "gateway", "v1", "identity", "approver_bindings"]) => {
+            service.bind_identity_approver(actor, decode(body)?, at)?
         }
         ("POST", ["", "gateway", "v1", "identity", resource, id, "revoke"]) => {
             #[derive(Deserialize)]

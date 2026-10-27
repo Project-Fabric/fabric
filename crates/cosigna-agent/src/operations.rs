@@ -587,6 +587,11 @@ impl Service {
         owner.require(&[Role::Owner, Role::Approver])?;
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let at = if self.identity_scope.is_some() {
+            crate::now()
+        } else {
+            at
+        };
         let mut op = load(&tx, id)?;
         owner.owns(&op.owner)?;
         let approver = crate::approvers::authority(&tx, self, owner)?;
@@ -654,7 +659,7 @@ impl Service {
                     ));
                 }
                 Some(first) if first.digest != digest => return Err(Error::StoreFormat),
-                Some(_) => {}
+                Some(_) => crate::identity::check_first_approval(&tx, &op)?,
             }
         }
         let (held, spent) = storage::totals(&tx, &budget.id)?;
@@ -727,17 +732,26 @@ impl Service {
     ) -> Result<Operation> {
         // An approver's approval is executed on the server right after it, as an owner's is.
         actor.require(&[Role::Owner, Role::Planner, Role::Executor, Role::Approver])?;
-        let (op, claimed) = {
+        let (op, claimed, at) = {
             let mut db = storage::connect(&self.ledger, false)?;
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let at = if self.identity_scope.is_some() {
+                crate::now()
+            } else {
+                at
+            };
             let mut op = load(&tx, id)?;
             self.visible(actor, &op)?;
+            if actor.role == Role::Approver {
+                crate::approvers::authority(&tx, self, actor)?;
+            }
             if op.stage.has_attempt() {
-                (op, false)
+                (op, false, at)
             } else {
                 if op.stage != OperationStage::Approved {
                     return Err(Error::Conflict("operation is not approved".into()));
                 }
+                crate::identity::check_submission_authority(&tx, &op)?;
                 if self.agent_scope.is_some() {
                     self.check_agent_budget(
                         &tx,
@@ -772,7 +786,7 @@ impl Service {
                 op.stage = OperationStage::Submitting;
                 save(&tx, &mut op, "submission_started", at, self.by(actor))?;
                 tx.commit()?;
-                (op, true)
+                (op, true, at)
             }
         };
         if !claimed {

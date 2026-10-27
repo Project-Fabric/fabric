@@ -1,0 +1,9 @@
+# The gateway image needs only the Rust workspace. Everything else stays out of the build
+# context, including local state and credentials.
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+!deploy/docker/entrypoint.sh
+**/target

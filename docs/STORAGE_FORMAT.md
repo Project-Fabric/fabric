@@ -842,11 +842,21 @@ approval_digest,data}`. `agent_id` is populated for associated task responses, o
 null; `approval_digest` is populated for a task quote, otherwise null. Errors have `schema`
 and `error:{code,message}` with the gateway schema. All POST input schemas reject unknown
 fields and are bounded to 16 KiB. The loopback server retains exact Host, browser-Origin,
-JSON content-type and no-store response controls. It serves up to eight requests at once, so
-a slow client, rail or planner call holds one worker rather than the whole gateway; SQLite still
-serializes writes. A connection to a store already at the current version opens without a write
-lock; creation and upgrades take it. Eight clients that stall mid-request can still occupy every
-worker: a shared deployment needs a front proxy with request timeouts (G13).
+JSON content-type and no-store response controls. Behind a TLS proxy (`serve --listen
+<address> --public-host <name>`), the exact-Host rule becomes: the Host is `<name>` or
+`<name>:<port>`, and `X-Forwarded-Proto` is `https`; only `GET /v1/health` also accepts the
+local `127.0.0.1:<port>` Host, for container probes. Requests and responses are unchanged.
+
+The server (axum on tokio) handles up to `--max-concurrent` requests at once (default 32);
+beyond that it answers at once with HTTP 503 and error code `busy` rather than queueing. Health
+checks never count toward that limit. A request that has not been fully sent and answered
+within `--request-timeout` seconds (default 120) gets HTTP 504 with error code `timed_out`; work
+it had already started, such as a payment being sent, is not abandoned: it finishes and is
+recorded, and keeps its slot until then, so the client should look the operation up before
+retrying. Both errors use the usual error envelope. On Ctrl-C or SIGTERM the server stops
+accepting connections and lets requests in progress finish before exiting. SQLite still
+serializes writes. A connection to a store already at the current version opens without a
+write lock; creation and upgrades take it.
 
 Owner control endpoints create budgets, register/list/read/revoke agents, and approve or
 cancel tasks. Registration input is `{name,budget_id,permissions,expires_at}` and returns

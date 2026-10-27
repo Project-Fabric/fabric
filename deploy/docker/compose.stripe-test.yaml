@@ -1,0 +1,26 @@
+# Stripe test-mode refunds and help-desk case records. Use with the base file:
+#   docker compose -f compose.yaml -f compose.stripe-test.yaml up -d
+# Secrets are files under ./secrets (keep them out of version control); the containers read
+# them through *_FILE variables and never print them.
+services:
+  gateway:
+    command: ["serve", "--listen", "0.0.0.0:3092", "--public-host", "${COSIGNA_PUBLIC_HOST:-localhost}",
+              "--stripe-test", "--cases", "/config/cases.json"]
+    environment: &secrets
+      COSIGNA_STRIPE_TEST_SECRET_KEY_FILE: /run/secrets/stripe_test_key
+      COSIGNA_CASES_SECRET_FILE: /run/secrets/cases_secret
+    secrets: &secret-list [stripe_test_key, cases_secret]
+    volumes: &config
+      - cosigna-data:/data
+      - ./config/cases.json:/config/cases.json:ro
+  worker:
+    command: ["worker", "--stripe-test", "--cases", "/config/cases.json"]
+    environment: *secrets
+    secrets: *secret-list
+    volumes: *config
+
+secrets:
+  stripe_test_key:
+    file: ./secrets/stripe_test_key
+  cases_secret:
+    file: ./secrets/cases_secret

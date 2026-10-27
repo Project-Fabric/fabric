@@ -3,7 +3,10 @@
 27 October 2026. Implements the resource-server and identity-read portion of PR #97's
 contract in `crates/cosigna-agent`, following the founder's one-backend decision on main
 (`docs/DECISION_ONE_BACKEND_2026-10-27.md`). Rails is frozen. This increment does not implement
-browser sign-in or make identities financial approvers.
+browser sign-in. The subsequent [identity-backed money approval increment](GATEWAY_IDENTITY_APPROVALS.md)
+adds explicit owner/organization/approver bindings and additional financial routes in ledger v11.
+The sections below specify the original identity-read boundary; membership alone grants no
+financial authority.
 
 ## Verified boundary
 
@@ -116,15 +119,15 @@ Existing HTTP Host, Origin, TLS-proxy, concurrency and timeout checks still appl
 transport errors retain their existing envelope. Operator routes use the normal gateway
 administration error envelope. Errors never include claims, JWTs, keys or private paths.
 
-## Next increment: identity-backed approvals
+## Identity-backed approvals and remaining sign-in work
 
-The remaining E18 work must explicitly bind an enrolled identity and active organization
-membership to an existing named approver and gateway owner, with no automatic email matching
-or role-to-owner escalation. Check revocation, scope, proposal digest, currency and per-person
-limit inside the deciding transaction; prevent one identity counting twice under two-person
-approval. Evidence must bind provider issuer/subject to that decision without retaining tokens.
-Then integrate a provider-neutral browser sign-in flow into the console and test a real IdP.
-Those approvals and sign-in workflows are **not** implemented by this increment. PR #97 remains
+The [second Rust increment](GATEWAY_IDENTITY_APPROVALS.md) now implements explicit
+organization/owner and identity/named-approver bindings, scoped money-operation routes,
+transaction-time revocation and limit checks, two-person account separation and provider/subject
+audit attribution. This does not automatically turn a membership role into spending authority.
+
+Remaining E18 work is the provider-neutral console browser sign-in/session flow, trusted
+provider onboarding, real IdP validation and operating/security review. PR #97 remains
 unmerged as the reference until its complete Rust replacement is reviewed.
 
 Verification: synthetic in-memory RSA signing keys, temporary public-key files and ledgers,

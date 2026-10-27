@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 10, provider version 4)
+## Optional Cosigna agent development stores (ledger version 11, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 10 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships` |
+| `transactions.sqlite` | `0x43535458` | 11 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships`, `identity_gateway_bindings`, `identity_approver_bindings` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -330,13 +330,14 @@ with index `operations_case(owner, case_id)`, and the optional `case_id` request
 below). Version 8 adds no tables: budget JSON may carry `second_approval_above_minor` and
 operation JSON `first_approval` (two-person approval, below). Version 9 adds no tables: a
 proposal's `facts.case` may carry `system`, the case source it was read from (case sources,
-below). Version 10 adds identity metadata tables (below). Opening an application-matching
-v1-v9 ledger creates the missing tables and columns and updates `user_version` to 10 in one transaction. Existing
+below). Version 10 adds identity metadata tables; version 11 adds explicit organization/owner
+and identity/approver bindings (below). Opening an application-matching v1-v10 ledger creates
+the missing tables and columns and updates `user_version` to 11 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 10, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v10
+one transaction, and provider versions above 4 are refused. Versions above 11, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v11
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -614,6 +615,63 @@ verification compares every identity row with its latest digest and flags unreco
 inserts and missing rows. Existing evidence envelopes retain v1; v10 prevents older ledger
 executables from ignoring the identity state. Provider format and money-operation JSON/digests
 are unchanged. Back up a stopped profile before upgrading; downgrades are unsupported.
+
+### Identity-backed money approval (ledger version 11)
+
+Adds two empty tables, with no inferred enrollment or legacy-credential migration:
+
+- `identity_gateway_bindings`: `id` (`gbo_` + 64 random lowercase hex) primary key, `owner`
+  unique, `organization_id` unique, `revoked` (0/1). Composite foreign key
+  `(owner,organization_id)` references `identity_organizations(owner,id)`.
+- `identity_approver_bindings`: `id` (`iab_` + 64 random lowercase hex) primary key, `owner`,
+  `user_id`, `membership_id`, unique `approver_id`, `gateway_binding_id`, `revoked` (0/1).
+  Unique `(owner,user_id)`; composite foreign key `(owner,user_id)` to
+  `identity_users(owner,id)`; foreign keys on `membership_id`, `approver_id` and
+  `gateway_binding_id` reference the corresponding table's `id`.
+
+All columns are non-null. The owner explicitly exposes its financial namespace to one
+organization. Binding an approver requires active, same-owner membership/user/organization,
+gateway binding and named approver in one IMMEDIATE transaction. Uniqueness includes revoked
+rows; no reassignment/reactivation/deletion API exists. A bound approver's former key is
+permanently refused. Unbound keys retain their existing behavior. Membership role names alone
+grant no financial authority.
+
+The existing `gateway.identity.enrolled`/`revoked` events now also support resources
+`gateway_bindings` and `approver_bindings`. Row digests use SQLite `json_array(...)`, with
+columns in exactly the order listed above. Every binding mutation and event commit atomically;
+current-state evidence verification includes both tables and detects unrecorded insertion,
+mutation and deletion. Ledger v11 prevents older executables from ignoring bindings and
+reactivating a legacy key. Existing record/envelope versions are unchanged.
+
+Identity-backed operation events add optional `by.identity` with exact verified provider
+`issuer` and `subject`, plus `subject_id`, `user_id`, `organization_id`, `membership_id`,
+`gateway_binding_id`, `approver_binding_id`, `verified_at` (integer Unix seconds) and
+`token_expires_at` (integer Unix seconds). The existing `by.approver` records the named grant.
+These fields are retained in private financial evidence, including subsequent submission and
+outcome events initiated through that identity. No JWT, signing key or provider secret is
+stored. Identity-read responses still do not expose provider subjects. Operation JSON,
+proposal digests, first-approval shape, attempts and provider-store versions are unchanged.
+
+At approval/rejection and identity submission claims, exact subject, membership, user,
+organization, bindings, named approver, token scope/expiry and existing financial constraints
+are checked within the deciding transaction. Counting a second person rechecks the recorded
+first identity. Before any new claim, recorded first/final identity approvals are revalidated
+for all executors against their still-active exact bindings. Original token expiry does not
+invalidate a durable recorded approval; new identity requests require a current verified token.
+Revocation cannot undo an already-claimed/sent payment. A blocked unsubmitted approved request
+keeps its hold pending operator review/rejection and a fresh proposal, never automatic retry.
+
+The optional routes and exact limits are in [Identity-backed money approvals](GATEWAY_IDENTITY_APPROVALS.md).
+`POST /gateway/v1/identity/{gateway_bindings,approver_bindings}` and their `/id/revoke`
+forms require the installed owner credential and reject unknown fields. Identity-token money
+reads/decisions use `/identity/v1/organizations/:org/...`; approval/rejection additionally
+require `cosigna:approve`. New scope error `insufficient_approval_scope` is 403 with a Bearer
+challenge naming that scope. Identity metadata stays `cosigna.identity/v1`; existing operation
+and timeline envelopes retain their versions. No browser login/session issuance is added.
+
+The Rust verifier checks the evidence chain and current identity/binding row digests; existing
+independent financial replay remains. Neither re-authenticates historical JWT signatures from
+identity metadata. Standalone SSO attestation and independent identity replay are not claimed.
 
 ### Named approvers (ledger version 7, `cosigna.approver/v1`)
 

@@ -5,11 +5,576 @@ use cosigna_agent::{
     api::Credentials,
     gateway,
     identity::{
-        Enrollment, IdentityError as E, MembershipInput, OrganizationInput, Subject, Verifier,
+        ApproverBindingInput, Enrollment, GatewayBindingInput, IdentityError as E, MembershipInput,
+        OrganizationInput, Subject, Verifier,
     },
     now,
     planner::FixturePlanner,
 };
+
+fn approval_subject(sub: &str) -> Subject {
+    let mut c = claims();
+    c["sub"] = json!(sub);
+    c["scope"] = json!("cosigna:read cosigna:approve");
+    verifier(&keys())
+        .unwrap()
+        .verify(&signed(&c, &header(), key()), now())
+        .unwrap()
+}
+
+struct ApprovalLab {
+    dir: tempfile::TempDir,
+    service: Service,
+    user: Value,
+    org: Value,
+    membership: Value,
+    gateway_binding: Value,
+    approver_binding: Value,
+    approver: cosigna_agent::approvers::IssuedApprover,
+    budget: String,
+}
+
+impl ApprovalLab {
+    fn new(max: i64, two: bool) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Service::open(dir.path()).unwrap();
+        let user = enroll(&s, "subject-a");
+        let o = org(&s, "Company A");
+        let membership = member(&s, &user, &o);
+        let gateway_binding = s
+            .bind_identity_gateway(
+                &owner(),
+                GatewayBindingInput {
+                    organization_id: o["id"].as_str().unwrap().into(),
+                },
+                now(),
+            )
+            .unwrap();
+        let approver = s
+            .register_approver(
+                &owner(),
+                cosigna_agent::approvers::ApproverInput {
+                    name: "Priya".into(),
+                    currency: "USD".into(),
+                    max_approval_minor: max,
+                },
+                now(),
+            )
+            .unwrap();
+        let approver_binding = s
+            .bind_identity_approver(
+                &owner(),
+                ApproverBindingInput {
+                    membership_id: membership["id"].as_str().unwrap().into(),
+                    approver_id: approver.approver.id.clone(),
+                },
+                now(),
+            )
+            .unwrap();
+        let budget = s
+            .create_budget(
+                &owner(),
+                cosigna_agent::BudgetInput {
+                    currency: "USD".into(),
+                    limit_minor: 10_000,
+                    per_purchase_minor: 10_000,
+                    merchants: vec!["fixture-cafe".into()],
+                    expires_at: now() + 3600,
+                    second_approval_above_minor: two.then_some(500),
+                },
+                now(),
+            )
+            .unwrap()
+            .id;
+        Self {
+            dir,
+            service: s,
+            user,
+            org: o,
+            membership,
+            gateway_binding,
+            approver_binding,
+            approver,
+            budget,
+        }
+    }
+    fn refund(&self, amount: i64) -> cosigna_agent::operations::Operation {
+        self.service.request_operation(&owner(),serde_json::from_value(json!({"budget_id":self.budget,"kind":"refund","rail":"fixture","source":"pay_fixture_2041","amount_minor":amount,"currency":"USD","reason":"Synthetic refund","idempotency_key":"identity-refund"})).unwrap(),now()).unwrap()
+    }
+    fn call(
+        &self,
+        subject: &Subject,
+        method: &str,
+        suffix: &str,
+        body: Value,
+    ) -> Result<Value, Error> {
+        self.service.identity_request(
+            subject,
+            method,
+            &format!(
+                "/identity/v1/organizations/{}{}",
+                self.org["id"].as_str().unwrap(),
+                suffix
+            ),
+            &serde_json::to_vec(&body).unwrap(),
+            now(),
+        )
+    }
+    fn approve(
+        &self,
+        subject: &Subject,
+        op: &cosigna_agent::operations::Operation,
+    ) -> Result<Value, Error> {
+        self.call(
+            subject,
+            "POST",
+            &format!("/operations/{}/approve", op.id),
+            json!({"proposal_digest":op.proposal.as_ref().unwrap().digest().unwrap()}),
+        )
+    }
+    fn refunded(&self) -> i64 {
+        self.service
+            .rails
+            .fixture_rail()
+            .unwrap()
+            .refunded_minor("pay_fixture_2041")
+            .unwrap()
+    }
+}
+
+#[test]
+fn verified_identity_approves_one_exact_refund_and_evidence_names_provider_and_subject() {
+    let lab = ApprovalLab::new(2000, false);
+    let op = lab.refund(1000);
+    let subject = approval_subject("subject-a");
+    assert_eq!(
+        lab.call(&subject, "GET", "/operations?stage=held", json!({}))
+            .unwrap()["data"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let result = lab.approve(&subject, &op).unwrap();
+    assert_eq!(result["data"]["stage"], "succeeded");
+    assert_eq!(result["data"]["approver"], lab.approver.approver.id);
+    assert_eq!(lab.refunded(), 1000);
+    assert_eq!(
+        lab.approve(&subject, &op).unwrap()["data"]["attempt_key"],
+        result["data"]["attempt_key"]
+    );
+    assert_eq!(lab.refunded(), 1000);
+    let db = rusqlite::Connection::open(lab.dir.path().join("transactions.sqlite")).unwrap();
+    let body: String=db.query_row("SELECT body FROM evidence WHERE json_extract(body,'$.event.kind')='gateway.operation.approver_approved'",[],|r|r.get(0)).unwrap();
+    let event: Value = serde_json::from_str(&body).unwrap();
+    let identity = &event["event"]["by"]["identity"];
+    assert_eq!(identity["issuer"], ISSUER);
+    assert_eq!(identity["subject"], "subject-a");
+    assert_eq!(identity["user_id"], lab.user["user"]["id"]);
+    assert_eq!(identity["membership_id"], lab.membership["id"]);
+    assert_eq!(identity["approver_binding_id"], lab.approver_binding["id"]);
+    assert!(!body.contains("Bearer"));
+    assert!(!body.contains(&lab.approver.token));
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn identity_approval_scope_digest_and_per_person_limit_are_independent_checks() {
+    let lab = ApprovalLab::new(500, false);
+    let op = lab.refund(1000);
+    assert!(matches!(
+        lab.approve(&subject(), &op),
+        Err(Error::Identity(E::InsufficientApprovalScope))
+    ));
+    let subject = approval_subject("subject-a");
+    assert!(matches!(
+        lab.call(
+            &subject,
+            "POST",
+            &format!("/operations/{}/approve", op.id),
+            json!({"proposal_digest":"tampered"})
+        ),
+        Err(Error::Conflict(_))
+    ));
+    assert!(
+        matches!(lab.approve(&subject,&op),Err(Error::Conflict(s)) if s.starts_with("above_approver_limit"))
+    );
+    assert_eq!(lab.refunded(), 0);
+    assert_eq!(
+        lab.service.operation(&owner(), &op.id).unwrap().stage,
+        cosigna_agent::operations::OperationStage::Held
+    );
+    assert_eq!(
+        lab.call(
+            &subject,
+            "POST",
+            &format!("/operations/{}/reject", op.id),
+            json!({})
+        )
+        .unwrap()["data"]["stage"],
+        "rejected"
+    );
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn membership_roles_do_not_replace_explicit_approver_binding_or_owner_mapping() {
+    let lab = ApprovalLab::new(2000, false);
+    let op = lab.refund(1000);
+    let user = enroll(&lab.service, "subject-b");
+    lab.service
+        .create_identity_membership(
+            &owner(),
+            MembershipInput {
+                user_id: user["user"]["id"].as_str().unwrap().into(),
+                organization_id: lab.org["id"].as_str().unwrap().into(),
+                role: "owner".into(),
+            },
+            now(),
+        )
+        .unwrap();
+    assert!(matches!(
+        lab.approve(&approval_subject("subject-b"), &op),
+        Err(Error::Identity(E::NotFound))
+    ));
+    let other = org(&lab.service, "Other company");
+    assert!(matches!(
+        lab.service.bind_identity_gateway(
+            &owner(),
+            GatewayBindingInput {
+                organization_id: other["id"].as_str().unwrap().into()
+            },
+            now()
+        ),
+        Err(Error::Conflict(_))
+    ));
+    assert!(matches!(
+        lab.service.identity_request(
+            &approval_subject("subject-a"),
+            "GET",
+            &format!(
+                "/identity/v1/organizations/{}/operations",
+                other["id"].as_str().unwrap()
+            ),
+            b"",
+            now()
+        ),
+        Err(Error::Identity(E::NotFound))
+    ));
+    for suffix in [
+        "/operations/forged/execute",
+        "/operations/forged/reconcile",
+        "/tasks",
+        "/budgets",
+        "/identity/users",
+    ] {
+        assert!(
+            lab.call(&approval_subject("subject-a"), "POST", suffix, json!({}))
+                .is_err()
+        );
+    }
+    assert_eq!(lab.refunded(), 0);
+}
+
+#[test]
+fn all_identity_and_binding_revocations_stop_new_approvals() {
+    for resource in [
+        "users",
+        "subjects",
+        "memberships",
+        "organizations",
+        "gateway_bindings",
+        "approver_bindings",
+        "approver",
+    ] {
+        let lab = ApprovalLab::new(2000, false);
+        let op = lab.refund(1000);
+        let subject = approval_subject("subject-a");
+        let id = match resource {
+            "users" => &lab.user["user"]["id"],
+            "subjects" => &lab.user["identity_id"],
+            "memberships" => &lab.membership["id"],
+            "organizations" => &lab.org["id"],
+            "gateway_bindings" => &lab.gateway_binding["id"],
+            _ => &lab.approver_binding["id"],
+        };
+        if resource == "approver" {
+            lab.service
+                .revoke_approver(&owner(), &lab.approver.approver.id, now())
+                .unwrap();
+        } else {
+            lab.service
+                .revoke_identity_record(&owner(), resource, id.as_str().unwrap(), now())
+                .unwrap();
+        }
+        assert!(lab.approve(&subject, &op).is_err(), "{resource}");
+        assert_eq!(lab.refunded(), 0);
+        assert!(lab.service.verify_evidence().unwrap().ok());
+    }
+}
+
+#[test]
+fn binding_permanently_disables_old_key_and_prevents_duplicate_person_slots() {
+    let lab = ApprovalLab::new(2000, true);
+    let op = lab.refund(1000);
+    let credentials = Credentials::initialize(&lab.dir.path().join("credentials.json")).unwrap();
+    let legacy_call = || {
+        gateway::dispatch(
+            &lab.service,
+            &FixturePlanner,
+            &credentials,
+            &format!("Bearer {}", lab.approver.token),
+            "POST",
+            &format!("/gateway/v1/operations/{}/approve", op.id),
+            &serde_json::to_vec(
+                &json!({"proposal_digest":op.proposal.as_ref().unwrap().digest().unwrap()}),
+            )
+            .unwrap(),
+            now(),
+        )
+    };
+    assert!(matches!(legacy_call(), Err(Error::Forbidden)));
+    let other = lab
+        .service
+        .register_approver(
+            &owner(),
+            cosigna_agent::approvers::ApproverInput {
+                name: "Alias".into(),
+                currency: "USD".into(),
+                max_approval_minor: 2000,
+            },
+            now(),
+        )
+        .unwrap();
+    assert!(matches!(
+        lab.service.bind_identity_approver(
+            &owner(),
+            ApproverBindingInput {
+                membership_id: lab.membership["id"].as_str().unwrap().into(),
+                approver_id: other.approver.id.clone()
+            },
+            now()
+        ),
+        Err(Error::Conflict(_))
+    ));
+    lab.service
+        .revoke_identity_record(
+            &owner(),
+            "approver_bindings",
+            lab.approver_binding["id"].as_str().unwrap(),
+            now(),
+        )
+        .unwrap();
+    assert!(matches!(legacy_call(), Err(Error::Forbidden)));
+    assert!(matches!(
+        lab.service.bind_identity_approver(
+            &owner(),
+            ApproverBindingInput {
+                membership_id: lab.membership["id"].as_str().unwrap().into(),
+                approver_id: other.approver.id
+            },
+            now()
+        ),
+        Err(Error::Conflict(_))
+    ));
+    assert_eq!(lab.refunded(), 0);
+}
+
+#[test]
+fn two_identity_approvers_are_required_and_replaying_one_identity_cannot_finish() {
+    let lab = ApprovalLab::new(2000, true);
+    let op = lab.refund(1000);
+    let first = approval_subject("subject-a");
+    assert_eq!(lab.approve(&first, &op).unwrap()["data"]["stage"], "held");
+    assert_eq!(lab.refunded(), 0);
+    assert!(
+        matches!(lab.approve(&first,&op),Err(Error::Conflict(s)) if s.starts_with("second_approver_required"))
+    );
+    let user = enroll(&lab.service, "subject-b");
+    let membership = member(&lab.service, &user, &lab.org);
+    let approver = lab
+        .service
+        .register_approver(
+            &owner(),
+            cosigna_agent::approvers::ApproverInput {
+                name: "Alex".into(),
+                currency: "USD".into(),
+                max_approval_minor: 2000,
+            },
+            now(),
+        )
+        .unwrap();
+    lab.service
+        .bind_identity_approver(
+            &owner(),
+            ApproverBindingInput {
+                membership_id: membership["id"].as_str().unwrap().into(),
+                approver_id: approver.approver.id,
+            },
+            now(),
+        )
+        .unwrap();
+    assert_eq!(
+        lab.approve(&approval_subject("subject-b"), &op).unwrap()["data"]["stage"],
+        "succeeded"
+    );
+    assert_eq!(lab.refunded(), 1000);
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn a_revoked_first_identity_cannot_be_counted_when_the_second_identity_approves() {
+    let lab = ApprovalLab::new(2000, true);
+    let op = lab.refund(1000);
+    lab.approve(&approval_subject("subject-a"), &op).unwrap();
+    let user = enroll(&lab.service, "subject-b");
+    let membership = member(&lab.service, &user, &lab.org);
+    let approver = lab
+        .service
+        .register_approver(
+            &owner(),
+            cosigna_agent::approvers::ApproverInput {
+                name: "Alex".into(),
+                currency: "USD".into(),
+                max_approval_minor: 2000,
+            },
+            now(),
+        )
+        .unwrap();
+    lab.service
+        .bind_identity_approver(
+            &owner(),
+            ApproverBindingInput {
+                membership_id: membership["id"].as_str().unwrap().into(),
+                approver_id: approver.approver.id,
+            },
+            now(),
+        )
+        .unwrap();
+    lab.service
+        .revoke_identity_record(
+            &owner(),
+            "subjects",
+            lab.user["identity_id"].as_str().unwrap(),
+            now(),
+        )
+        .unwrap();
+    assert!(
+        matches!(lab.approve(&approval_subject("subject-b"),&op),Err(Error::Conflict(s)) if s.starts_with("first_approval_no_longer_authorized"))
+    );
+    assert_eq!(lab.refunded(), 0);
+    assert_eq!(
+        lab.service.operation(&owner(), &op.id).unwrap().stage,
+        cosigna_agent::operations::OperationStage::Held
+    );
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn version_ten_upgrade_creates_empty_bindings_and_preserves_existing_identity_evidence() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = Service::open(dir.path()).unwrap();
+    enroll(&service, "subject-a");
+    let head = service.verify_evidence().unwrap().head;
+    let db = rusqlite::Connection::open(dir.path().join("transactions.sqlite")).unwrap();
+    db.execute_batch("DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; PRAGMA user_version=10;").unwrap();
+    drop(db);
+    let upgraded = Service::open(dir.path()).unwrap();
+    assert_eq!(upgraded.verify_evidence().unwrap().head, head);
+    assert!(upgraded.verify_evidence().unwrap().ok());
+    assert!(
+        upgraded
+            .identity_read(&subject(), "GET", "/identity/v1/me")
+            .is_ok()
+    );
+    let db = rusqlite::Connection::open(dir.path().join("transactions.sqlite")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM identity_approver_bindings", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        11
+    );
+}
+
+#[test]
+fn cross_owner_operations_and_binding_targets_are_not_visible_or_mutable() {
+    let lab = ApprovalLab::new(2000, false);
+    let other = Actor {
+        owner: "other-owner".into(),
+        role: Role::Owner,
+    };
+    let budget = lab
+        .service
+        .create_budget(
+            &other,
+            cosigna_agent::BudgetInput {
+                currency: "USD".into(),
+                limit_minor: 10_000,
+                per_purchase_minor: 10_000,
+                merchants: vec!["fixture-cafe".into()],
+                expires_at: now() + 3600,
+                second_approval_above_minor: None,
+            },
+            now(),
+        )
+        .unwrap();
+    let op=lab.service.request_operation(&other,serde_json::from_value(json!({"budget_id":budget.id,"kind":"refund","rail":"fixture","source":"pay_fixture_2041","amount_minor":1000,"currency":"USD","reason":"Other owner","idempotency_key":"other"})).unwrap(),now()).unwrap();
+    assert!(matches!(
+        lab.approve(&approval_subject("subject-a"), &op),
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
+        lab.call(
+            &approval_subject("subject-a"),
+            "GET",
+            &format!("/operations/{}", op.id),
+            json!({})
+        ),
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
+        lab.service.bind_identity_approver(
+            &other,
+            ApproverBindingInput {
+                membership_id: lab.membership["id"].as_str().unwrap().into(),
+                approver_id: lab.approver.approver.id.clone()
+            },
+            now()
+        ),
+        Err(Error::NotFound)
+    ));
+    assert!(matches!(
+        lab.service.bind_identity_gateway(
+            &other,
+            GatewayBindingInput {
+                organization_id: lab.org["id"].as_str().unwrap().into()
+            },
+            now()
+        ),
+        Err(Error::NotFound)
+    ));
+    assert_eq!(lab.refunded(), 0);
+}
+
+#[test]
+fn binding_state_changes_are_covered_by_the_existing_ledger_evidence_verifier() {
+    for sql in [
+        "UPDATE identity_gateway_bindings SET revoked=1",
+        "UPDATE identity_approver_bindings SET revoked=1",
+        "DELETE FROM identity_approver_bindings",
+    ] {
+        let lab = ApprovalLab::new(2000, false);
+        assert!(lab.service.verify_evidence().unwrap().ok());
+        let db = rusqlite::Connection::open(lab.dir.path().join("transactions.sqlite")).unwrap();
+        db.execute(sql, []).unwrap();
+        assert!(!lab.service.verify_evidence().unwrap().ok(), "{sql}");
+    }
+}
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey, traits::PublicKeyParts};
 use serde_json::{Value, json};
@@ -612,7 +1177,7 @@ fn version_nine_migration_is_additive_and_reopens_without_new_records() {
     let s = Service::open(dir.path()).unwrap();
     let before = s.verify_evidence().unwrap();
     let db = rusqlite::Connection::open(dir.path().join("transactions.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE identity_memberships; DROP TABLE identity_subjects; DROP TABLE identity_organizations; DROP TABLE identity_users; PRAGMA user_version=9;").unwrap();
+    db.execute_batch("DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; DROP TABLE identity_memberships; DROP TABLE identity_subjects; DROP TABLE identity_organizations; DROP TABLE identity_users; PRAGMA user_version=9;").unwrap();
     drop(db);
     let upgraded = Service::open(dir.path()).unwrap();
     assert_eq!(upgraded.verify_evidence().unwrap().head, before.head);
@@ -620,7 +1185,7 @@ fn version_nine_migration_is_additive_and_reopens_without_new_records() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM identity_users", [], |r| r
@@ -721,7 +1286,7 @@ fn identity_storage_failure_is_a_fixed_unavailable_error() {
     let s = Service::open(dir.path()).unwrap();
     enroll(&s, "subject-a");
     let db = rusqlite::Connection::open(dir.path().join("transactions.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE identity_memberships;")
+    db.execute_batch("DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; DROP TABLE identity_memberships;")
         .unwrap();
     assert_eq!(
         s.identity_read(&subject(), "GET", "/identity/v1/organizations"),
@@ -742,6 +1307,134 @@ impl Drop for Process {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
+}
+
+#[test]
+fn identity_approvals_keep_the_named_approvers_currency_boundary() {
+    let lab = ApprovalLab::new(2000, false);
+    let budget = lab
+        .service
+        .create_budget(
+            &owner(),
+            cosigna_agent::BudgetInput {
+                currency: "INR".into(),
+                limit_minor: 10_000,
+                per_purchase_minor: 10_000,
+                merchants: vec!["fixture-cafe".into()],
+                expires_at: now() + 3600,
+                second_approval_above_minor: None,
+            },
+            now(),
+        )
+        .unwrap();
+    let op=lab.service.request_operation(&owner(),serde_json::from_value(json!({"budget_id":budget.id,"kind":"refund","rail":"fixture","source":"pay_fixture_3001","amount_minor":1000,"currency":"INR","reason":"Synthetic refund","idempotency_key":"currency"})).unwrap(),now()).unwrap();
+    assert!(
+        matches!(lab.approve(&approval_subject("subject-a"),&op),Err(Error::Conflict(s)) if s.starts_with("above_approver_limit"))
+    );
+    assert_eq!(
+        lab.service
+            .rails
+            .fixture_rail()
+            .unwrap()
+            .refunded_minor("pay_fixture_3001")
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn real_http_identity_approval_enforces_scope_content_type_and_exact_proposal() {
+    let lab = ApprovalLab::new(2000, false);
+    let op = lab.refund(1000);
+    Credentials::initialize(&lab.dir.path().join("credentials.json")).unwrap();
+    let public = lab.dir.path().join("public.json");
+    std::fs::write(&public, serde_json::to_vec(&keys()).unwrap()).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let child = Command::new(env!("CARGO_BIN_EXE_cosigna-agent"))
+        .args(["serve", "--data-dir"])
+        .arg(lab.dir.path())
+        .args(["--port", &port.to_string()])
+        .env("COSIGNA_IDENTITY_ISSUER", ISSUER)
+        .env("COSIGNA_IDENTITY_AUDIENCE", AUDIENCE)
+        .env("COSIGNA_IDENTITY_CLIENT_IDS", "[\"console\"]")
+        .env("COSIGNA_IDENTITY_JWKS_PATH", &public)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _process = Process(child);
+    let started = Instant::now();
+    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(started.elapsed() < Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let client = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_global(Some(Duration::from_secs(4)))
+        .build()
+        .new_agent();
+    let url = format!(
+        "http://127.0.0.1:{port}/identity/v1/organizations/{}/operations/{}/approve",
+        lab.org["id"].as_str().unwrap(),
+        op.id
+    );
+    let body = json!({"proposal_digest":op.proposal.as_ref().unwrap().digest().unwrap()});
+    let read_only = client
+        .post(&url)
+        .header("Authorization", auth())
+        .send_json(&body)
+        .unwrap();
+    assert_eq!(read_only.status(), 403);
+    assert!(
+        read_only.headers()["www-authenticate"]
+            .to_str()
+            .unwrap()
+            .contains("cosigna:approve")
+    );
+    let mut c = claims();
+    c["scope"] = json!("cosigna:read cosigna:approve");
+    let authorization = signed(&c, &header(), key());
+    assert_eq!(
+        client
+            .post(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "text/plain")
+            .send(serde_json::to_string(&body).unwrap())
+            .unwrap()
+            .status(),
+        400
+    );
+    assert_eq!(
+        client
+            .post(&url)
+            .header("Authorization", &authorization)
+            .send_json(json!({"proposal_digest":"tampered"}))
+            .unwrap()
+            .status(),
+        409
+    );
+    assert_eq!(
+        client
+            .post(&url)
+            .header("Authorization", &authorization)
+            .send_json(&body)
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .post(&url)
+            .header("Authorization", &authorization)
+            .send_json(&body)
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(lab.refunded(), 1000);
+    assert!(lab.service.verify_evidence().unwrap().ok());
 }
 
 #[test]

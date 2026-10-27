@@ -175,7 +175,7 @@ fn empty(body: &[u8]) -> Result<()> {
 }
 
 /// A named approver's only routes: who am I, agent names, the operations, and deciding them.
-fn approver_routes(
+pub(crate) fn approver_routes(
     service: &Service,
     approver: &crate::approvers::RegisteredApprover,
     method: &str,

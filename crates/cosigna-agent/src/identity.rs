@@ -1,7 +1,9 @@
 //! Optional identity resource server. Membership never implies payment authority.
+mod approvals;
 mod registry;
 mod tokens;
 
+pub use approvals::{ApproverBindingInput, GatewayBindingInput};
 pub use registry::{Enrollment, MembershipInput, OrganizationInput};
 pub use tokens::{Subject, Verifier};
 
@@ -15,6 +17,7 @@ pub const API_VERSION: &str = "cosigna.identity/v1";
 pub enum IdentityError {
     InvalidToken,
     InsufficientScope,
+    InsufficientApprovalScope,
     Unconfigured,
     ConfigurationInvalid,
     Unavailable,
@@ -34,6 +37,7 @@ impl IdentityError {
         let (status, code) = match self {
             Self::InvalidToken => (401, "invalid_token"),
             Self::InsufficientScope => (403, "insufficient_scope"),
+            Self::InsufficientApprovalScope => (403, "insufficient_approval_scope"),
             Self::Unconfigured => (503, "identity_unconfigured"),
             Self::ConfigurationInvalid => (503, "identity_configuration_invalid"),
             Self::Unavailable => (503, "identity_unavailable"),
@@ -52,12 +56,17 @@ pub(crate) fn dispatch(
     authorization: Option<&str>,
     method: &str,
     path: &str,
+    body: &[u8],
     at: i64,
-) -> IdentityResult<Value> {
+) -> crate::Result<Value> {
     let verifier = Verifier::from_environment()?;
     let subject = verifier.verify(authorization.unwrap_or(""), at)?;
-    service.identity_read(&subject, method, path)
+    service.identity_request(&subject, method, path, body, at)
 }
 
+pub(crate) use approvals::{
+    BINDING_SCHEMA, Context, check_authority, check_first_approval, check_submission_authority,
+    has_binding,
+};
 pub(crate) use registry::admin;
 pub(crate) use registry::{SCHEMA, record_digest, record_ids};

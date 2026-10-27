@@ -19,10 +19,14 @@ const CONFIG: [&str; 4] = [
     "COSIGNA_IDENTITY_JWKS_PATH",
 ];
 
-/// Constructible only by successful verification; callers cannot supply an owner or role.
+/// Incoming requests obtain this only from verification; callers cannot supply owner/role.
+/// The sibling approval module also uses recorded subjects to recheck durable grants.
+#[derive(Clone)]
 pub struct Subject {
     pub(super) issuer: String,
     pub(super) subject: String,
+    pub(super) expires_at: i64,
+    pub(super) can_approve: bool,
 }
 
 pub struct Verifier {
@@ -277,6 +281,8 @@ impl Verifier {
         Ok(Subject {
             issuer: claims.iss,
             subject: claims.sub,
+            expires_at: claims.exp,
+            can_approve: claims.scope.split(' ').any(|s| s == "cosigna:approve"),
         })
     }
 }

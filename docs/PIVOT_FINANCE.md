@@ -2,6 +2,14 @@
 
 **Status:** decided 20 October 2026, to be validated by interviews · **Owner:** Ashok
 
+**27 October — Identity-backed money approvals (E18, second increment):** explicit operator
+bindings now connect one organization/owner namespace and enrolled memberships to existing
+named approvers. Rust checks token scope/expiry, authority revocation, exact proposals and
+limits in the deciding transaction; new submission claims recheck recorded identity grants
+even for another executor. Binding evidence and provider/subject decision attribution use
+ledger v11. Tests remain synthetic; browser console sign-in, a real IdP check and production
+review are still open. See [the implemented boundary](GATEWAY_IDENTITY_APPROVALS.md).
+
 **27 October — Rust identity foundation (E18, partial):** following the one-backend decision,
 the gateway now verifies configured RS256 access tokens and reads operator-enrolled users,
 organizations and memberships from ledger v10. Revocation and registry evidence checks are

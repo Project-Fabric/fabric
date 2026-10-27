@@ -1,13 +1,9 @@
-//! Loopback-only development API. Tokens are role-scoped, not a production identity service.
-use std::{
-    fs::OpenOptions,
-    io::{Read, Write},
-    path::Path,
-};
+//! The gateway's HTTP API: loopback by default, or behind a TLS proxy. Tokens are role-scoped,
+//! not a production identity service.
+use std::{fs::OpenOptions, io::Write, path::Path};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tiny_http::{Header, Method, Response, Server};
 
 use crate::{
     API_VERSION, Actor, BudgetInput, Error, Result, Role, Service, TaskInput, new_id, now,
@@ -272,138 +268,249 @@ impl Listen {
     }
 }
 
-pub fn serve(
-    service: &Service,
-    planner: &dyn Planner,
-    credentials: &Credentials,
-    listen: &Listen,
-) -> Result<()> {
-    let server = Server::http(listen.address)
-        .map_err(|_| Error::Invalid("cannot bind the service address".into()))?;
-    match &listen.public_host {
-        None => println!(
-            "Cosigna agent · http://{} · planner: {} · SIMULATED merchant",
-            listen.local_host(),
-            planner.name()
-        ),
-        Some(host) => println!(
-            "Cosigna agent · listening on {} for https://{host} (behind a TLS proxy) · planner: {}",
-            listen.address,
-            planner.name()
-        ),
-    }
-    // A small pool: a slow rail or planner call holds one worker, not the whole gateway, so
-    // status, approvals and revocation stay responsive. Each request opens its own connection.
-    std::thread::scope(|scope| {
-        for _ in 0..WORKERS {
-            scope.spawn(|| {
-                while let Ok(request) = server.recv() {
-                    handle(service, planner, credentials, listen, request);
-                }
-            });
-        }
-    });
-    Ok(())
+/// Limits for the HTTP server.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// Requests handled at once; more get 503 `busy` at once instead of waiting in a queue.
+    /// Writes still serialize in SQLite; reads and external calls overlap.
+    pub concurrent: usize,
+    /// How long a client may take to send its request and wait for the answer. Work already
+    /// started (a payment being sent) is not abandoned: it finishes and is recorded, and the
+    /// client gets 504 and should look the operation up.
+    pub request_timeout: std::time::Duration,
 }
 
-/// Requests served at once. Writes still serialize in SQLite; reads and external calls overlap.
-const WORKERS: usize = 8;
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            concurrent: 32,
+            request_timeout: std::time::Duration::from_secs(120),
+        }
+    }
+}
 
-fn handle(
-    service: &Service,
-    planner: &dyn Planner,
-    credentials: &Credentials,
-    listen: &Listen,
-    mut request: tiny_http::Request,
-) {
-    let gateway_request = request.url().starts_with("/gateway/");
+struct App {
+    service: Service,
+    planner: Box<dyn Planner>,
+    credentials: Credentials,
+    listen: Listen,
+    limits: Limits,
+    slots: std::sync::Arc<tokio::sync::Semaphore>,
+}
+
+/// Serves until Ctrl-C or SIGTERM, then stops accepting connections and lets requests in
+/// progress finish, so a payment being sent is recorded before the process exits.
+pub fn serve(
+    service: Service,
+    planner: Box<dyn Planner>,
+    credentials: Credentials,
+    listen: Listen,
+    limits: Limits,
+) -> Result<()> {
+    if limits.concurrent == 0 || limits.request_timeout.is_zero() {
+        return Err(Error::Invalid(
+            "concurrency and request timeout must be nonzero".into(),
+        ));
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(limits.concurrent)
+        .enable_all()
+        .build()?;
+    runtime.block_on(async move {
+        let listener = tokio::net::TcpListener::bind(listen.address)
+            .await
+            .map_err(|_| Error::Invalid("cannot bind the service address".into()))?;
+        match &listen.public_host {
+            None => println!(
+                "Cosigna agent · http://{} · planner: {} · SIMULATED merchant",
+                listen.local_host(),
+                planner.name()
+            ),
+            Some(host) => println!(
+                "Cosigna agent · listening on {} for https://{host} (behind a TLS proxy) · planner: {}",
+                listen.address,
+                planner.name()
+            ),
+        }
+        let app = std::sync::Arc::new(App {
+            slots: std::sync::Arc::new(tokio::sync::Semaphore::new(limits.concurrent)),
+            service,
+            planner,
+            credentials,
+            listen,
+            limits,
+        });
+        let router = axum::Router::new().fallback(handle).with_state(app);
+        axum::serve(listener, router)
+            .with_graceful_shutdown(shutdown())
+            .await?;
+        Ok(())
+    })
+}
+
+async fn shutdown() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(signal) => signal,
+                Err(_) => return std::future::pending().await,
+            };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+    eprintln!("Cosigna agent stopping: finishing requests in progress");
+}
+
+const BODY_LIMIT: usize = 16_384;
+
+async fn handle(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<App>>,
+    request: axum::extract::Request,
+) -> axum::response::Response {
+    let url = request.uri().path_and_query().map_or_else(
+        || request.uri().path().to_string(),
+        |p| p.as_str().to_string(),
+    );
+    // Health checks never count as load, so a busy gateway is not reported unhealthy and
+    // restarted in the middle of a payment.
+    let health = request.method() == axum::http::Method::GET && url == "/v1/health";
+    let permit = match app.slots.clone().try_acquire_owned() {
+        Ok(permit) => Some(permit),
+        Err(_) if health => None,
+        Err(_) => {
+            return reply(
+                &url,
+                503,
+                json!({"schema":API_VERSION,"error":{"code":"busy","message":"too many requests in progress; retry shortly"}}),
+            );
+        }
+    };
+    let deadline = app.limits.request_timeout;
+    let (parts, body) = request.into_parts();
+    let work = {
+        let app = app.clone();
+        let url = url.clone();
+        async move {
+            // At most one byte over the limit is read. The size is judged after the
+            // authentication checks, in the same order as before.
+            let body = match axum::body::to_bytes(body, BODY_LIMIT + 1).await {
+                Ok(bytes) if bytes.len() <= BODY_LIMIT => Some(bytes.to_vec()),
+                _ => None,
+            };
+            // The permit moves into the blocking task: the slot stays taken until the work
+            // really ends, even if the client has already been told it timed out.
+            tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                respond(&app, parts.method.as_str(), &url, &parts.headers, body)
+            })
+            .await
+        }
+    };
+    match tokio::time::timeout(deadline, work).await {
+        Ok(Ok((status, value))) => reply(&url, status, value),
+        Ok(Err(_)) => {
+            let (status, value) = error_response(&Error::Invalid("request failed".into()));
+            reply(&url, status, value)
+        }
+        Err(_) => reply(
+            &url,
+            504,
+            json!({"schema":API_VERSION,"error":{"code":"timed_out","message":"no answer in time; work already started still completes, so look the operation up before retrying"}}),
+        ),
+    }
+}
+
+/// The request checks and dispatch, in the same order as the earlier server: browser origins,
+/// host and HTTPS, authentication, body size, content type, then the API itself.
+fn respond(
+    app: &App,
+    method: &str,
+    url: &str,
+    headers: &axum::http::HeaderMap,
+    body: Option<Vec<u8>>,
+) -> (u16, Value) {
+    let gateway_request = url.starts_with("/gateway/");
+    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
     let result = (|| -> Result<Value> {
-        let headers = request.headers();
         // No browser origins or CORS. Explicit Host blocks DNS rebinding to loopback.
-        if headers.iter().any(|h| h.field.equiv("Origin")) {
+        if headers.contains_key("origin") {
             return Err(Error::Forbidden);
         }
-        let header = |name: &'static str| {
-            headers
-                .iter()
-                .find(|h| h.field.equiv(name))
-                .map(|h| h.value.as_str())
-        };
-        let health = request.method() == &Method::Get && request.url() == "/v1/health";
-        if !listen.admits(header("Host"), header("X-Forwarded-Proto"), health) {
+        let health = method == "GET" && url == "/v1/health";
+        if !app
+            .listen
+            .admits(header("host"), header("x-forwarded-proto"), health)
+        {
             return Err(Error::Forbidden);
         }
         if health {
             return Ok(json!({"schema":API_VERSION,"simulated_provider":true,"status":"ok"}));
         }
-        let authorization = headers
-            .iter()
-            .find(|h| h.field.equiv("Authorization"))
-            .map(|h| h.value.as_str())
-            .ok_or(Error::Forbidden)?;
+        let authorization = header("authorization").ok_or(Error::Forbidden)?;
         let (actor, principal) = if gateway_request {
             (
                 None,
                 Some(crate::gateway::authenticate(
-                    service,
-                    credentials,
+                    &app.service,
+                    &app.credentials,
                     authorization,
                     now(),
                 )?),
             )
         } else {
-            (Some(credentials.authenticate(authorization)?), None)
+            (Some(app.credentials.authenticate(authorization)?), None)
         };
-        if request.body_length().is_some_and(|length| length > 16_384) {
-            return Err(Error::Invalid("body exceeds 16 KiB".into()));
-        }
-        if request.method() == &Method::Post {
-            let content_type = headers
-                .iter()
-                .find(|h| h.field.equiv("Content-Type"))
-                .map(|h| h.value.as_str());
-            if !content_type
+        let body = body.ok_or_else(|| Error::Invalid("body exceeds 16 KiB".into()))?;
+        if method == "POST"
+            && !header("content-type")
                 .is_some_and(|value| value.split(';').next() == Some("application/json"))
-            {
-                return Err(Error::Invalid(
-                    "Content-Type must be application/json".into(),
-                ));
-            }
-        }
-        let mut body = Vec::new();
-        request.as_reader().take(16_385).read_to_end(&mut body)?;
-        if body.len() > 16_384 {
-            return Err(Error::Invalid("body exceeds 16 KiB".into()));
+        {
+            return Err(Error::Invalid(
+                "Content-Type must be application/json".into(),
+            ));
         }
         if let Some(principal) = principal {
             return crate::gateway::dispatch_authenticated(
-                service,
-                planner,
+                &app.service,
+                app.planner.as_ref(),
                 principal,
-                request.method().as_str(),
-                request.url(),
+                method,
+                url,
                 &body,
                 now(),
             );
         }
         dispatch(
-            service,
-            planner,
+            &app.service,
+            app.planner.as_ref(),
             &actor.ok_or(Error::Forbidden)?,
-            request.method().as_str(),
-            request.url(),
+            method,
+            url,
             &body,
             now(),
         )
     })();
-    let (status, mut value) = match result {
+    match result {
         Ok(value) => (200, value),
         Err(error) => error_response(&error),
-    };
-    if gateway_request && value.get("error").is_some() {
-        let pipeline_request = request.url() == "/gateway/v1/pipelines"
-            || request.url().starts_with("/gateway/v1/pipelines/");
-        let worker_request = pipeline_request && request.url().ends_with("/worker");
+    }
+}
+
+fn reply(url: &str, status: u16, mut value: Value) -> axum::response::Response {
+    if url.starts_with("/gateway/") && value.get("error").is_some() {
+        let pipeline_request =
+            url == "/gateway/v1/pipelines" || url.starts_with("/gateway/v1/pipelines/");
+        let worker_request = pipeline_request && url.ends_with("/worker");
         value["schema"] = if worker_request {
             crate::worker::API_VERSION
         } else if pipeline_request {
@@ -413,17 +520,18 @@ fn handle(
         }
         .into();
     }
-    let mut response = Response::from_string(value.to_string()).with_status_code(status);
+    let mut response = axum::response::Response::new(axum::body::Body::from(value.to_string()));
+    *response.status_mut() = axum::http::StatusCode::from_u16(status)
+        .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    let headers = response.headers_mut();
     for (name, value) in [
-        ("Content-Type", "application/json"),
-        ("Cache-Control", "no-store"),
-        ("X-Content-Type-Options", "nosniff"),
+        ("content-type", "application/json"),
+        ("cache-control", "no-store"),
+        ("x-content-type-options", "nosniff"),
     ] {
-        if let Ok(header) = Header::from_bytes(name, value) {
-            response.add_header(header);
-        }
+        headers.insert(name, axum::http::HeaderValue::from_static(value));
     }
-    let _ = request.respond(response);
+    response
 }
 
 #[cfg(test)]

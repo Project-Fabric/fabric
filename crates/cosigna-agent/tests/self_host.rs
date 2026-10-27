@@ -295,13 +295,13 @@ fn provider_secrets_can_come_from_mounted_files() {
         }
     };
     // A file with a trailing newline, as editors and `docker secret` write them.
-    let key = "sk_test_51FileMountedKeyForTests";
+    let key = "sk_test_mounted_file";
     let (exited, stderr) = start(&format!("{key}\n"));
     assert_eq!(exited, None, "the gateway did not start: {stderr}");
     assert!(stderr.contains("stripe_test"));
     assert!(!stderr.contains(key), "the key was printed");
     // A live key in the file is refused as it would be from the environment.
-    let (exited, stderr) = start("sk_live_51NotAllowedEvenFromAFile\n");
+    let (exited, stderr) = start("sk_live_mounted\n");
     assert_eq!(exited, Some(false));
     assert!(stderr.contains("test-mode"));
     // An empty file counts as no key at all, not as an invalid one.
@@ -311,4 +311,78 @@ fn provider_secrets_can_come_from_mounted_files() {
         stderr.contains("set COSIGNA_STRIPE_TEST_SECRET_KEY"),
         "{stderr}"
     );
+}
+
+#[test]
+fn a_full_gateway_answers_busy_and_a_stalled_request_times_out() {
+    let (directory, owner) = init();
+    let port = free_port();
+    let child = Command::new(BINARY)
+        .args(["serve", "--data-dir"])
+        .arg(directory.path())
+        .args([
+            "--port",
+            &port.to_string(),
+            "--max-concurrent",
+            "1",
+            "--request-timeout",
+            "2",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _process = Process(child);
+    wait_for(port);
+    let host = format!("127.0.0.1:{port}");
+    let auth = format!("Bearer {owner}");
+    let list = [("Host", host.as_str()), ("Authorization", auth.as_str())];
+    assert_eq!(status(port, "/gateway/v1/operations", &list), 200);
+
+    // A client that promises a body and never sends it takes the only slot.
+    let mut stalled = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stalled
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    stalled
+        .write_all(
+            format!(
+                "POST /gateway/v1/budgets HTTP/1.1\r\nHost: {host}\r\nAuthorization: {auth}\r\n\
+                 Content-Type: application/json\r\nContent-Length: 10\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    let stalled_at = Instant::now();
+    std::thread::sleep(Duration::from_millis(400));
+
+    // Others are told at once that the gateway is busy; health checks still answer.
+    let busy_at = Instant::now();
+    assert_eq!(status(port, "/gateway/v1/operations", &list), 503);
+    assert!(
+        busy_at.elapsed() < Duration::from_secs(1),
+        "busy was not immediate"
+    );
+    assert_eq!(status(port, "/v1/health", &[("Host", &host)]), 200);
+
+    // The stalled request gets 504 after the timeout, and its slot is released.
+    let mut response = String::new();
+    let _ = stalled.read_to_string(&mut response);
+    assert!(response.starts_with("HTTP/1.1 504"), "{response}");
+    assert!(response.contains("timed_out"));
+    let waited = stalled_at.elapsed();
+    assert!(
+        waited >= Duration::from_millis(1900) && waited < Duration::from_secs(6),
+        "{waited:?}"
+    );
+    assert_eq!(status(port, "/gateway/v1/operations", &list), 200);
+}
+
+#[test]
+fn zero_limits_are_refused() {
+    let (directory, _) = init();
+    for args in [["--max-concurrent", "0"], ["--request-timeout", "0"]] {
+        let output = serve(directory.path(), &args);
+        assert!(!output.status.success(), "{args:?} was accepted");
+    }
 }

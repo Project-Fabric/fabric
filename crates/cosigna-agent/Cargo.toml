@@ -16,8 +16,12 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tiny_http = "0.12"
 ureq.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "time", "sync"] }
+
+[dev-dependencies]
+tiny_http = "0.12"
 
 [lints]
 workspace = true

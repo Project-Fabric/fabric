@@ -18,7 +18,7 @@ RUN apt-get update \
  && chown cosigna:cosigna /data \
  && chmod 0700 /data
 COPY --from=build /cosigna-agent /usr/local/bin/cosigna-agent
-COPY deploy/docker/entrypoint.sh /usr/local/bin/cosigna-entrypoint
+COPY --chmod=0755 deploy/docker/entrypoint.sh /usr/local/bin/cosigna-entrypoint
 USER cosigna
 VOLUME /data
 EXPOSE 3092

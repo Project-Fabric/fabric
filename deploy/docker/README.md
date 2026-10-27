@@ -84,8 +84,10 @@ docker compose exec gateway cosigna-agent evidence verify --data-dir /data
 ## What this is not yet
 
 - **One server.** SQLite on one volume; no clustering or failover. The gateway handles 32
-  requests at once by default (`--max-concurrent`) and answers `busy` beyond that; there are no
-  per-client rate limits yet.
+  requests at once by default (`--max-concurrent`) and answers `busy` beyond that. Each
+  credential gets 20 requests per second (`--rate-limit`); an address sending wrong tokens is
+  blocked for the rest of the minute after 30 (`--refusals-per-minute`). Limits are per
+  gateway process and reset on restart.
 - **Development credentials.** Role tokens in a file; no single sign-on yet. Rate limiting,
   alerts and the console are not part of this stack yet.
 - **Test mode only** for Stripe. Live payment rails are not connected.

@@ -55,8 +55,11 @@ arrive with `X-Forwarded-Proto: https`, or they are refused. A non-loopback addr
 The server handles up to `--max-concurrent` requests at once (default 32) and answers
 503 `busy` beyond that; a request slower than `--request-timeout` seconds (default 120) gets 504
 `timed_out`, while work it started still finishes and is recorded. On Ctrl-C or SIGTERM it stops
-accepting and finishes requests in progress. Production identity and per-client rate limiting
-remain work. A separate opt-in durable `worker`
+accepting and finishes requests in progress. Each credential has its own request budget
+(`--rate-limit`, default 20 per second), an address that keeps sending wrong tokens is blocked
+for the rest of the minute (`--refusals-per-minute`, default 30), and some slots are kept for
+people so agents cannot crowd out approvals (see STORAGE_FORMAT.md). Production identity
+remains work. A separate opt-in durable `worker`
 process now schedules owner-enrolled tasks, waits for exact approval and reconciles unknown
 outcomes. See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
 queue controls, recovery limits and private Linux systemd templates. No server is provisioned.

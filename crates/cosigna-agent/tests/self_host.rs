@@ -295,7 +295,7 @@ fn provider_secrets_can_come_from_mounted_files() {
         }
     };
     // A file with a trailing newline, as editors and `docker secret` write them.
-    let key = "sk_test_51FileMountedKeyForTests";
+    let key = "sk_test_mounted_file";
     let (exited, stderr) = start(&format!("{key}\n"));
     assert_eq!(exited, None, "the gateway did not start: {stderr}");
     assert!(stderr.contains("stripe_test"));

@@ -97,6 +97,10 @@ enum Command {
         stripe_test: bool,
         #[arg(long)]
         cases: Option<PathBuf>,
+        /// Alert people (Slack, signed webhook) when money waits for them: a
+        /// `cosigna.alerts/v1` file. See examples/alerts.
+        #[arg(long)]
+        alerts: Option<PathBuf>,
     },
     /// Run an isolated, deterministic end-to-end demo; no API key or real purchase.
     Demo,
@@ -272,8 +276,19 @@ fn run() -> Result<std::process::ExitCode> {
             once,
             stripe_test,
             cases,
+            alerts,
         } => {
             let directory = directory(data_dir)?;
+            let alerts = alerts
+                .as_deref()
+                .map(cosigna_agent::alerts::Alerts::load)
+                .transpose()?;
+            if let Some(alerts) = &alerts {
+                eprintln!(
+                    "Cosigna alerts: {} (secrets not shown)",
+                    alerts.names().join(", ")
+                );
+            }
             // Refuse an accidental new store: initialize this profile explicitly.
             Credentials::load(&directory.join("credentials.json"))?;
             let service = with_rails(
@@ -288,6 +303,23 @@ fn run() -> Result<std::process::ExitCode> {
                 planner.name()
             );
             loop {
+                // Alert failures are reported, never fatal: payments must not wait on them.
+                if let Some(alerts) = &alerts {
+                    let delivered = service
+                        .queue_alerts(alerts, now())
+                        .and_then(|_| service.deliver_alerts(alerts, now()));
+                    match delivered {
+                        Ok(deliveries) => {
+                            for delivery in deliveries {
+                                println!(
+                                    "{}",
+                                    json!({"schema":"cosigna.alert-delivery/v1","data":delivery})
+                                );
+                            }
+                        }
+                        Err(_) => eprintln!("Cosigna alerts: could not read or queue alerts"),
+                    }
+                }
                 for recovery in worker.recover_operations(now())? {
                     println!(
                         "{}",

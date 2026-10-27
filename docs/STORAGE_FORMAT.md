@@ -303,7 +303,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 11, provider version 4)
+## Optional Cosigna agent development stores (ledger version 12, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -313,7 +313,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 11 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships`, `identity_gateway_bindings`, `identity_approver_bindings` |
+| `transactions.sqlite` | `0x43535458` | 12 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships`, `identity_gateway_bindings`, `identity_approver_bindings`, `alert_cursor`, `alert_outbox` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -331,13 +331,14 @@ below). Version 8 adds no tables: budget JSON may carry `second_approval_above_m
 operation JSON `first_approval` (two-person approval, below). Version 9 adds no tables: a
 proposal's `facts.case` may carry `system`, the case source it was read from (case sources,
 below). Version 10 adds identity metadata tables; version 11 adds explicit organization/owner
-and identity/approver bindings (below). Opening an application-matching v1-v10 ledger creates
-the missing tables and columns and updates `user_version` to 11 in one transaction. Existing
+and identity/approver bindings (below); version 12 adds the alert cursor and queue (alerts,
+below). Opening an application-matching v1-v11 ledger creates the missing tables and columns
+and updates `user_version` to 12 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 11, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v11
+one transaction, and provider versions above 4 are refused. Versions above 12, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v12
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -888,6 +889,57 @@ planner, synthetic owner approval source, pipeline ID, ordered stage names, repl
 synthetic order count and existing balance object. No bearer/hash/payment credential appears.
 `cosigna.roadmap-sync/v1` is a timestamped repository project snapshot (`captured_at`, project
 URL and item title/state/URL/item ID), not payment state or evidence of feature completeness.
+
+### Alerts (ledger version 12, `cosigna.alerts/v1` configuration, `cosigna.alert/v1` webhook)
+
+`worker --alerts <file>` tells people when money is waiting for them. Ledger v12 adds two
+tables: `alert_cursor` (one row: the last evidence `seq` read) and `alert_outbox` (one row per
+evidence record and destination: `evidence_seq`, `destination`, `operation_id`, `event`,
+`due_at`, `attempts`, `state` in `pending`/`sent`/`skipped`/`failed`, `updated_at`; primary key
+`(evidence_seq, destination)`). No decision, approval or payment reads them, and they are not
+part of the evidence chain.
+
+Each worker pass reads evidence after the cursor and queues an alert per destination for
+`gateway.operation.held` (event `held`), `gateway.operation.first_approved`
+(`first_approved`) and `gateway.operation.submission_unknown` (`unknown`). The first pass on a
+ledger starts the cursor at the current end: earlier records are not alerted. `held` and
+`first_approved` are due at once; `unknown` is due `unknown_after_seconds` (default 120) after
+it is queued, since a lookup often settles it first. When an alert is due, it is sent only if
+the operation is still waiting (`held` for the first two, `unknown` or `submitting` for the
+third); otherwise it is marked `skipped`. Up to 20 are sent per pass. A failed send (no 2xx
+answer, timeout, redirect) is retried after 30 s, 2, 8 and 32 minutes, then hourly; after 6
+attempts the alert is `failed`. Delivery is at least once: a crash after sending and before
+recording repeats the alert. Destinations are independent.
+
+Configuration (unknown fields refused, at most 64 KiB):
+
+```json
+{"schema": "cosigna.alerts/v1",
+ "console_url": "https://cosigna.example.com",
+ "unknown_after_seconds": 120,
+ "destinations": [
+   {"kind": "slack", "name": "finance-slack", "url_env": "COSIGNA_ALERT_SLACK_URL"},
+   {"kind": "webhook", "name": "ops", "url": "https://hooks.example.com/cosigna",
+    "secret_env": "COSIGNA_ALERT_WEBHOOK_SECRET"}]}
+```
+
+One to ten destinations with unique names (letters, digits, `-`, `_`). A Slack incoming
+webhook URL is itself a secret, so it is read from the named environment variable (or its
+`_FILE` form) and must start with `https://hooks.slack.com/`. A webhook `url` must be
+`https://` with no user information; its signing secret (at least 16 characters) comes from
+`secret_env`. `http://127.0.0.1:<port>` is accepted for tests. `console_url` must be
+`https://` or a local `http://127.0.0.1:`/`http://localhost:` address. Error messages never
+contain the secrets.
+
+Slack receives `{"text": ...}`: what is waiting, the amount, why (for `held`), the agent's
+name, the case id, the operation id and `console_url`. `&`, `<` and `>` are escaped, so names
+and case ids cannot mention a channel or form links. A webhook receives `cosigna.alert/v1`:
+`event`, `operation_id`, `kind`, `amount_minor`, `currency`, `rule`, `reason` (for `held`),
+`agent` (name), `case_id`, `recorded_at`, `evidence_seq`, `console_url` and the same `text`,
+with headers `X-Cosigna-Timestamp` (Unix seconds) and `X-Cosigna-Signature`: `v1=` and the
+lowercase hex HMAC-SHA256, keyed with the secret, of `<timestamp>.<body>`. Receivers should
+compare it in constant time and reject old timestamps. Neither carries a credential, the
+agent's free-text reason or the payment's customer.
 
 ### Worker API version 1
 

@@ -7,12 +7,18 @@ Two modes:
                   rules (the payment exists; no more than is left to refund), like Stripe does.
 
 The ledger is a SQLite file with a `fixture_payments` table (id, currency, amount_minor,
-refunded_minor, customer), the same shape as Cosigna's synthetic fixture rail.
+refunded_minor, customer), the same shape as Cosigna's synthetic fixture rail. With --backend,
+the same tools call the runner's loopback service instead, which answers from Stripe test mode:
+this process never holds the Stripe key, only the runner's per-run token
+(NORTHWIND_BACKEND_TOKEN).
 """
 import argparse
 import json
+import os
 import sqlite3
 import sys
+import urllib.error
+import urllib.request
 import uuid
 
 
@@ -30,7 +36,30 @@ def tools(mode):
                                                      "amount_minor": {"type": "integer"}}}}]
 
 
-def call(db_path, mode, name, args):
+def remote(backend, mode, name, args):
+    if name == "northwind_refund" and mode != "direct":
+        return {"error": "unknown tool"}, True
+    path = {"northwind_refund_history": "/history", "northwind_refund": "/refund"}.get(name)
+    if not path:
+        return {"error": "unknown tool"}, True
+    request = urllib.request.Request(backend + path, method="POST", data=json.dumps(args).encode(),
+                                     headers={"Content-Type": "application/json",
+                                              "Authorization": "Bearer " + os.environ.get("NORTHWIND_BACKEND_TOKEN", "")})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read()), False
+    except urllib.error.HTTPError as error:
+        try:
+            return json.loads(error.read()), True
+        except ValueError:
+            return {"error": f"payment system error (HTTP {error.code})"}, True
+    except OSError:
+        return {"error": "payment system unreachable"}, True
+
+
+def call(db_path, mode, name, args, backend=None):
+    if backend:
+        return remote(backend, mode, name, args)
     db = sqlite3.connect(db_path, timeout=10)
     try:
         payment = args.get("payment_id", "")
@@ -58,7 +87,8 @@ def call(db_path, mode, name, args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", required=True)
+    parser.add_argument("--db")
+    parser.add_argument("--backend", help="the runner's loopback service, instead of --db")
     parser.add_argument("--mode", choices=["read", "direct"], required=True)
     args = parser.parse_args()
     for line in sys.stdin:
@@ -75,7 +105,7 @@ def main():
         elif method == "tools/list":
             result = {"tools": tools(args.mode)}
         elif method == "tools/call":
-            value, is_error = call(args.db, args.mode, params.get("name"), params.get("arguments") or {})
+            value, is_error = call(args.db, args.mode, params.get("name"), params.get("arguments") or {}, args.backend)
             result = {"content": [{"type": "text", "text": json.dumps(value)}], "isError": is_error}
         elif method == "ping":
             result = {}

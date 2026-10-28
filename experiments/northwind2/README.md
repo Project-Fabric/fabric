@@ -12,3 +12,33 @@ python -I experiments/northwind2/run.py --binary "$PWD\target\release\cosigna-ag
 It needs the `claude` CLI, signed in, and costs about $1.75 of agent usage per round (both worlds).
 Each ticket runs in a fresh temporary directory outside the repository, with only the
 experiment's MCP tools allowed.
+
+## On Stripe test mode
+
+`--rail stripe_test` runs both worlds on real Stripe **test** payments: for each world, one test
+customer and one test-card payment per order. Without Cosigna, the agents' refund tool calls
+Stripe directly (only Stripe's own rules apply). With Cosigna, the gateway runs with
+`--stripe-test` and the agents use its tools. Refunds are measured from Stripe's own refund list,
+and every refund made with Cosigna must carry the gateway's operation tag.
+
+The test key is read from `COSIGNA_STRIPE_TEST_SECRET_KEY` and reaches only the runner and the
+gateway. The agents' Northwind tools reach Stripe through the runner's loopback service, with a
+per-run token, and only for that run's payments; the Claude CLI's environment has no key, and the
+runner stops if the key appears in any run or result file. Live keys are refused.
+
+```powershell
+$s = Read-Host "Stripe test key" -AsSecureString
+$env:COSIGNA_STRIPE_TEST_SECRET_KEY = [System.Net.NetworkCredential]::new("", $s).Password
+cargo build --release -p cosigna-agent
+python -I experiments/northwind2/run.py --binary "$PWD	argetelease\cosigna-agent.exe" --runs 3 --out experiments
+orthwind2esults\<date>-stripe --rail stripe_test
+```
+
+Before spending agent usage, check the wiring offline (a loopback stand-in for Stripe and a
+scripted, deliberately naive stand-in for the agent; no account, no model calls, not an AI
+result):
+
+```powershell
+python -I experiments/northwind2/offline_check.py --binary "$PWD	arget\debug\cosigna-agent.exe"
+```
+

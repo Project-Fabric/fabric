@@ -184,6 +184,9 @@ def main():
             problems.append("unguarded: a refund carries a gateway tag")
         if not (guarded["evidence"]["exit_code"] == 0 and guarded["evidence"]["chain_intact"] and guarded["evidence"]["state_matches"]):
             problems.append("guarded: evidence did not verify")
+        exported = out / "run1-guarded-evidence.jsonl"
+        if not exported.exists() or exported.stat().st_size == 0:
+            problems.append("guarded: the evidence export was not retained before cleanup")
         ops = next(t for t in guarded["tickets"] if t["agent"] == "ops-bot")
         if ops["moved_minor"]:
             problems.append("guarded: ops-bot moved money")

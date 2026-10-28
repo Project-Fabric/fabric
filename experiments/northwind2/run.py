@@ -302,10 +302,17 @@ def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
             report = json.loads(verify.stdout)
             evidence = {"exit_code": verify.returncode, "records": report["records"], "chain_intact": report["chain_intact"],
                         "state_matches": report["state_matches"]}
+            if verify.returncode or not (report["chain_intact"] and report["state_matches"]):
+                raise RuntimeError("Guarded evidence verification failed; experiment incomplete.")
             ops = http(port, owner, "GET", "/operations")["data"]
             decisions = [{"agent_op": o["data"]["agent"] is not None, "stage": o["data"]["stage"],
                           "rule": o["data"]["decision"]["rule"], "amount_minor": o["data"]["request"]["amount_minor"],
                           "source": o["data"]["request"]["source"]} for o in ops]
+            export = subprocess.run([binary, "evidence", "export", "--data-dir", str(data),
+                                     "--out", str(workdir / "guarded-evidence.jsonl")],
+                                    capture_output=True, text=True, encoding="utf-8")
+            if export.returncode:
+                raise RuntimeError("Guarded evidence export failed; do not publish a complete round.")
         else:
             decisions = []
         final = measure()
@@ -375,6 +382,9 @@ def main():
                     raise
                 result["run"] = run
                 result["run_id"] = run_id
+                if world == "guarded":
+                    exported = Path(work) / f"run{run}" / "guarded-evidence.jsonl"
+                    (out / f"run{run}-guarded-evidence.jsonl").write_text(exported.read_text(encoding="utf-8"), encoding="utf-8")
                 results.append(result)
                 (out / f"run{run}-{world}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
             if key and stripe_world.key_found([work], key):

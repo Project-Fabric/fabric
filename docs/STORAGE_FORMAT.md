@@ -21,6 +21,9 @@ not already exist. No gateway ledger or provider storage version changes in this
 Codex world v2 ticket records distinguish `observed_resource_discovery_calls` (built-in
 read-only metadata listings) from `observed_mcp_calls` on the supplied financial/history
 servers. Discovery does not count as a transaction attempt or expand the tool allowlist.
+Successful guarded worlds also retain `runN-guarded-evidence.jsonl`, in the existing engine
+evidence framing, before temporary-store cleanup. This adds an export artifact without
+changing the complete-world v2 fields. A failed export aborts rather than publishing success.
 
 This document is normative. Changing anything here requires a version bump.
 

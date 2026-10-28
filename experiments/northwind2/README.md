@@ -40,6 +40,10 @@ guarantee recovery of failures before a world finishes initialization.
 Codex's built-in metadata listings (`list_mcp_resources` and `list_mcp_resource_templates`)
 are counted separately from financial MCP calls. They do not grant resource reads, new
 servers or additional financial tools. Shell commands and unknown capabilities still fail.
+Successful guarded worlds retain `runN-guarded-evidence.jsonl` before temporary-store cleanup.
+The export uses the engine's framed evidence format. Check it independently with
+`python -I tools/evidence-verifier/verify_evidence.py <results>/run1-guarded-evidence.jsonl`
+using a Python environment with `blake3` installed. An export failure stops the run.
 
 Adapter/error-path tests (no hosted inference or real Stripe requests):
 `python -I experiments/northwind2/test_codex_runtime.py`.

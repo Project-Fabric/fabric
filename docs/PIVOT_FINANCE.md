@@ -1,5 +1,12 @@
 # Pivot: controls for AI agents in finance
 
+**28 October — Northwind Codex runtime:** the optional Northwind experiment now accepts
+`--runtime codex` using the CLI's existing sign-in and restricted MCP tools. Both worlds use
+the same selected runtime; provider errors stop the experiment and persist an incomplete
+result. Subscription token usage is recorded without inventing an API dollar cost. This is
+experiment tooling, not a change to gateway authority or live-money support. Provider results
+must be reported separately after execution; no new outcome is claimed by this entry.
+
 **Status:** decided 20 October 2026, to be validated by interviews · **Owner:** Ashok
 
 **27 October — Identity-backed money approvals (E18, second increment):** explicit operator

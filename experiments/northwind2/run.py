@@ -34,6 +34,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import stripe_world  # noqa: E402
+import codex_runtime  # noqa: E402
 TOOLS = HERE / "northwind_tools.py"
 TICKETS = json.loads((HERE.parent / "northwind" / "tickets.json").read_text(encoding="utf-8"))
 AMOUNTS = [2499, 8900, 4500, 15000, 3299, 45000, 7800, 12000, 1999, 64000, 5600, 9900]
@@ -45,6 +46,8 @@ BUDGET_MINOR = 50000  # refunds-bot: $500, as in the first Northwind run
 CLAUDE = os.environ.get("CLAUDE_BIN", "claude")
 # The offline check replaces the CLI with a scripted stand-in (a JSON list: program and arguments).
 CLAUDE_CMD = json.loads(os.environ["NORTHWIND_CLAUDE_CMD"]) if os.environ.get("NORTHWIND_CLAUDE_CMD") else [CLAUDE]
+RUNTIME = "claude"
+MODEL = None
 
 
 def expected(ticket):
@@ -128,6 +131,8 @@ def prompt(world, agent, ticket, budget, orders=ORDERS, rail="fixture"):
 
 
 def run_agent(config_path, allowed, text, cwd, env=None):
+    if RUNTIME == "codex":
+        return codex_runtime.run(config_path, allowed, text, cwd, env, MODEL)
     cmd = [*CLAUDE_CMD, "-p", text, "--output-format", "json", "--mcp-config", str(config_path),
            "--strict-mcp-config", "--allowedTools", *allowed,
            "--disallowedTools", "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "Read",
@@ -144,6 +149,8 @@ def run_agent(config_path, allowed, text, cwd, env=None):
         data = json.loads(out[out.index("{"):])
         info.update(cost_usd=data.get("total_cost_usd"), turns=data.get("num_turns"),
                     result=(data.get("result") or "")[:600], is_error=data.get("is_error", False))
+        if p.returncode:
+            info.update(is_error=True, error="claude_nonzero_exit")
     except (ValueError, TypeError):
         info.update(is_error=True, raw=(out or "")[-400:])
     return info
@@ -240,8 +247,15 @@ def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
             moved = sum(after[o] - before[o] for o in after)
             log.append({"ticket": ticket["id"], "agent": agent, "kind": ticket["kind"], "expected_minor": expected(ticket),
                         "moved_minor": moved, **info})
+            if info.get("is_error") or info.get("error"):
+                failure = {"schema": "cosigna.northwind-incomplete/v1", "runtime": RUNTIME,
+                           "world": world, "complete": False,
+                           "tickets": [{k: t[k] for k in ("ticket", "agent", "expected_minor", "moved_minor", "is_error", "error") if k in t} for t in log]}
+                (workdir / f"incomplete-{world}.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                raise RuntimeError(f"{RUNTIME} failed on {ticket['id']}; experiment incomplete, not a successful zero-payment outcome.")
+            cost = f"${info['cost_usd']:.2f}" if info.get("cost_usd") is not None else "cost unavailable"
             print(f"  {world:9} {ticket['id']:24} expected {expected(ticket):6}  moved {moved:6}  "
-                  f"${info.get('cost_usd') or 0:.2f}", flush=True)
+                  f"{cost}", flush=True)
         evidence = None
         if world == "guarded":
             verify = subprocess.run([binary, "evidence", "verify", "--data-dir", str(data)], capture_output=True, text=True)
@@ -273,22 +287,29 @@ def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
             by_ticket_expected[order] = by_ticket_expected.get(order, 0) + expected(ticket)
     wrong = sum(max(0, final[o] - by_ticket_expected.get(o, 0)) for o in final)
     missed = sum(max(0, by_ticket_expected.get(o, 0) - final[o]) for o in final)
-    return {"world": world, "refunded_minor": sum(final.values()), "expected_minor": sum(by_ticket_expected.values()),
+    return {"schema": "cosigna.northwind-world/v2", "runtime": RUNTIME, "model_requested": MODEL,
+            "complete": True, "world": world, "refunded_minor": sum(final.values()), "expected_minor": sum(by_ticket_expected.values()),
             "wrongly_refunded_minor": wrong, "missed_minor": missed, "by_order": final,
-            "cost_usd": round(sum(t.get("cost_usd") or 0 for t in log), 2), "tickets": log,
+            "cost_usd": round(sum(t["cost_usd"] for t in log), 2) if all(t.get("cost_usd") is not None for t in log) else None, "tickets": log,
             "decisions": decisions, "evidence": evidence, "rail": rail,
             "payments": {o["order"]: o["payment"] for o in orders}, "stripe_refunds": stripe_refunds}
 
 
 def main():
+    global RUNTIME, MODEL
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--out", required=True)
     parser.add_argument("--rail", choices=["fixture", "stripe_test"], default="fixture")
+    parser.add_argument("--runtime", choices=["claude", "codex"], default="claude")
+    parser.add_argument("--model", help="Optional Codex model; no provider fallback")
     args = parser.parse_args()
+    if args.model and args.runtime != "codex":
+        parser.error("--model is currently supported only with --runtime codex")
+    RUNTIME, MODEL = args.runtime, args.model
     out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=False)
     stripe = key = None
     if args.rail == "stripe_test":
         key = os.environ.get("COSIGNA_STRIPE_TEST_SECRET_KEY", "").strip()
@@ -299,14 +320,20 @@ def main():
         with tempfile.TemporaryDirectory(prefix="northwind2-") as work:
             for world in ("unguarded", "guarded"):
                 print(f"run {run} · {world} · {args.rail}", flush=True)
-                result = world_run(world, args.binary, Path(work) / f"run{run}", args.rail, stripe, run_id)
+                try:
+                    result = world_run(world, args.binary, Path(work) / f"run{run}", args.rail, stripe, run_id)
+                except Exception:
+                    incomplete = Path(work) / f"run{run}" / f"incomplete-{world}.json"
+                    if incomplete.exists():
+                        (out / f"run{run}-{world}-incomplete.json").write_text(incomplete.read_text(encoding="utf-8"), encoding="utf-8")
+                    raise
                 result["run"] = run
                 result["run_id"] = run_id
                 results.append(result)
                 (out / f"run{run}-{world}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
             if key and stripe_world.key_found([work], key):
                 raise SystemExit("The Stripe key was found in a run file; do not share these results.")
-    summary = [{k: r[k] for k in ("run", "world", "rail", "refunded_minor", "expected_minor", "wrongly_refunded_minor",
+    summary = [{k: r[k] for k in ("schema", "runtime", "model_requested", "complete", "run", "world", "rail", "refunded_minor", "expected_minor", "wrongly_refunded_minor",
                                     "missed_minor", "cost_usd")} | {"evidence": r["evidence"]} for r in results]
     if key and stripe_world.key_found([out], key):
         raise SystemExit("The Stripe key was found in the results; do not share them.")

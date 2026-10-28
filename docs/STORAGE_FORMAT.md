@@ -1,5 +1,16 @@
 # Storage format
 
+## Optional Northwind experiment reports (28 October 2026)
+
+New campaign world files carry `schema: cosigna.northwind-world/v2`, `runtime`,
+`model_requested` and `complete: true`; summary rows carry the same identifiers. Codex's
+signed-in CLI reports token usage per ticket but no API dollar charge, so `cost_usd` is null
+when unknown. A runtime failure aborts without a success summary and writes a sanitized
+`cosigna.northwind-incomplete/v1` artifact with `complete: false` and the observed ticket
+amounts/error categories. Existing unversioned experiment files remain unchanged; consumers
+must not infer completeness from their zero-money outcomes. Campaign output folders must
+not already exist. No gateway ledger or provider storage version changes in this increment.
+
 This document is normative. Changing anything here requires a version bump.
 
 ## Store layout (layout version 1)

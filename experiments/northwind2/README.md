@@ -13,6 +13,27 @@ It needs the `claude` CLI, signed in, and costs about $1.75 of agent usage per r
 Each ticket runs in a fresh temporary directory outside the repository, with only the
 experiment's MCP tools allowed.
 
+## Codex runtime
+
+Use `--runtime codex` to run both worlds with the existing signed-in Codex CLI instead of
+Claude. Codex runs with only the supplied Northwind/Cosigna MCP servers; shell, web, apps,
+hooks and multi-agent tools are disabled. It receives scoped tool tokens, never the Stripe
+test key. Optional `--model` pins a Codex model; otherwise the CLI default is used in both
+worlds. There is no fallback to Claude.
+
+```powershell
+python -I experiments/northwind2/run.py --binary "$PWD\target\release\cosigna-agent.exe" --runs 3 --out experiments\northwind2\results\<unique-date>-codex-stripe --rail stripe_test --runtime codex
+```
+
+Keep Codex and Claude results separate. Codex records token usage with `cost_usd: null`, since
+the signed-in subscription does not report an API dollar charge. Reports identify the runtime
+and completion state. Runtime errors abort the campaign, preserving a sanitized
+`runN-WORLD-incomplete.json`; they are never scored as successful zero-payment outcomes.
+Every campaign requires a new output folder, so previous results cannot be overwritten.
+
+Adapter/error-path tests (no hosted inference or real Stripe requests):
+`python -I experiments/northwind2/test_codex_runtime.py`.
+
 ## On Stripe test mode
 
 `--rail stripe_test` runs both worlds on real Stripe **test** payments: for each world, one test

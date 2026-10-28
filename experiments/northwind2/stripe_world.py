@@ -68,7 +68,7 @@ def committed(refunds):
 
 
 def seed(stripe, orders, run_id, world):
-    """One test customer and one confirmed test-card payment per order; returns them by order."""
+    """One test customer and one confirmed test-card payment per order; returns their ids by order."""
     paid = {}
     for order in orders:
         key = f"northwind2-{run_id}-{world}-{order['order']}"
@@ -85,7 +85,7 @@ def seed(stripe, orders, run_id, world):
         if intent.get("livemode") is not False or intent.get("status") != "succeeded" \
                 or intent.get("amount_received") != order["amount_minor"]:
             raise SystemExit(f"Stripe did not confirm the test payment for order {order['order']}.")
-        paid[order["order"]] = intent["id"]
+        paid[order["order"]] = {"payment": intent["id"], "customer": customer["id"]}
     return paid
 
 

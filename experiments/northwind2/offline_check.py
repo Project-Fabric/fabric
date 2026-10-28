@@ -139,7 +139,8 @@ if payment:
     if left > 0 and "cosigna_request_refund" in tools:
         rail = re.search(r'rail "(\w+)"', text)[1]; budget = re.search(r"budget (budget_\w+)", text)[1]
         done = call("cosigna_request_refund", {"budget_id": budget, "rail": rail, "source": payment[1], "amount_minor": left,
-                    "currency": "USD", "reason": "Offline check", "idempotency_key": "offline-" + payment[1]})
+                    "currency": "USD", "reason": "Offline check", "idempotency_key": "offline-" + payment[1],
+                    "case_id": re.search(r"Ticket ([\w-]+):", text)[1]})
     elif left > 0 and "northwind_refund" in tools:
         done = call("northwind_refund", {"payment_id": payment[1], "amount_minor": left})
 for proc in servers.values():
@@ -152,6 +153,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", required=True)
     args = parser.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     fake = FakeStripe()
     with tempfile.TemporaryDirectory(prefix="northwind2-offline-") as work:
         work = Path(work)
@@ -174,7 +176,9 @@ def main():
             if result["refunded_minor"] != sum(r["amount_minor"] for r in result["stripe_refunds"]):
                 problems.append(f"{world}: measured refunds differ from the stand-in's records")
         guarded, unguarded = worlds["guarded"], worlds["unguarded"]
-        if not guarded["stripe_refunds"] or not all(r["cosigna_operation"] for r in guarded["stripe_refunds"]):
+        if not guarded["stripe_refunds"]:
+            problems.append("guarded: no refund reached Stripe at all")
+        elif not all(r["cosigna_operation"] for r in guarded["stripe_refunds"]):
             problems.append("guarded: a refund reached Stripe without the gateway's operation tag")
         if any(r["cosigna_operation"] for r in unguarded["stripe_refunds"]):
             problems.append("unguarded: a refund carries a gateway tag")

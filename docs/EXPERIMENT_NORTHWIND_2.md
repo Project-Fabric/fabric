@@ -1,5 +1,41 @@
 # Experiment: Northwind 2.0, real AI agents refunding money with and without Cosigna
 
+## 28 October update: Stripe test mode and Codex
+
+The original sections below describe the 24 October **fixture** experiment. They do not
+describe the later Stripe runs. Original artifacts are retained separately.
+
+The 28 October Claude Stripe TEST artifacts are in
+[`results/2026-10-28-stripe-v2`](../experiments/northwind2/results/2026-10-28-stripe-v2/).
+Two paired rounds completed without recorded agent errors. Each recorded USD 528.00 wrong
+refunds without Cosigna, USD 0.00 through Cosigna and no missed legitimate refunds. Round 3
+recorded USD 1,168.00 wrong refunds without Cosigna. Its guarded side paid all five legitimate
+refunds, but R9 and O1 hit Claude's usage limit, so that pair is incomplete. The built-in Rust
+evidence summaries report intact chains and matching state. These files do not retain an
+independent Python-verifier result for that campaign.
+
+The first Codex Stripe TEST attempt, retained in
+[`results/2026-10-28-codex-stripe-132527`](../experiments/northwind2/results/2026-10-28-codex-stripe-132527/),
+completed the direct-tool world with USD 1,168.00 wrong refunds and no legitimate misses.
+The guarded side paid the five legitimate refunds and recorded zero movement on the tested
+over-budget/injection requests, then stopped at R9 because an MCP tool event was outside the
+allowlist. O1 was not attempted. The initial adapter retained the error category but not the
+tool name. This is **not a complete paired result**, and no successful guarded evidence check
+is claimed for that interrupted run. A subsequent fixture-only R9 diagnostic completed,
+which does not explain or replace the original failure.
+
+The adapter now preserves bounded tool identifiers, payment/refund snapshots and guarded
+evidence exports on interruption. A separately labelled three-round Codex Stripe test campaign
+is in progress. Its outcomes must be reviewed before adding a new headline result. Codex
+subscription dollar cost is unknown; token usage is recorded rather than reported as free.
+
+These tests use synthetic tickets and test payments. The direct-tool baseline has no business
+budget in its prompt. No comparison with a strong rules wrapper, Visa, Mastercard or AWS has
+been performed. Runtime errors stay visible, and incomplete attempts must not be discarded
+when reporting the campaign history. No real funds move.
+
+## Original fixture experiment
+
 **Date:** 24 October 2026 · **Runs:** 3 per world · **Harness:** [`experiments/northwind2/`](../experiments/northwind2/)
 · **Raw results:** [`experiments/northwind2/results/2026-10-24/`](../experiments/northwind2/results/2026-10-24/)
 

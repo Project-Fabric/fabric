@@ -33,6 +33,9 @@ Every campaign requires a new output folder, so previous results cannot be overw
 Incomplete v2 artifacts also retain payment/refund records and safe tool identifiers; guarded
 failures export evidence before temporary-store cleanup. An unexpected tool still stops the
 run, even if the model's turn completed. Diagnostics never include tool arguments or raw events.
+Codex's built-in metadata listings (`list_mcp_resources` and `list_mcp_resource_templates`)
+are counted separately from financial MCP calls. They do not grant resource reads, new
+servers or additional financial tools. Shell commands and unknown capabilities still fail.
 
 Adapter/error-path tests (no hosted inference or real Stripe requests):
 `python -I experiments/northwind2/test_codex_runtime.py`.

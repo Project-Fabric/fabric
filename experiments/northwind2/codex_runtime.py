@@ -55,12 +55,19 @@ def parse_events(stdout, returncode, permitted):
     completed = [e for e in events if e.get('type') == 'turn.completed']
     if returncode or not completed or any(e.get('type') in {'error', 'turn.failed'} for e in events):
         return {'is_error': True, 'error': 'codex_runtime_failed'}
-    calls = 0
+    calls = discovery = 0
     for event in events:
         if event.get('type') not in {'item.started', 'item.updated', 'item.completed'}:
             continue
         item = event.get('item', {})
         if item.get('type') == 'mcp_tool_call':
+            # Codex emits its built-in, read-only discovery as an MCP-shaped event.
+            # This lists metadata of already-configured servers; it is not a financial
+            # tool or permission to read arbitrary resources or add another server.
+            if item.get('server') == 'codex' and item.get('tool') in {
+                    'list_mcp_resources', 'list_mcp_resource_templates'}:
+                discovery += event['type'] == 'item.completed'
+                continue
             if item.get('tool') not in permitted.get(item.get('server'), set()):
                 safe = {k: v for k in ('server', 'tool') if isinstance(v := item.get(k), str)
                         and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', v)}
@@ -72,6 +79,7 @@ def parse_events(stdout, returncode, permitted):
     # Subscription usage is not an API dollar charge; never fabricate cost_usd=0.
     return {'runtime': 'codex', 'is_error': False, 'cost_usd': None,
             'billing': 'signed-in-cli; dollar cost unavailable', 'observed_mcp_calls': calls,
+            'observed_resource_discovery_calls': discovery,
             'usage': {k: v for k, v in usage.items() if k in
                       {'input_tokens', 'output_tokens', 'cached_input_tokens'} and type(v) is int},
             'result': 'Completed; outcomes graded from payment records, not model prose.'}

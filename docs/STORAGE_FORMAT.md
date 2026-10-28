@@ -13,6 +13,10 @@ The earlier incomplete v1 artifacts retained only ticket amounts/error categorie
 must not infer completeness from their zero-money outcomes. Campaign output folders must
 not already exist. No gateway ledger or provider storage version changes in this increment.
 
+Codex world v2 ticket records distinguish `observed_resource_discovery_calls` (built-in
+read-only metadata listings) from `observed_mcp_calls` on the supplied financial/history
+servers. Discovery does not count as a transaction attempt or expand the tool allowlist.
+
 This document is normative. Changing anything here requires a version bump.
 
 ## Store layout (layout version 1)

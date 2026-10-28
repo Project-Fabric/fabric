@@ -24,6 +24,15 @@ tool name. This is **not a complete paired result**, and no successful guarded e
 is claimed for that interrupted run. A subsequent fixture-only R9 diagnostic completed,
 which does not explain or replace the original failure.
 
+A second Codex attempt retained the diagnostic: the adapter rejected the framework's internal
+`codex.list_mcp_resources` metadata listing. Its artifacts are in
+[`results/2026-10-28-codex-stripe-retry-134639`](../experiments/northwind2/results/2026-10-28-codex-stripe-retry-134639/).
+The guarded payment snapshot has five correct refunds totaling USD 182.98, and the independent
+Python verifier accepted its retained export (21 records, all hashes checked, 7 operations
+replayed). O1 was not attempted. This remains an incomplete paired run caused by the adapter.
+The classifier now distinguishes Codex's two read-only metadata-listing helpers from financial
+MCP calls. Unknown financial tools, arbitrary resource reads and shell events remain errors.
+
 The adapter now preserves bounded tool identifiers, payment/refund snapshots and guarded
 evidence exports on interruption. A separately labelled three-round Codex Stripe test campaign
 is in progress. Its outcomes must be reviewed before adding a new headline result. Codex

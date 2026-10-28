@@ -72,6 +72,15 @@ a fully successful paired round. The specific tool name was not retained by that
 adapter. A later fixture-only R9 diagnostic completed, which does not explain or erase the
 original error.
 
+A second Codex attempt retained the actual diagnostic: the adapter mistook Codex's internal
+`list_mcp_resources` metadata discovery for an unauthorized financial tool. That guarded run
+also stopped before O1. Its saved provider records show five correct refunds totaling USD
+182.98, and its retained evidence passed independent verification (21 records, 7 operations).
+This was a benchmark-adapter classification error, not a demonstrated unauthorized payment.
+The classifier now counts the two read-only metadata-listing helpers separately while still
+rejecting unknown financial tools, resource reads and shell execution. Retain both interrupted
+attempts and explain this correction alongside any later complete campaign.
+
 A fresh three-round Codex campaign is running separately. Do not fill its headline numbers
 until its saved outcomes, completeness flags and evidence are reviewed. Retain the previous
 attempt when publishing results, so the presentation does not select only successful runs.

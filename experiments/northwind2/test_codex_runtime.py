@@ -65,6 +65,22 @@ class RuntimeBoundary(unittest.TestCase):
             fake.server.shutdown()
             fake.server.server_close()
 
+    def test_internal_resource_listing_is_distinct_from_financial_or_resource_read_access(self):
+        complete = {'type': 'turn.completed'}
+        for tool in ('list_mcp_resources', 'list_mcp_resource_templates'):
+            event = {'type': 'item.completed', 'item': {'type': 'mcp_tool_call',
+                                                      'server': 'codex', 'tool': tool}}
+            result = codex_runtime.parse_events('\n'.join(map(json.dumps, [event, complete])), 0, {})
+            self.assertFalse(result['is_error'])
+            self.assertEqual(result['observed_mcp_calls'], 0)
+            self.assertEqual(result['observed_resource_discovery_calls'], 1)
+        for server, tool in [('codex', 'read_mcp_resource'), ('codex', 'northwind_refund'),
+                             ('unknown', 'list_mcp_resources')]:
+            event = {'type': 'item.completed', 'item': {'type': 'mcp_tool_call',
+                                                      'server': server, 'tool': tool}}
+            result = codex_runtime.parse_events('\n'.join(map(json.dumps, [event, complete])), 0, {})
+            self.assertTrue(result['is_error'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -30,8 +30,7 @@ runner stops if the key appears in any run or result file. Live keys are refused
 $s = Read-Host "Stripe test key" -AsSecureString
 $env:COSIGNA_STRIPE_TEST_SECRET_KEY = [System.Net.NetworkCredential]::new("", $s).Password
 cargo build --release -p cosigna-agent
-python -I experiments/northwind2/run.py --binary "$PWD	argetelease\cosigna-agent.exe" --runs 3 --out experiments
-orthwind2esults\<date>-stripe --rail stripe_test
+python -I experiments/northwind2/run.py --binary "$PWD\target\release\cosigna-agent.exe" --runs 3 --out experiments\northwind2\results\<date>-stripe --rail stripe_test
 ```
 
 Before spending agent usage, check the wiring offline (a loopback stand-in for Stripe and a
@@ -39,6 +38,6 @@ scripted, deliberately naive stand-in for the agent; no account, no model calls,
 result):
 
 ```powershell
-python -I experiments/northwind2/offline_check.py --binary "$PWD	arget\debug\cosigna-agent.exe"
+python -I experiments/northwind2/offline_check.py --binary "$PWD\target\debug\cosigna-agent.exe"
 ```
 

@@ -85,8 +85,9 @@ The corrected Codex campaign completed one full paired repeat: USD 1,168.00 wron
 through the direct tool versus USD 0.00 through Cosigna, with all five legitimate refunds paid.
 All 20 sessions completed; both Rust and independent Python evidence checks passed. The
 second repeat stopped on a CLI runtime failure after the baseline's USD 450 refund had already
-committed. Its provider snapshot is retained. One remaining planned pair is queued for fresh
-payments and awaits private key entry. Do not call this three complete Codex rounds.
+committed. Its provider snapshot is retained. The final planned pair also ran, but stopped
+during the guarded R3 payment lookup with a transport error. Its complete baseline is saved;
+its guarded outcome is partial and unverified. Do not call this three complete Codex rounds.
 See [the benchmark review](BENCHMARK_REVIEW_2026-10-28.md), including all interrupted attempts.
 
 For each runtime, show incorrect refund amounts, missed legitimate refunds, completed/error

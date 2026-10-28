@@ -30,9 +30,13 @@ the signed-in subscription does not report an API dollar charge. Reports identif
 and completion state. Runtime errors abort the campaign, preserving a sanitized
 `runN-WORLD-incomplete.json`; they are never scored as successful zero-payment outcomes.
 Every campaign requires a new output folder, so previous results cannot be overwritten.
-Incomplete v2 artifacts also retain payment/refund records and safe tool identifiers; guarded
+Incomplete v3 artifacts also retain payment/refund records and safe tool identifiers; guarded
 failures export evidence before temporary-store cleanup. An unexpected tool still stops the
 run, even if the model's turn completed. Diagnostics never include tool arguments or raw events.
+During execution/measurement failures, the checkpoint preserves payment identifiers and the
+last observed state. A failed payment-record lookup is marked unknown, not zero movement.
+The checkpoint attempts evidence export offline before provider diagnostics. This does not
+guarantee recovery of failures before a world finishes initialization.
 Codex's built-in metadata listings (`list_mcp_resources` and `list_mcp_resource_templates`)
 are counted separately from financial MCP calls. They do not grant resource reads, new
 servers or additional financial tools. Shell commands and unknown capabilities still fail.

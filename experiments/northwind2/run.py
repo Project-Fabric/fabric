@@ -28,6 +28,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 import uuid
 from pathlib import Path
 
@@ -165,6 +166,41 @@ def refunded_by_order(db_path):
     return {o["order"]: rows.get(o["payment"], 0) for o in ORDERS}
 
 
+def checkpoint_failure(workdir, world, rail, orders, log, last_observed, ticket, error_kind,
+                       binary, data, stripe=None, session_info=None):
+    """Keep evidence before cleanup. A failed lookup never proves zero payment movement."""
+    failure = {"schema": "cosigna.northwind-incomplete/v3", "runtime": RUNTIME,
+               "world": world, "rail": rail, "complete": False, "error": error_kind,
+               "current_ticket": ticket,
+               "current_session": {k: v for k, v in (session_info or {}).items() if k in
+                                   {"runtime", "is_error", "error", "observed_mcp_calls", "unexpected_tool"}},
+               "tickets": [{k: t[k] for k in ("ticket", "agent", "expected_minor", "moved_minor",
+                            "is_error", "error", "unexpected_tool") if k in t} for t in log],
+               "payments": {o["order"]: o["payment"] for o in orders},
+               "last_observed_by_order": last_observed,
+               "current_payment_state_unknown": error_kind != "agent_runtime_failed"}
+    path = workdir / f"incomplete-{world}.json"
+    path.write_text(json.dumps(failure, indent=2), encoding="utf-8")
+    if world == "guarded":
+        try:
+            export = subprocess.run([binary, "evidence", "export", "--data-dir", str(data),
+                                     "--out", str(workdir / "incomplete-evidence.jsonl")],
+                                    capture_output=True, text=True, encoding="utf-8")
+            failure["evidence_exported"] = export.returncode == 0
+        except OSError:
+            failure["evidence_exported"] = False
+    # After a transport error, do not hide the original failure with more provider requests.
+    if rail == "stripe_test" and error_kind != "payment_record_lookup_failed":
+        try:
+            failure["stripe_refunds"] = [{"order": o["order"], "refund": ref["id"],
+                "amount_minor": ref["amount"], "status": ref["status"],
+                "cosigna_operation": bool((ref.get("metadata") or {}).get("cosigna_operation"))}
+                for o in orders for ref in stripe.refunds(o["payment"])]
+        except Exception:
+            failure["diagnostics_unavailable"] = True
+    path.write_text(json.dumps(failure, indent=2), encoding="utf-8")
+
+
 def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
     data = workdir / world
     data.mkdir(parents=True)
@@ -224,8 +260,11 @@ def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
         budget = None
     else:
         budget = None
+    last_observed, current_ticket, current_info = {}, None, None
     try:
         for ticket in TICKETS:
+            current_ticket = ticket["id"]
+            current_info = None
             agent = ticket["agent"]
             mode = "read" if world == "guarded" else "direct"
             if backend:
@@ -242,32 +281,17 @@ def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
             config.write_text(json.dumps({"mcpServers": servers}))
             allowed = ["mcp__northwind"] + (["mcp__cosigna"] if world == "guarded" else [])
             before = measure()
+            last_observed = before
             info = run_agent(config, allowed, prompt(world, agent, ticket, budget, orders, rail), str(data), agent_env)
+            current_info = info
             after = measure()
+            last_observed = after
             moved = sum(after[o] - before[o] for o in after)
             log.append({"ticket": ticket["id"], "agent": agent, "kind": ticket["kind"], "expected_minor": expected(ticket),
                         "moved_minor": moved, **info})
             if info.get("is_error") or info.get("error"):
-                failure = {"schema": "cosigna.northwind-incomplete/v2", "runtime": RUNTIME,
-                           "world": world, "rail": rail, "complete": False,
-                           "tickets": [{k: t[k] for k in ("ticket", "agent", "expected_minor", "moved_minor", "is_error", "error", "unexpected_tool") if k in t} for t in log],
-                           "payments": {o["order"]: o["payment"] for o in orders}, "by_order": after}
-                failure_path = workdir / f"incomplete-{world}.json"
-                failure_path.write_text(json.dumps(failure, indent=2), encoding="utf-8")
-                try:
-                    if rail == "stripe_test":
-                        failure["stripe_refunds"] = [{"order": o["order"], "refund": ref["id"],
-                            "amount_minor": ref["amount"], "status": ref["status"],
-                            "cosigna_operation": bool((ref.get("metadata") or {}).get("cosigna_operation"))}
-                            for o in orders for ref in stripe.refunds(o["payment"])]
-                    if world == "guarded":
-                        export = subprocess.run([binary, "evidence", "export", "--data-dir", str(data),
-                                                 "--out", str(workdir / "incomplete-evidence.jsonl")],
-                                                capture_output=True, text=True, encoding="utf-8")
-                        failure["evidence_exported"] = export.returncode == 0
-                except Exception:
-                    failure["diagnostics_unavailable"] = True
-                failure_path.write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                checkpoint_failure(workdir, world, rail, orders, log, last_observed,
+                                   current_ticket, "agent_runtime_failed", binary, data, stripe, current_info)
                 raise RuntimeError(f"{RUNTIME} failed on {ticket['id']}; experiment incomplete, not a successful zero-payment outcome.")
             cost = f"${info['cost_usd']:.2f}" if info.get("cost_usd") is not None else "cost unavailable"
             print(f"  {world:9} {ticket['id']:24} expected {expected(ticket):6}  moved {moved:6}  "
@@ -291,6 +315,12 @@ def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
             stripe_refunds = [{"order": o["order"], "refund": r["id"], "amount_minor": r["amount"], "status": r["status"],
                                "cosigna_operation": bool((r.get("metadata") or {}).get("cosigna_operation"))}
                               for o in orders for r in stripe.refunds(o["payment"])]
+    except Exception as error:
+        if not (workdir / f"incomplete-{world}.json").exists():
+            kind = "payment_record_lookup_failed" if isinstance(error, urllib.error.URLError) else "world_execution_failed"
+            checkpoint_failure(workdir, world, rail, orders, log, last_observed,
+                               current_ticket, kind, binary, data, stripe, current_info)
+        raise
     finally:
         if server:
             server.kill()

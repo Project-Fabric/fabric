@@ -6,10 +6,15 @@ New campaign world files carry `schema: cosigna.northwind-world/v2`, `runtime`,
 `model_requested` and `complete: true`; summary rows carry the same identifiers. Codex's
 signed-in CLI reports token usage per ticket but no API dollar charge, so `cost_usd` is null
 when unknown. A runtime failure aborts without a success summary and writes a sanitized
-`cosigna.northwind-incomplete/v2` artifact with `complete: false`, observed ticket
+`cosigna.northwind-incomplete/v3` artifact with `complete: false`, observed ticket
 amounts/error categories, safe unexpected-tool names, payment identifiers and provider refund
 records. Guarded failures also retain an evidence JSONL export before temporary-store cleanup.
-The earlier incomplete v1 artifacts retained only ticket amounts/error categories. Existing unversioned experiment files remain unchanged; consumers
+V3 also checkpoints execution/measurement exceptions. `last_observed_by_order` is a past
+observation, not proof of current payment state. `current_payment_state_unknown` distinguishes
+a failed lookup, and `current_session` retains bounded runtime status separately. No failed
+read is scored as zero money, and evidence export is attempted before provider diagnostics.
+V2 retained provider snapshots on agent-session failures only. The earlier incomplete v1
+artifacts retained only ticket amounts/error categories. Existing unversioned experiment files remain unchanged; consumers
 must not infer completeness from their zero-money outcomes. Campaign output folders must
 not already exist. No gateway ledger or provider storage version changes in this increment.
 

@@ -1,8 +1,10 @@
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import codex_runtime
 import run
 from offline_check import FakeStripe, KEY
+import stripe_world
 
 
 class RuntimeBoundary(unittest.TestCase):
@@ -58,7 +61,7 @@ class RuntimeBoundary(unittest.TestCase):
                 self.assertFalse((output / 'summary.json').exists())
                 failure = json.loads((output / 'run1-unguarded-incomplete.json').read_text())
                 self.assertFalse(failure['complete'])
-                self.assertEqual(failure['schema'], 'cosigna.northwind-incomplete/v2')
+                self.assertEqual(failure['schema'], 'cosigna.northwind-incomplete/v3')
                 self.assertEqual(failure['stripe_refunds'], [])
                 self.assertEqual(failure['tickets'][0]['error'], 'synthetic_failure')
         finally:
@@ -80,6 +83,51 @@ class RuntimeBoundary(unittest.TestCase):
                                                       'server': server, 'tool': tool}}
             result = codex_runtime.parse_events('\n'.join(map(json.dumps, [event, complete])), 0, {})
             self.assertTrue(result['is_error'])
+
+    def test_lookup_loss_after_committed_refund_retains_ids_and_unknown_state(self):
+        fake = FakeStripe()
+        reads = 0
+        original_measure = stripe_world.refunded_by_order
+
+        def measure_once(stripe, orders):
+            nonlocal reads
+            reads += 1
+            if reads == 2:
+                raise urllib.error.URLError('synthetic-private-diagnostic')
+            return original_measure(stripe, orders)
+
+        def commit_refund(config_path, allowed, text, cwd, env=None):
+            payment = re.search(r'payment (pi_\w+)', text)[1]
+            stripe_world.Stripe(KEY, fake.base).call('POST', '/v1/refunds',
+                                                  {'payment_intent': payment, 'amount': 2499})
+            return {'is_error': False, 'cost_usd': 0}
+
+        try:
+            with tempfile.TemporaryDirectory(prefix='northwind-lookup-loss-') as work:
+                output = Path(work) / 'results'
+                args = ['run.py', '--binary', 'unused', '--runs', '1', '--out', str(output), '--rail', 'stripe_test']
+                with patch.object(sys, 'argv', args), patch.dict(os.environ, {
+                        'COSIGNA_STRIPE_TEST_SECRET_KEY': KEY, 'NORTHWIND_STRIPE_BASE': fake.base}), \
+                        patch.object(stripe_world, 'refunded_by_order', side_effect=measure_once), \
+                        patch.object(run, 'run_agent', side_effect=commit_refund) as actor:
+                    with self.assertRaises(urllib.error.URLError):
+                        run.main()
+                raw = (output / 'run1-unguarded-incomplete.json').read_text()
+                failure = json.loads(raw)
+                self.assertFalse(failure['complete'])
+                self.assertTrue(failure['current_payment_state_unknown'])
+                self.assertFalse(failure['current_session']['is_error'])
+                self.assertEqual(failure['error'], 'payment_record_lookup_failed')
+                self.assertEqual(len(failure['payments']), len(run.ORDERS))
+                self.assertNotIn('synthetic-private-diagnostic', raw)
+                self.assertFalse((output / 'summary.json').exists())
+                self.assertEqual(reads, 2)  # No blind provider retry after the failed lookup.
+                self.assertEqual(actor.call_count, 1)  # No inference/payment replay.
+                self.assertEqual(len(fake.refunds), 1)
+                self.assertEqual(next(iter(fake.refunds.values()))['amount'], 2499)
+        finally:
+            fake.server.shutdown()
+            fake.server.server_close()
 
 
 if __name__ == '__main__':

@@ -1,5 +1,16 @@
 # Pivot: controls for AI agents in finance
 
+**28 October — Reviewed Stripe test evidence and Antler preparation:** two complete Claude
+Northwind pairs each recorded USD 528 wrong refunds through a direct tool versus zero through
+Cosigna; one complete corrected Codex pair recorded USD 1,168 versus zero. All expected refunds
+were paid in these completed comparisons. The Codex pair retained evidence passing both Rust
+and independent Python verification. Incomplete quota, adapter and runtime attempts remain
+visible in [the review](BENCHMARK_REVIEW_2026-10-28.md); do not call the campaigns fully complete.
+The next Codex pair awaits private key entry, and E6 still needs a recording/review. An
+[Antler India pitch plan](ANTLER_INDIA_PITCH_PLAN_2026-10-28.md) and
+[source-checked ecosystem review](PAYMENT_ECOSYSTEM_OPPORTUNITIES_2026-10-28.md) are working drafts.
+No application/outreach, live payment readiness or competitive customer advantage is claimed.
+
 **28 October — Northwind Codex runtime:** the optional Northwind experiment now accepts
 `--runtime codex` using the CLI's existing sign-in and restricted MCP tools. Both worlds use
 the same selected runtime; provider errors stop the experiment and persist an incomplete

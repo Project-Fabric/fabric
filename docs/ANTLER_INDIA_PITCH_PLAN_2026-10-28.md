@@ -81,9 +81,13 @@ The classifier now counts the two read-only metadata-listing helpers separately 
 rejecting unknown financial tools, resource reads and shell execution. Retain both interrupted
 attempts and explain this correction alongside any later complete campaign.
 
-A fresh three-round Codex campaign is running separately. Do not fill its headline numbers
-until its saved outcomes, completeness flags and evidence are reviewed. Retain the previous
-attempt when publishing results, so the presentation does not select only successful runs.
+The corrected Codex campaign completed one full paired repeat: USD 1,168.00 wrong refunds
+through the direct tool versus USD 0.00 through Cosigna, with all five legitimate refunds paid.
+All 20 sessions completed; both Rust and independent Python evidence checks passed. The
+second repeat stopped on a CLI runtime failure after the baseline's USD 450 refund had already
+committed. Its provider snapshot is retained. One remaining planned pair is queued for fresh
+payments and awaits private key entry. Do not call this three complete Codex rounds.
+See [the benchmark review](BENCHMARK_REVIEW_2026-10-28.md), including all interrupted attempts.
 
 For each runtime, show incorrect refund amounts, missed legitimate refunds, completed/error
 sessions, number of repeats and the verification boundary. Explain that the direct-tool

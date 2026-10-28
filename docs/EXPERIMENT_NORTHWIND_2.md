@@ -34,8 +34,13 @@ The classifier now distinguishes Codex's two read-only metadata-listing helpers 
 MCP calls. Unknown financial tools, arbitrary resource reads and shell events remain errors.
 
 The adapter now preserves bounded tool identifiers, payment/refund snapshots and guarded
-evidence exports on interruption. A separately labelled three-round Codex Stripe test campaign
-is in progress. Its outcomes must be reviewed before adding a new headline result. Codex
+evidence exports on interruption. The corrected campaign completed one paired repeat: USD
+1,168.00 wrong refunds through the direct tool versus USD 0.00 through Cosigna, with every
+legitimate refund paid. Both worlds completed all 10 sessions, and guarded evidence passed
+Rust and independent Python verification. The second baseline repeat stopped after a runtime
+failure; its snapshot shows the USD 450 refund had committed. A final planned pair is queued
+separately and is not yet a completed result. See [the review](BENCHMARK_REVIEW_2026-10-28.md).
+Codex
 subscription dollar cost is unknown; token usage is recorded rather than reported as free.
 
 These tests use synthetic tickets and test payments. The direct-tool baseline has no business

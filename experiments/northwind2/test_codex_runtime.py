@@ -38,6 +38,8 @@ class RuntimeBoundary(unittest.TestCase):
                             ({'type': 'thread.started'}, 1)]:
             result = codex_runtime.parse_events('\n'.join(map(json.dumps, [event, complete])), code, allowed)
             self.assertTrue(result['is_error'])
+            if result.get('error') == 'unexpected_codex_tool':
+                self.assertEqual(result['unexpected_tool'], {'server': 'northwind', 'tool': 'northwind_refund'})
         result = codex_runtime.parse_events(json.dumps(complete), 0, allowed)
         self.assertFalse(result['is_error'])
         self.assertIsNone(result['cost_usd'])
@@ -56,6 +58,8 @@ class RuntimeBoundary(unittest.TestCase):
                 self.assertFalse((output / 'summary.json').exists())
                 failure = json.loads((output / 'run1-unguarded-incomplete.json').read_text())
                 self.assertFalse(failure['complete'])
+                self.assertEqual(failure['schema'], 'cosigna.northwind-incomplete/v2')
+                self.assertEqual(failure['stripe_refunds'], [])
                 self.assertEqual(failure['tickets'][0]['error'], 'synthetic_failure')
         finally:
             fake.server.shutdown()

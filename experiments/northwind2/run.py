@@ -248,10 +248,26 @@ def world_run(world, binary, workdir, rail="fixture", stripe=None, run_id=None):
             log.append({"ticket": ticket["id"], "agent": agent, "kind": ticket["kind"], "expected_minor": expected(ticket),
                         "moved_minor": moved, **info})
             if info.get("is_error") or info.get("error"):
-                failure = {"schema": "cosigna.northwind-incomplete/v1", "runtime": RUNTIME,
-                           "world": world, "complete": False,
-                           "tickets": [{k: t[k] for k in ("ticket", "agent", "expected_minor", "moved_minor", "is_error", "error") if k in t} for t in log]}
-                (workdir / f"incomplete-{world}.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                failure = {"schema": "cosigna.northwind-incomplete/v2", "runtime": RUNTIME,
+                           "world": world, "rail": rail, "complete": False,
+                           "tickets": [{k: t[k] for k in ("ticket", "agent", "expected_minor", "moved_minor", "is_error", "error", "unexpected_tool") if k in t} for t in log],
+                           "payments": {o["order"]: o["payment"] for o in orders}, "by_order": after}
+                failure_path = workdir / f"incomplete-{world}.json"
+                failure_path.write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                try:
+                    if rail == "stripe_test":
+                        failure["stripe_refunds"] = [{"order": o["order"], "refund": ref["id"],
+                            "amount_minor": ref["amount"], "status": ref["status"],
+                            "cosigna_operation": bool((ref.get("metadata") or {}).get("cosigna_operation"))}
+                            for o in orders for ref in stripe.refunds(o["payment"])]
+                    if world == "guarded":
+                        export = subprocess.run([binary, "evidence", "export", "--data-dir", str(data),
+                                                 "--out", str(workdir / "incomplete-evidence.jsonl")],
+                                                capture_output=True, text=True, encoding="utf-8")
+                        failure["evidence_exported"] = export.returncode == 0
+                except Exception:
+                    failure["diagnostics_unavailable"] = True
+                failure_path.write_text(json.dumps(failure, indent=2), encoding="utf-8")
                 raise RuntimeError(f"{RUNTIME} failed on {ticket['id']}; experiment incomplete, not a successful zero-payment outcome.")
             cost = f"${info['cost_usd']:.2f}" if info.get("cost_usd") is not None else "cost unavailable"
             print(f"  {world:9} {ticket['id']:24} expected {expected(ticket):6}  moved {moved:6}  "
@@ -323,9 +339,9 @@ def main():
                 try:
                     result = world_run(world, args.binary, Path(work) / f"run{run}", args.rail, stripe, run_id)
                 except Exception:
-                    incomplete = Path(work) / f"run{run}" / f"incomplete-{world}.json"
-                    if incomplete.exists():
-                        (out / f"run{run}-{world}-incomplete.json").write_text(incomplete.read_text(encoding="utf-8"), encoding="utf-8")
+                    for incomplete in (Path(work) / f"run{run}").glob("incomplete-*"):
+                        suffix = "-evidence.jsonl" if incomplete.suffix == ".jsonl" else ".json"
+                        (out / f"run{run}-{world}-incomplete{suffix}").write_text(incomplete.read_text(encoding="utf-8"), encoding="utf-8")
                     raise
                 result["run"] = run
                 result["run_id"] = run_id

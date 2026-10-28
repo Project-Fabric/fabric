@@ -30,6 +30,9 @@ the signed-in subscription does not report an API dollar charge. Reports identif
 and completion state. Runtime errors abort the campaign, preserving a sanitized
 `runN-WORLD-incomplete.json`; they are never scored as successful zero-payment outcomes.
 Every campaign requires a new output folder, so previous results cannot be overwritten.
+Incomplete v2 artifacts also retain payment/refund records and safe tool identifiers; guarded
+failures export evidence before temporary-store cleanup. An unexpected tool still stops the
+run, even if the model's turn completed. Diagnostics never include tool arguments or raw events.
 
 Adapter/error-path tests (no hosted inference or real Stripe requests):
 `python -I experiments/northwind2/test_codex_runtime.py`.

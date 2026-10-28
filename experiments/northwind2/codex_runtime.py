@@ -1,6 +1,7 @@
 """Signed-in Codex adapter. No inference or network activity on import."""
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -61,7 +62,9 @@ def parse_events(stdout, returncode, permitted):
         item = event.get('item', {})
         if item.get('type') == 'mcp_tool_call':
             if item.get('tool') not in permitted.get(item.get('server'), set()):
-                return {'is_error': True, 'error': 'unexpected_codex_tool'}
+                safe = {k: v for k in ('server', 'tool') if isinstance(v := item.get(k), str)
+                        and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', v)}
+                return {'is_error': True, 'error': 'unexpected_codex_tool', 'unexpected_tool': safe}
             calls += event['type'] == 'item.completed'
         elif item.get('type') not in {'agent_message', 'reasoning', 'todo_list'}:
             return {'is_error': True, 'error': 'unexpected_codex_capability'}

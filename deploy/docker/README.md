@@ -1,5 +1,7 @@
 # Self-hosting Cosigna with Docker
 
+Before going live, work through the [production checklist](../../docs/SECURITY_OVERVIEW.md#production-checklist).
+
 Runs Cosigna in your own infrastructure: the gateway API, the console (where people approve
 payments), the worker (owner-enrolled tasks, lookup-only recovery of refunds whose result is
 unknown, and alerts) and a TLS proxy (Caddy).

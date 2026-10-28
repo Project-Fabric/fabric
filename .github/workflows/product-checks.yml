@@ -53,6 +53,10 @@ jobs:
       - run: cargo test -p cosigna-agent --locked
       - run: cargo run -p cosigna-agent --locked -- pipeline-demo
       - run: node scripts/check-gateway-service.mjs
+      - name: Northwind runtime error and credential boundaries (no inference)
+        run: python -I experiments/northwind2/test_codex_runtime.py
+      - name: Northwind Stripe wiring (scripted agent, loopback provider)
+        run: python -I experiments/northwind2/offline_check.py --binary "$PWD/target/debug/cosigna-agent"
       - name: Independent Python evidence verifier (rules replay, consistent-forgery tests)
         run: python3 -m venv .verifier && .verifier/bin/pip install --quiet blake3==1.0.11 && COSIGNA_AGENT_BIN="$PWD/target/debug/cosigna-agent" .verifier/bin/python -I tools/evidence-verifier/test_verify_evidence.py
       - name: Live attack, stress and crash lab (fixture rail, loopback only)

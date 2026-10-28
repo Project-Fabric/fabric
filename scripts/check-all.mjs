@@ -51,6 +51,8 @@ const suites = {
     step('build gateway', ['cargo', 'build', '-p', 'cosigna-agent', '--locked'], { needs: ['cargo'] }),
     step('pipeline demo', ['cargo', 'run', '-q', '-p', 'cosigna-agent', '--locked', '--', 'pipeline-demo'], { needs: ['cargo'] }),
     step('gateway service check', ['node', 'scripts/check-gateway-service.mjs'], { needs: ['node'] }),
+    step('Northwind runtime boundaries', [python, '-I', 'experiments/northwind2/test_codex_runtime.py'], { needs: ['python'] }),
+    step('Northwind offline Stripe wiring', [python, '-I', 'experiments/northwind2/offline_check.py', '--binary', binary], { needs: ['python'] }),
     step('verifier environment', [python, '-m', 'venv', venv], { needs: ['python'], when: () => !existsSync(venvPython) }),
     step('verifier dependency', [venvPython, '-m', 'pip', 'install', '--quiet', 'blake3==1.0.11'], { needs: ['python'] }),
     step('independent evidence verifier', [venvPython, '-I', 'tools/evidence-verifier/test_verify_evidence.py'], { needs: ['python'], env: { COSIGNA_AGENT_BIN: binary } }),

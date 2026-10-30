@@ -1,5 +1,14 @@
 # Pivot: controls for AI agents in finance
 
+**31 October - Recovery regression follow-up (C02, #111):** PR #124's recovery repair
+is merged. New real-binary tests cover a controlled pre-claim SQLite failure while
+HTTP admission is saturated, followed by release of the unused reservation and fresh
+approval. A concurrent HTTP replay test checks one effect per key and a shared budget.
+These are fixture correctness checks, not current-main capacity qualification or a
+diagnosis of the original overload incident. See the
+[failure boundary and acceptance criteria](C02_RECOVERY_OVERLOAD_2026-10-31.md).
+This follow-up still requires review/merge; no optional model path or live money is enabled.
+
 **28 October — Reviewed Stripe test evidence and Antler preparation:** two complete Claude
 Northwind pairs each recorded USD 528 wrong refunds through a direct tool versus zero through
 Cosigna; one complete corrected Codex pair recorded USD 1,168 versus zero. All expected refunds

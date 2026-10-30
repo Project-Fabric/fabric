@@ -205,6 +205,29 @@ impl Lab {
 }
 
 #[test]
+fn recovery_of_an_unsubmitted_approval_notifies_reviewers_once() {
+    let lab = Lab::new();
+    let (id, digest) = lab.held(30000, "interrupted-approval");
+    assert!(lab.cycle(AT).is_empty());
+    lab.service
+        .approve_operation(&lab.owner_actor(), &id, &digest, AT)
+        .unwrap();
+    assert!(lab.cycle(AT + 1).is_empty());
+    let mut worker = cosigna_agent::worker::Worker::open(&lab.service).unwrap();
+    worker
+        .recover_operations(AT + cosigna_agent::worker::RECOVERY_GRACE)
+        .unwrap();
+    let delivered = lab.cycle(AT + cosigna_agent::worker::RECOVERY_GRACE);
+    assert_eq!(delivered.len(), 2);
+    assert!(
+        delivered
+            .iter()
+            .all(|(_, event, outcome)| event == "held" && *outcome == "sent")
+    );
+    assert!(lab.cycle(AT + 100).is_empty());
+}
+
+#[test]
 fn a_held_refund_alerts_slack_and_a_signed_webhook_once_and_history_is_not_alerted() {
     let lab = Lab::new();
     // Recorded before alerts were ever run: not alerted.

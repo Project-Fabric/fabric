@@ -992,6 +992,25 @@ worker prints one line `{"schema":"cosigna.recovery/v1","data":{operation_id, st
 needs_person}}` when an operation settles, and once at the 12th check without a result
 (`needs_person: true`); settling it then is the owner's `resolve`.
 
+### Refund recovery version 2
+
+`cosigna.recovery/v2` retains the v1 report fields and adds `stage: held` with
+`needs_person: true` for an approval interrupted before any attempt was claimed. Each tick
+considers at most 100 such approvals older than the existing 30-second grace, measured from
+the latest approved evidence timestamp, not original proposal issuance. Inside one immediate
+transaction it rechecks stage, age and absence of attempt/submission/receipt, releases the
+unused reservation, clears both approvals and returns the operation to review. It never calls
+the provider. Same-key replay returns held; an authorized person must approve again.
+Configured alert destinations receive the existing `held` alert for this new evidence event;
+outbox delivery remains deduplicated by evidence sequence and destination.
+
+The additive `gateway.operation.execution_interrupted` evidence event uses the unchanged
+record v1 shape, with held stage, held/execution_interrupted decision, released hold and no
+approval/attempt/receipt. Operation/ledger formats are unchanged. Existing submitting/unknown
+recovery remains lookup-only, preserving uncertain reservations. Execution and recovery use
+the same write lock; recovery cannot release a claimed attempt. Old v1 report consumers must
+accept the v2 envelope before deployment. Worker API `cosigna.worker/v1` is unchanged.
+
 ### Optional batch verification report version 1
 
 The Apache lab writes non-authoritative artifacts below its ignored

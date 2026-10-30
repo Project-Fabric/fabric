@@ -32,6 +32,10 @@ struct Lab {
 
 impl Lab {
     fn new() -> Self {
+        Self::with_threshold(None)
+    }
+
+    fn with_threshold(second_approval_above_minor: Option<i64>) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let service = Service::open(directory.path()).unwrap();
         let credentials =
@@ -55,7 +59,8 @@ impl Lab {
                 "POST",
                 "/budgets",
                 json!({"currency":"USD","limit_minor":100000,
-                "per_purchase_minor":70000,"merchants":["fixture-cafe"],"expires_at":AT+86400*2}),
+                "per_purchase_minor":70000,"merchants":["fixture-cafe"],"expires_at":AT+86400*2,
+                "second_approval_above_minor":second_approval_above_minor}),
             )
             .unwrap()["data"]["id"]
             .as_str()
@@ -179,6 +184,262 @@ impl Lab {
             .map(|e| e["step"].as_str().unwrap().to_string())
             .collect()
     }
+}
+
+#[test]
+fn an_approval_interrupted_before_attempt_claim_returns_to_review_without_spending() {
+    let lab = Lab::new();
+    let (id, digest) = lab.held();
+    lab.service
+        .approve_operation(&lab.owner_actor(), &id, &digest, AT)
+        .unwrap();
+    assert_eq!(lab.stage(&id), OperationStage::Approved);
+    // Exactly the durable boundary seen in the overload failure: approval committed,
+    // no attempt key and no provider call. Restart the service/worker at this boundary.
+    let service = Service::open(lab.directory.path()).unwrap();
+    let mut worker = Worker::open(&service).unwrap();
+    assert!(
+        worker
+            .recover_operations(AT + RECOVERY_GRACE - 1)
+            .unwrap()
+            .is_empty()
+    );
+    let found = worker.recover_operations(AT + RECOVERY_GRACE).unwrap();
+    assert_eq!(lab.stage(&id), OperationStage::Held);
+    assert_eq!(found.len(), 1);
+    assert!(found[0].needs_person);
+    assert_eq!(found[0].stage, OperationStage::Held);
+    assert_eq!(lab.attempts(), 0);
+    assert_eq!(lab.refunded(), 0);
+    let balance = service.balance(&lab.owner_actor(), &lab.budget).unwrap();
+    assert_eq!(balance.reserved_minor, 0);
+    assert_eq!(balance.spent_minor, 0);
+    let op = service.operation(&lab.owner_actor(), &id).unwrap();
+    assert!(op.approved_digest.is_none() && op.approved_by.is_none());
+    assert!(op.attempt_key.is_none() && op.first_approval.is_none());
+    let records = lab.evidence_records();
+    assert!(worker.recover_operations(AT + 3600).unwrap().is_empty());
+    assert_eq!(lab.evidence_records(), records);
+    // Replaying the original agent request does not automatically resume spending.
+    let repeat = lab
+        .call(
+            &lab.bot,
+            "POST",
+            "/operations",
+            json!({"budget_id":lab.budget,
+        "kind":"refund","rail":"fixture","source":"pay_fixture_2049", "amount_minor":30000,
+        "currency":"USD","reason":"Ticket","idempotency_key":"recover"}),
+        )
+        .unwrap();
+    assert_eq!(repeat["data"]["stage"], "held");
+    assert!(service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn a_new_approval_gets_its_own_grace_period_and_must_be_explicitly_resumed() {
+    let lab = Lab::new();
+    let (id, digest) = lab.held();
+    let owner = lab.owner_actor();
+    lab.service
+        .approve_operation(&owner, &id, &digest, AT)
+        .unwrap();
+    let mut worker = Worker::open(&lab.service).unwrap();
+    worker.recover_operations(AT + RECOVERY_GRACE).unwrap();
+    lab.service
+        .approve_operation(&owner, &id, &digest, AT + 100)
+        .unwrap();
+    assert!(
+        worker
+            .recover_operations(AT + 100 + RECOVERY_GRACE - 1)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(lab.stage(&id), OperationStage::Approved);
+    // Explicit authorized execution still works and is never undone by recovery.
+    lab.service
+        .execute_operation(&owner, &id, Scenario::Success, AT + 100)
+        .unwrap();
+    assert!(worker.recover_operations(AT + 1000).unwrap().is_empty());
+    assert_eq!(lab.stage(&id), OperationStage::Succeeded);
+    assert_eq!(lab.attempts(), 1);
+    assert_eq!(lab.refunded(), 30000);
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn an_expired_unsubmitted_approval_releases_only_its_unused_reservation() {
+    let lab = Lab::new();
+    let (id, digest) = lab.held();
+    let owner = lab.owner_actor();
+    lab.service
+        .approve_operation(&owner, &id, &digest, AT)
+        .unwrap();
+    let mut worker = Worker::open(&lab.service).unwrap();
+    let recovered = worker.recover_operations(AT + 86400 + 1).unwrap();
+    assert_eq!(recovered.len(), 1);
+    assert!(recovered[0].needs_person);
+    assert!(
+        lab.service
+            .approve_operation(&owner, &id, &digest, AT + 86400 + 1)
+            .is_err()
+    );
+    assert_eq!(
+        lab.service
+            .balance(&owner, &lab.budget)
+            .unwrap()
+            .reserved_minor,
+        0
+    );
+    assert_eq!(lab.attempts(), 0);
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn recovery_racing_a_real_executor_cannot_release_a_claimed_attempt() {
+    for _ in 0..12 {
+        let lab = Lab::new();
+        let (id, digest) = lab.held();
+        let owner = lab.owner_actor();
+        lab.service
+            .approve_operation(&owner, &id, &digest, AT)
+            .unwrap();
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let execute = scope.spawn(|| {
+                barrier.wait();
+                lab.service
+                    .execute_operation(&owner, &id, Scenario::Success, AT + RECOVERY_GRACE)
+            });
+            let mut worker = Worker::open(&lab.service).unwrap();
+            barrier.wait();
+            worker.recover_operations(AT + RECOVERY_GRACE).unwrap();
+            let result = execute.join().unwrap();
+            match result {
+                Ok(op) => assert_eq!(op.stage, OperationStage::Succeeded),
+                Err(Error::Conflict(_)) => assert_eq!(lab.stage(&id), OperationStage::Held),
+                other => panic!("unexpected execution result: {other:?}"),
+            }
+        });
+        let balance = lab.service.balance(&owner, &lab.budget).unwrap();
+        assert_eq!(balance.reserved_minor, 0);
+        assert_eq!(balance.spent_minor, lab.refunded());
+        assert!(lab.attempts() <= 1);
+        assert!(lab.service.verify_evidence().unwrap().ok());
+    }
+}
+
+#[test]
+fn killing_the_process_after_approval_before_claim_does_not_strand_money() {
+    let lab = Lab::new();
+    let (id, digest) = lab.held();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "recovery_crash_child",
+            "--nocapture",
+        ])
+        .env("COSIGNA_RECOVERY_STORE", lab.directory.path())
+        .env("COSIGNA_RECOVERY_OWNER", &lab.owner)
+        .env("COSIGNA_RECOVERY_OPERATION", &id)
+        .env("COSIGNA_RECOVERY_DIGEST", &digest)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let started = BufReader::new(stdout)
+            .lines()
+            .any(|line| line.is_ok_and(|l| l.contains(READY)));
+        let _ = send.send(started);
+    });
+    let started = receive.recv_timeout(Duration::from_secs(20));
+    let _ = child.kill();
+    let exit = child.wait().unwrap();
+    assert_eq!(started, Ok(true));
+    assert!(!exit.success());
+    assert_eq!(lab.stage(&id), OperationStage::Approved);
+    let service = Service::open(lab.directory.path()).unwrap();
+    let mut worker = Worker::open(&service).unwrap();
+    let recovered = worker.recover_operations(AT + RECOVERY_GRACE).unwrap();
+    assert_eq!(recovered.len(), 1);
+    assert!(recovered[0].needs_person);
+    assert_eq!(lab.stage(&id), OperationStage::Held);
+    assert_eq!(lab.attempts(), 0);
+    assert_eq!(
+        service
+            .balance(&lab.owner_actor(), &lab.budget)
+            .unwrap()
+            .reserved_minor,
+        0
+    );
+    assert!(service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn both_people_must_approve_again_after_unsubmitted_recovery() {
+    let lab = Lab::with_threshold(Some(10000));
+    let (id, digest) = lab.held();
+    let owner = lab.owner_actor();
+    let named = lab
+        .call(
+            &lab.owner,
+            "POST",
+            "/approvers",
+            json!({"name":"Synthetic reviewer","currency":"USD","max_approval_minor":50000}),
+        )
+        .unwrap();
+    let named_auth = format!("Bearer {}", named["data"]["token"].as_str().unwrap());
+    let named_approval = gateway::dispatch(
+        &lab.service,
+        &cosigna_agent::planner::FixturePlanner,
+        &lab.credentials,
+        &named_auth,
+        "POST",
+        &format!("/gateway/v1/operations/{id}/approve"),
+        &serde_json::to_vec(&json!({"proposal_digest":digest})).unwrap(),
+        AT,
+    );
+    assert_eq!(named_approval.unwrap()["data"]["stage"], "held");
+    lab.service
+        .approve_operation(&owner, &id, &digest, AT)
+        .unwrap();
+    assert_eq!(lab.stage(&id), OperationStage::Approved);
+    assert!(
+        lab.service
+            .operation(&owner, &id)
+            .unwrap()
+            .first_approval
+            .is_some()
+    );
+    let mut worker = Worker::open(&lab.service).unwrap();
+    worker.recover_operations(AT + RECOVERY_GRACE).unwrap();
+    assert_eq!(lab.stage(&id), OperationStage::Held);
+    assert!(
+        lab.service
+            .operation(&owner, &id)
+            .unwrap()
+            .first_approval
+            .is_none()
+    );
+    let first_again = lab
+        .service
+        .approve_operation(&owner, &id, &digest, AT + 100)
+        .unwrap();
+    assert_eq!(first_again.stage, OperationStage::Held);
+    assert!(first_again.first_approval.is_some());
+    assert_eq!(lab.attempts(), 0);
+    assert_eq!(
+        lab.service
+            .balance(&owner, &lab.budget)
+            .unwrap()
+            .reserved_minor,
+        0
+    );
+    assert!(lab.service.verify_evidence().unwrap().ok());
 }
 
 #[test]

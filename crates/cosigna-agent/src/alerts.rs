@@ -205,7 +205,7 @@ impl Alerts {
 
 fn event_of(kind: &str) -> Option<&'static str> {
     match kind {
-        "gateway.operation.held" => Some("held"),
+        "gateway.operation.held" | "gateway.operation.execution_interrupted" => Some("held"),
         "gateway.operation.first_approved" => Some("first_approved"),
         "gateway.operation.submission_unknown" => Some("unknown"),
         _ => None,

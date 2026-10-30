@@ -58,7 +58,7 @@ class Verifier(unittest.TestCase):
                         ("pay_v_4", "USD", 3000, "d"), ("pay_v_5", "USD", 40000, "e"), ("pay_v_6", "USD", 45000, "f")])
         db.execute("INSERT INTO fixture_cases(id,customer,source,currency,owed_minor) VALUES ('case_v_4','d','pay_v_4','USD',1000)")
         db.commit(); db.close()
-        owner = "Bearer " + json.load(open(os.path.join(cls.dir, "credentials.json")))["owner"]
+        owner = "Bearer " + json.loads(Path(cls.dir, "credentials.json").read_text())["owner"]
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]
         server = subprocess.Popen([BIN, "serve", "--data-dir", cls.dir, "--port", str(port)],
@@ -152,10 +152,35 @@ class Verifier(unittest.TestCase):
         self.assertEqual(subprocess.run([BIN, "evidence", "verify", "--data-dir", self.dir], capture_output=True).returncode, 0)
 
     def test_an_edited_body_breaks_its_hash(self):
-        data = open(self.genuine, "rb").read().replace(b'"amount_minor":2000', b'"amount_minor":2001', 1)
+        data = Path(self.genuine).read_bytes().replace(b'"amount_minor":2000', b'"amount_minor":2001', 1)
         code, report = self.verify(data)
         self.assertEqual(code, 5)
         self.assertTrue(any("does not match its hash" in p for p in report["problems"]))
+
+    def test_unsubmitted_recovery_rejects_claimed_attempts_and_retained_authority(self):
+        records = json.loads(json.dumps(self.records))
+        index = next(i for i, r in enumerate(records) if r['event']['kind'] == 'gateway.operation.owner_approved')
+        records = records[:index + 1]
+        recovery = json.loads(json.dumps(records[-1]))
+        event = recovery['event']
+        event.update(kind='gateway.operation.execution_interrupted', stage='held',
+                     decision={'outcome':'held','rule':'execution_interrupted'},
+                     approved_digest=None, approved_by=None, attempt_key=None, receipt=None)
+        event['version'] += 1
+        event.pop('first_approval', None)
+        event['hold']['state'] = 'released'
+        records.append(recovery)
+        code, report = self.verify(rechain(records))
+        self.assertEqual(code, 0, report['problems'])
+        for mutation in ('claimed', 'unreleased', 'approval_retained', 'agent_recovery'):
+            altered = json.loads(json.dumps(records))
+            if mutation == 'claimed': altered[-2]['event'].update(stage='submitting',attempt_key='synthetic-attempt')
+            if mutation == 'unreleased': altered[-1]['event']['hold']['state'] = 'held'
+            if mutation == 'approval_retained': altered[-1]['event']['approved_by'] = 'owner'
+            if mutation == 'agent_recovery': altered[-1]['event']['by']['agent'] = 'synthetic-agent'
+            code, report = self.verify(rechain(altered))
+            self.assertEqual(code, 5, mutation)
+            self.assertTrue(any('invalid unsubmitted approval recovery' in p for p in report['problems']))
 
     def test_a_consistent_rewrite_that_breaks_a_rule_is_still_caught(self):
         def auto_over_grant(records):
@@ -258,7 +283,7 @@ class Verifier(unittest.TestCase):
             self.assertTrue(any(expected in p for p in report["problems"]), (change.__name__, report["problems"]))
 
     def test_removed_or_reordered_records_break_the_chain(self):
-        lines = open(self.genuine, "rb").read().splitlines()
+        lines = Path(self.genuine).read_bytes().splitlines()
         code, report = self.verify(b"\n".join(lines[:2] + lines[3:]) + b"\n")
         self.assertEqual(code, 5)
         code, report = self.verify(b"\n".join([lines[1], lines[0]] + lines[2:]) + b"\n")

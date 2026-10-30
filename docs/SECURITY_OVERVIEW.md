@@ -179,7 +179,7 @@ Running it:
   cannot write.
 - **Upgrades:** back up first; rebuild and `docker compose up -d --wait`. The ledger upgrades
   itself on start; downgrading is not supported. Verify the evidence afterwards.
-- **Monitoring:** the gateway health check; the worker's JSON lines (`cosigna.recovery/v1`
+- **Monitoring:** the gateway health check; the worker's JSON lines (`cosigna.recovery/v2`
   `needs_person`, `cosigna.alert-delivery/v1` `failed`); payments held or unknown in the console.
 - **Incidents:** revoke the agent (`POST /gateway/v1/agents/{id}/revoke`) or approver at once;
   revoke the budget to stop all its agents; rotate any provider key at the provider; review the

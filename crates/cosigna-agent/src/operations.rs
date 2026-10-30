@@ -837,6 +837,86 @@ impl Service {
         Ok(rows)
     }
 
+    /// Approved operations with no claimed attempt can be stranded between approval and
+    /// execution. Use the latest approval event (not proposal issuance) for the grace period.
+    pub(crate) fn unsubmitted_operations(
+        &self,
+        at: i64,
+        grace: i64,
+    ) -> Result<Vec<(String, String)>> {
+        self.require_unscoped()?;
+        let db = storage::connect(&self.ledger, false)?;
+        let mut statement = db.prepare(
+            "SELECT o.owner,o.id FROM operations o JOIN evidence e
+             ON json_extract(e.body,'$.event.operation')=o.id
+             WHERE json_extract(o.data,'$.stage')='approved'
+               AND json_extract(e.body,'$.event.stage')='approved'
+             GROUP BY o.owner,o.id
+             HAVING MAX(unixepoch(json_extract(e.body,'$.at'))) <= ?1
+             ORDER BY o.id LIMIT 100",
+        )?;
+        Ok(statement
+            .query_map([at.saturating_sub(grace)], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Atomically withdraw an old approval only when no submission has been claimed.
+    /// A competing executor holds the same write lock: either it claims an attempt and
+    /// this is a no-op, or it subsequently sees Held and cannot send. Never calls a rail.
+    pub(crate) fn pause_unsubmitted_operation(
+        &self,
+        owner: &Actor,
+        id: &str,
+        at: i64,
+        grace: i64,
+    ) -> Result<Option<Operation>> {
+        self.require_unscoped()?;
+        owner.require(&[Role::Owner])?;
+        let mut db = storage::connect(&self.ledger, false)?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut op = load(&tx, id)?;
+        owner.owns(&op.owner)?;
+        if op.stage != OperationStage::Approved {
+            return Ok(None);
+        }
+        let approved_at: Option<i64> = tx.query_row(
+            "SELECT MAX(unixepoch(json_extract(body,'$.at'))) FROM evidence
+             WHERE json_extract(body,'$.event.operation')=?1
+               AND json_extract(body,'$.event.stage')='approved'",
+            [id],
+            |r| r.get(0),
+        )?;
+        if approved_at.is_none_or(|t| t > at.saturating_sub(grace)) {
+            return Ok(None);
+        }
+        if op.attempt_key.is_some() || op.submitted_at.is_some() || op.receipt.is_some() {
+            return Err(Error::StoreFormat);
+        }
+        let proposal = op.proposal.as_ref().ok_or(Error::StoreFormat)?;
+        let held: Option<i64> = tx
+            .query_row(
+                "SELECT amount FROM operation_holds WHERE operation_id=?1 AND state='held'",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if held != Some(proposal.amount_minor)
+            || op.approved_digest.as_deref() != Some(proposal.digest()?.as_str())
+        {
+            return Err(Error::StoreFormat);
+        }
+        settle_hold(&tx, id, "released")?;
+        op.stage = OperationStage::Held;
+        op.decision = Decision::Held("execution_interrupted".into());
+        op.approved_digest = None;
+        op.approved_by = None;
+        op.approver = None;
+        op.first_approval = None;
+        save(&tx, &mut op, "execution_interrupted", at, self.by(owner))?;
+        tx.commit()?;
+        Ok(Some(op))
+    }
+
     /// Recovery by lookup only; nothing is ever sent. If the rail has the attempt's result it
     /// is recorded; an attempt left `submitting` (say, by a crash) with no result becomes
     /// `unknown`, recorded once; an `unknown` one with no result is left as it is, with no

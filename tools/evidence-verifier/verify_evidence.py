@@ -144,6 +144,7 @@ def replay(records, problems):
             step = kind.rsplit(".", 1)[1]
             op_id, request = event["operation"], event["request"]
             first = op_id not in ops
+            previous = ops.get(op_id) or {}
             ops[op_id] = event
             budget = budgets.get(event["budget"])
             if budget is None:
@@ -199,6 +200,21 @@ def replay(records, problems):
                 proposal = event.get("proposal") or {}
                 if event.get("approved_digest") != proposal.get("digest"):
                     problems.append(f"record {seq}: approval does not name the proposal's digest")
+            if step == "execution_interrupted":
+                if (previous.get("stage") != "approved" or previous.get("attempt_key")
+                        or previous.get("receipt") or event.get("stage") != "held"
+                        or previous.get("request") != event.get("request")
+                        or previous.get("proposal") != event.get("proposal")
+                        or event.get("version") != previous.get("version", 0) + 1
+                        or (previous.get("hold") or {}).get("state") != "held"
+                        or event.get("attempt_key") or event.get("receipt")
+                        or event.get("approved_digest") or event.get("approved_by")
+                        or event.get("first_approval") or by.get("role") != "owner" or by.get("agent")
+                        or (event.get("hold") or {}).get("state") != "released"
+                        or (event.get("decision") or {}).get("outcome") != "held"
+                        or (event.get("decision") or {}).get("rule") != "execution_interrupted"):
+                    problems.append(f"record {seq}: invalid unsubmitted approval recovery")
+                firsts.pop(op_id, None)
             hold = event.get("hold") or {}
             stage = event.get("stage")
             if hold and hold.get("amount_minor") != request["amount_minor"]:

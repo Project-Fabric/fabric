@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cosigna refund review v1 (design contract)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "cosigna.refund-review/v1"
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": [
+        "defer_to_policy",
+        "require_review"
+      ]
+    },
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "no_additional_signal",
+        "insufficient_evidence",
+        "source_not_current",
+        "needs_review"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "recommendation",
+    "reason_code"
+  ],
+  "oneOf": [
+    {
+      "properties": {
+        "recommendation": {
+          "const": "defer_to_policy"
+        },
+        "reason_code": {
+          "const": "no_additional_signal"
+        }
+      }
+    },
+    {
+      "properties": {
+        "recommendation": {
+          "const": "require_review"
+        },
+        "reason_code": {
+          "enum": [
+            "insufficient_evidence",
+            "source_not_current",
+            "needs_review"
+          ]
+        }
+      }
+    }
+  ]
+}

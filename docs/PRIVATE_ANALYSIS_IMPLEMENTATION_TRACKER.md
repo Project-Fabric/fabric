@@ -7,11 +7,11 @@ The source of live status is the linked issues/project, not this dated document.
 
 ## Scope and verified baseline
 
-Refunds first, Stripe TEST and synthetic/explicitly permitted records only. The running gateway uses Rust/tiny_http/SQLite; Tokio/Axum/PostgreSQL remain a proposed migration. Existing scoped grants, case checks, approvals, reservations, attempt recovery and evidence are a starting point, not a production certification.
+Refunds first, Stripe TEST and synthetic/explicitly permitted records only. Baseline corrected after fetching main b669dbe on 30 October: the checked-out demo branch was older than published main. Main already uses Tokio/Axum with admission/time limits and graceful shutdown, SQLite ledger v12, an optional identity resource server with organizations/memberships and verified-identity approval bindings, plus Slack/signed-webhook alerting. PostgreSQL, unified legacy authority, full private-analysis projection/egress and actual external identity-provider deployment remain unestablished. Tests for identity/hardening exist; verify the current integration before implementing duplicates. The earlier tiny_http baseline applies only to the older local demo checkout and its saved capacity results, not current main.
 
 The local 30 October public-derived challenge matched all 240 declared policy effects, while the same 24 wrong-intent probes affected both Cosigna and the case-aware reference. A mixed overload run left one approved USD 1 reservation unsettled after HTTP 500. Those local results motivate C02/C03; they are not merged-release guarantees or historical fraud savings. See local `benchmarks/assurance/2026-10-30` before claiming publication of the original evidence.
 
-The protected analysis/egress stack is proposed. Named development credentials are not verified enterprise identity. The monitoring sandbox contains isolated fixture data and does not monitor a real customer or the Windows console ledger.
+The protected analysis/egress stack is proposed. Legacy named development credentials are separate from the newer identity-bound approval path; neither a local identity fixture nor memberships alone prove a customer identity-provider integration. The monitoring sandbox contains isolated fixture data and does not monitor a real customer or the Windows console ledger.
 
 ## Work packages
 
@@ -49,7 +49,7 @@ The protected analysis/egress stack is proposed. Named development credentials a
 
 Rough total: 216–400 focused hours, approximately 18–40 weeks at 10–12 hours/week. This includes remaining work on reused gates; it is not all new implementation. Estimates exclude external review, waiting for identities/provider access, production migration, customer scheduling and unexpected defects. Do not add work to the current cycle without reassessing scope.
 
-First 10–12-hour cycle: complete the C01 decision package and use remaining time to reproduce C02. Next cycle: C02 regression/fix before opening the next implementation. Keep one production implementation item in progress at a time.
+First 10–12-hour cycle: complete the C01 decision package and use remaining time to reproduce C02. The user authorized foundation work on 30 October ("okay, we can start the work now"). This is not approval of unspecified provider/tenant settings. The pre-existing recovery defect can be repaired under that instruction while final projection-schema review stays open. Next cycle: C02 regression/fix before opening the next implementation. Keep one production implementation item in progress at a time.
 
 ## Tracking rules
 

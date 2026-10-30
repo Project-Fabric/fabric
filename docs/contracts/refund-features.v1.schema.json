@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cosigna refund features v1 (design contract)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "cosigna.refund-features/v1"
+    },
+    "entitlement_check": {
+      "type": "string",
+      "enum": [
+        "match",
+        "exceeds",
+        "mismatch",
+        "unknown"
+      ]
+    },
+    "duplicate_check": {
+      "type": "string",
+      "enum": [
+        "clear",
+        "committed",
+        "unresolved",
+        "unknown"
+      ]
+    },
+    "refund_window": {
+      "type": "string",
+      "enum": [
+        "within",
+        "outside",
+        "unknown"
+      ]
+    },
+    "source_freshness": {
+      "type": "string",
+      "enum": [
+        "current",
+        "stale",
+        "unavailable"
+      ]
+    },
+    "value_band": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "unknown"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "entitlement_check",
+    "duplicate_check",
+    "refund_window",
+    "source_freshness",
+    "value_band"
+  ]
+}

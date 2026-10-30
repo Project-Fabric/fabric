@@ -1,5 +1,30 @@
 # Storage format
 
+## Optional Northwind experiment reports (28 October 2026)
+
+New campaign world files carry `schema: cosigna.northwind-world/v2`, `runtime`,
+`model_requested` and `complete: true`; summary rows carry the same identifiers. Codex's
+signed-in CLI reports token usage per ticket but no API dollar charge, so `cost_usd` is null
+when unknown. A runtime failure aborts without a success summary and writes a sanitized
+`cosigna.northwind-incomplete/v3` artifact with `complete: false`, observed ticket
+amounts/error categories, safe unexpected-tool names, payment identifiers and provider refund
+records. Guarded failures also retain an evidence JSONL export before temporary-store cleanup.
+V3 also checkpoints execution/measurement exceptions. `last_observed_by_order` is a past
+observation, not proof of current payment state. `current_payment_state_unknown` distinguishes
+a failed lookup, and `current_session` retains bounded runtime status separately. No failed
+read is scored as zero money, and evidence export is attempted before provider diagnostics.
+V2 retained provider snapshots on agent-session failures only. The earlier incomplete v1
+artifacts retained only ticket amounts/error categories. Existing unversioned experiment files remain unchanged; consumers
+must not infer completeness from their zero-money outcomes. Campaign output folders must
+not already exist. No gateway ledger or provider storage version changes in this increment.
+
+Codex world v2 ticket records distinguish `observed_resource_discovery_calls` (built-in
+read-only metadata listings) from `observed_mcp_calls` on the supplied financial/history
+servers. Discovery does not count as a transaction attempt or expand the tool allowlist.
+Successful guarded worlds also retain `runN-guarded-evidence.jsonl`, in the existing engine
+evidence framing, before temporary-store cleanup. This adds an export artifact without
+changing the complete-world v2 fields. A failed export aborts rather than publishing success.
+
 This document is normative. Changing anything here requires a version bump.
 
 ## Store layout (layout version 1)

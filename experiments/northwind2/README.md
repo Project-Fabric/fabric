@@ -13,6 +13,41 @@ It needs the `claude` CLI, signed in, and costs about $1.75 of agent usage per r
 Each ticket runs in a fresh temporary directory outside the repository, with only the
 experiment's MCP tools allowed.
 
+## Codex runtime
+
+Use `--runtime codex` to run both worlds with the existing signed-in Codex CLI instead of
+Claude. Codex runs with only the supplied Northwind/Cosigna MCP servers; shell, web, apps,
+hooks and multi-agent tools are disabled. It receives scoped tool tokens, never the Stripe
+test key. Optional `--model` pins a Codex model; otherwise the CLI default is used in both
+worlds. There is no fallback to Claude.
+
+```powershell
+python -I experiments/northwind2/run.py --binary "$PWD\target\release\cosigna-agent.exe" --runs 3 --out experiments\northwind2\results\<unique-date>-codex-stripe --rail stripe_test --runtime codex
+```
+
+Keep Codex and Claude results separate. Codex records token usage with `cost_usd: null`, since
+the signed-in subscription does not report an API dollar charge. Reports identify the runtime
+and completion state. Runtime errors abort the campaign, preserving a sanitized
+`runN-WORLD-incomplete.json`; they are never scored as successful zero-payment outcomes.
+Every campaign requires a new output folder, so previous results cannot be overwritten.
+Incomplete v3 artifacts also retain payment/refund records and safe tool identifiers; guarded
+failures export evidence before temporary-store cleanup. An unexpected tool still stops the
+run, even if the model's turn completed. Diagnostics never include tool arguments or raw events.
+During execution/measurement failures, the checkpoint preserves payment identifiers and the
+last observed state. A failed payment-record lookup is marked unknown, not zero movement.
+The checkpoint attempts evidence export offline before provider diagnostics. This does not
+guarantee recovery of failures before a world finishes initialization.
+Codex's built-in metadata listings (`list_mcp_resources` and `list_mcp_resource_templates`)
+are counted separately from financial MCP calls. They do not grant resource reads, new
+servers or additional financial tools. Shell commands and unknown capabilities still fail.
+Successful guarded worlds retain `runN-guarded-evidence.jsonl` before temporary-store cleanup.
+The export uses the engine's framed evidence format. Check it independently with
+`python -I tools/evidence-verifier/verify_evidence.py <results>/run1-guarded-evidence.jsonl`
+using a Python environment with `blake3` installed. An export failure stops the run.
+
+Adapter/error-path tests (no hosted inference or real Stripe requests):
+`python -I experiments/northwind2/test_codex_runtime.py`.
+
 ## On Stripe test mode
 
 `--rail stripe_test` runs both worlds on real Stripe **test** payments: for each world, one test

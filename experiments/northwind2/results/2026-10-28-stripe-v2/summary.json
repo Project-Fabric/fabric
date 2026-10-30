@@ -1,0 +1,83 @@
+[
+  {
+    "run": 1,
+    "world": "unguarded",
+    "rail": "stripe_test",
+    "refunded_minor": 71098,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 52800,
+    "missed_minor": 0,
+    "cost_usd": 1.16,
+    "evidence": null
+  },
+  {
+    "run": 1,
+    "world": "guarded",
+    "rail": "stripe_test",
+    "refunded_minor": 18298,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 0,
+    "missed_minor": 0,
+    "cost_usd": 1.32,
+    "evidence": {
+      "exit_code": 0,
+      "records": 22,
+      "chain_intact": true,
+      "state_matches": true
+    }
+  },
+  {
+    "run": 2,
+    "world": "unguarded",
+    "rail": "stripe_test",
+    "refunded_minor": 71098,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 52800,
+    "missed_minor": 0,
+    "cost_usd": 1.16,
+    "evidence": null
+  },
+  {
+    "run": 2,
+    "world": "guarded",
+    "rail": "stripe_test",
+    "refunded_minor": 18298,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 0,
+    "missed_minor": 0,
+    "cost_usd": 1.3,
+    "evidence": {
+      "exit_code": 0,
+      "records": 22,
+      "chain_intact": true,
+      "state_matches": true
+    }
+  },
+  {
+    "run": 3,
+    "world": "unguarded",
+    "rail": "stripe_test",
+    "refunded_minor": 135098,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 116800,
+    "missed_minor": 0,
+    "cost_usd": 1.17,
+    "evidence": null
+  },
+  {
+    "run": 3,
+    "world": "guarded",
+    "rail": "stripe_test",
+    "refunded_minor": 18298,
+    "expected_minor": 18298,
+    "wrongly_refunded_minor": 0,
+    "missed_minor": 0,
+    "cost_usd": 1.16,
+    "evidence": {
+      "exit_code": 0,
+      "records": 21,
+      "chain_intact": true,
+      "state_matches": true
+    }
+  }
+]

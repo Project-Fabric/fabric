@@ -10,7 +10,7 @@ use crate::{
 
 pub const API_VERSION: &str = "cosigna.worker/v1";
 /// Lines the worker prints about money operations it is recovering.
-pub const RECOVERY_API_VERSION: &str = "cosigna.recovery/v1";
+pub const RECOVERY_API_VERSION: &str = "cosigna.recovery/v2";
 /// An attempt this recent may still be in flight in the gateway; it is not touched.
 pub const RECOVERY_GRACE: i64 = 30;
 /// After this many checks with no result, the operation is reported as needing a person.
@@ -176,14 +176,32 @@ impl Worker {
         Ok(())
     }
 
-    /// Checks money operations whose rail result is unknown, by lookup only: nothing is sent
-    /// again. Each is checked with backoff (5 s doubling to 5 min, then every 5 min, since
+    /// Pauses stale approvals that never claimed an attempt, then checks submitted money
+    /// operations by lookup only: nothing is sent again. Each submitted operation is checked
+    /// with backoff (5 s doubling to 5 min, then every 5 min, since
     /// a payment system can hold a refund pending for days). Returns only what changed: a
     /// settlement, or the check at which an operation first needs a person.
     pub fn recover_operations(&mut self, at: i64) -> Result<Vec<Recovery>> {
+        let mut out = Vec::new();
+        for (owner, id) in self.service.unsubmitted_operations(at, RECOVERY_GRACE)? {
+            let owner = Actor {
+                owner,
+                role: Role::Owner,
+            };
+            if let Some(op) =
+                self.service
+                    .pause_unsubmitted_operation(&owner, &id, at, RECOVERY_GRACE)?
+            {
+                out.push(Recovery {
+                    operation_id: op.id,
+                    stage: op.stage,
+                    checks: 1,
+                    needs_person: true,
+                });
+            }
+        }
         let due = self.service.unsettled_operations(at, RECOVERY_GRACE)?;
         self.checks.retain(|id, _| due.iter().any(|(_, d)| d == id));
-        let mut out = Vec::new();
         for (owner, id) in due {
             let (count, next_at) = self.checks.get(&id).copied().unwrap_or((0, at));
             if next_at > at {

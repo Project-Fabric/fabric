@@ -363,6 +363,30 @@ pub(crate) fn committed_to_case(db: &Connection, owner: &str, case_id: &str) -> 
     )?)
 }
 
+/// A person approving a held refund signs the case as it stood when it was requested. Held
+/// operations place no hold, so other refunds on the same case may have been approved since.
+/// If they have, and this one no longer fits what the case owes, the signed facts are no longer
+/// true: refuse, so that it is requested again and shows the current case. An excess the person
+/// was already shown is still theirs to approve while nothing has changed.
+fn check_case_unchanged(db: &Connection, op: &Operation, proposal: &Proposal) -> Result<()> {
+    let Some(case_id) = op.request.case_id.as_deref() else {
+        return Ok(());
+    };
+    let signed = proposal.facts.get("case").ok_or(Error::StoreFormat)?;
+    let owed = signed["owed_minor"].as_i64().ok_or(Error::StoreFormat)?;
+    let signed_committed = signed["committed_minor"]
+        .as_i64()
+        .ok_or(Error::StoreFormat)?;
+    let committed = committed_to_case(db, &op.owner, case_id)?;
+    if committed > signed_committed && proposal.amount_minor > owed - committed {
+        return Err(Error::Conflict(
+            "exceeds_case_owed: refunds approved since this was requested now cover the case; request it again"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 fn hold(db: &Connection, op: &Operation, budget: &str, amount: i64) -> Result<()> {
     db.execute(
         "INSERT INTO operation_holds(operation_id,budget_id,amount,state) VALUES (?1,?2,?3,'held')
@@ -608,6 +632,13 @@ impl Service {
                 "operation is not waiting for approval".into(),
             ));
         }
+        crate::agents::check_operation_agent(
+            &tx,
+            &op.owner,
+            &op.request.budget_id,
+            op.agent.as_deref(),
+            at,
+        )?;
         let proposal = op.proposal.as_ref().ok_or(Error::StoreFormat)?;
         if proposal.digest()? != digest {
             return Err(Error::Conflict("proposal digest does not match".into()));
@@ -662,6 +693,7 @@ impl Service {
                 Some(_) => crate::identity::check_first_approval(&tx, &op)?,
             }
         }
+        check_case_unchanged(&tx, &op, proposal)?;
         let (held, spent) = storage::totals(&tx, &budget.id)?;
         if proposal.amount_minor > budget.terms.limit_minor - held - spent {
             return Err(Error::BudgetExceeded);
@@ -752,6 +784,13 @@ impl Service {
                     return Err(Error::Conflict("operation is not approved".into()));
                 }
                 crate::identity::check_submission_authority(&tx, &op)?;
+                crate::agents::check_operation_agent(
+                    &tx,
+                    &op.owner,
+                    &op.request.budget_id,
+                    op.agent.as_deref(),
+                    at,
+                )?;
                 if self.agent_scope.is_some() {
                     self.check_agent_budget(
                         &tx,

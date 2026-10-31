@@ -68,7 +68,12 @@ impl Lab {
 
     /// refunds-bot: may refund through the fixture rail, alone up to $100.
     fn bot(&self, require_case: bool) -> String {
-        let mut grant = json!({"kinds":["refund"],"rails":["fixture"],"auto_approve_minor":10000});
+        self.bot_up_to(10000, require_case)
+    }
+
+    fn bot_up_to(&self, auto_approve_minor: i64, require_case: bool) -> String {
+        let mut grant = json!({"kinds":["refund"],"rails":["fixture"],
+            "auto_approve_minor":auto_approve_minor});
         if require_case {
             grant["require_case"] = json!(true);
         }
@@ -258,6 +263,53 @@ fn refunds_against_one_case_cannot_add_up_past_what_it_owes() {
         .unwrap();
     assert_eq!(outcome(&rest).0, "succeeded");
     assert_eq!(lab.refunded("pay_fixture_2051"), 2500);
+}
+
+#[test]
+fn a_waiting_refund_is_not_approved_on_case_facts_that_later_refunds_made_untrue() {
+    let lab = Lab::new();
+    // Alone up to $10, so a refund of the whole $25.00 Eli is owed waits for a person.
+    let bot = lab.bot_up_to(1000, true);
+    let case = Some("case_fixture_2051");
+    let whole = lab
+        .refund(&bot, "pay_fixture_2051", 2500, case, "whole")
+        .unwrap();
+    assert_eq!(
+        outcome(&whole),
+        ("held".into(), "needs_owner_approval".into())
+    );
+    assert_eq!(
+        whole["data"]["proposal"]["facts"]["case"]["committed_minor"],
+        0
+    );
+    let part = lab
+        .refund(&bot, "pay_fixture_2051", 1500, case, "part")
+        .unwrap();
+    assert_eq!(outcome(&part).0, "held");
+    // Meanwhile the agent pays $10 of the case on its own.
+    let small = lab
+        .refund(&bot, "pay_fixture_2051", 1000, case, "small")
+        .unwrap();
+    assert_eq!(outcome(&small).0, "succeeded");
+
+    let approve = |op: &Value| {
+        lab.call(
+            &lab.owner,
+            "POST",
+            &format!("/operations/{}/approve", op["data"]["id"].as_str().unwrap()),
+            json!({"proposal_digest": op["proposal_digest"]}),
+        )
+    };
+    // $25.00 no longer fits the $15.00 left: the person would sign a case that is not true.
+    let refused = approve(&whole);
+    assert!(
+        matches!(&refused, Err(Error::Conflict(m)) if m.starts_with("exceeds_case_owed")),
+        "{refused:?}"
+    );
+    // $15.00 still fits, so the stale count does not stop it.
+    assert_eq!(approve(&part).unwrap()["data"]["stage"], "succeeded");
+    assert_eq!(lab.refunded("pay_fixture_2051"), 2500);
+    assert!(lab.service.verify_evidence().unwrap().ok());
 }
 
 #[test]

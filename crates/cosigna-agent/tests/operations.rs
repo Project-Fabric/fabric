@@ -629,6 +629,69 @@ fn owner_rejection_revocation_and_shared_budgets_are_enforced() {
 }
 
 #[test]
+fn a_revoked_agents_waiting_refunds_cannot_be_approved_or_sent_but_can_be_rejected() {
+    let lab = Lab::new();
+    let owner = lab.owner_actor();
+    let (bot, agent_id) = lab.refunds_bot();
+    // One refund waits for a person; another is approved but not yet sent.
+    let held = lab
+        .refund(&bot, "pay_fixture_2049", 30000, "waiting")
+        .unwrap();
+    let held_id = held["data"]["id"].as_str().unwrap().to_string();
+    let other = lab
+        .refund(&bot, "pay_fixture_2045", 20000, "approved")
+        .unwrap();
+    let other_id = other["data"]["id"].as_str().unwrap().to_string();
+    let digest = other["proposal_digest"].as_str().unwrap().to_string();
+    let approved = lab
+        .service
+        .approve_operation(&owner, &other_id, &digest, AT)
+        .unwrap();
+    assert_eq!(approved.stage, OperationStage::Approved);
+
+    lab.call(
+        &lab.owner,
+        "POST",
+        &format!("/agents/{agent_id}/revoke"),
+        json!({}),
+    )
+    .unwrap();
+
+    let approve = lab.call(
+        &lab.owner,
+        "POST",
+        &format!("/operations/{held_id}/approve"),
+        json!({"proposal_digest": held["proposal_digest"]}),
+    );
+    assert!(
+        matches!(&approve, Err(Error::Conflict(m)) if m.starts_with("agent_inactive")),
+        "{approve:?}"
+    );
+    assert!(matches!(
+        lab.service
+            .execute_operation(&owner, &other_id, Scenario::Success, AT),
+        Err(Error::Conflict(m)) if m.starts_with("agent_inactive")
+    ));
+    assert_eq!(lab.refunded("pay_fixture_2049"), 0);
+    assert_eq!(lab.refunded("pay_fixture_2045"), 0);
+
+    // Rejecting still works and releases the approved one's hold.
+    for id in [&held_id, &other_id] {
+        let rejected = lab
+            .call(
+                &lab.owner,
+                "POST",
+                &format!("/operations/{id}/reject"),
+                json!({}),
+            )
+            .unwrap();
+        assert_eq!(rejected["data"]["stage"], "rejected");
+    }
+    assert_eq!(lab.available(), 100000);
+    assert!(lab.service.verify_evidence().unwrap().ok());
+}
+
+#[test]
 fn a_hold_changed_outside_the_service_is_detected() {
     let lab = Lab::new();
     let (bot, _) = lab.refunds_bot();

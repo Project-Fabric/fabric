@@ -110,6 +110,32 @@ fn active(agent: &RegisteredAgent, at: i64) -> Result<()> {
     Ok(())
 }
 
+/// The agent a money operation came from must still be active before a person's approval or a
+/// new submission claim counts for it, whoever gives it, as for tasks. Settling an attempt that
+/// was already claimed does not depend on this. A conflict, not a refusal: the person asking is
+/// allowed to; the request is what has lapsed, and they can still reject it.
+pub(crate) fn check_operation_agent(
+    db: &Connection,
+    owner: &str,
+    budget: &str,
+    agent: Option<&str>,
+    at: i64,
+) -> Result<()> {
+    let Some(id) = agent else {
+        return Ok(());
+    };
+    let agent = load(db, id)?;
+    if agent.owner != owner || agent.budget_id != budget {
+        return Err(Error::StoreFormat);
+    }
+    active(&agent, at).map_err(|_| {
+        Error::Conflict(
+            "agent_inactive: the agent that requested this was revoked or has expired; reject it"
+                .into(),
+        )
+    })
+}
+
 impl Service {
     pub(crate) fn require_unscoped(&self) -> Result<()> {
         if self.agent_scope.is_some() {

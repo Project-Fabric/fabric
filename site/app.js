@@ -144,3 +144,32 @@ if (!reducedMotion.matches && 'IntersectionObserver' in window && 'MutationObser
   }, { threshold: 0.4 });
   once.observe(panel); once.observe(figure);
 }
+
+// Authority map: route each line from the rows' real positions, so a line
+// follows its provider row when a row above it opens or closes.
+const authorityMap = document.querySelector('.authority-map');
+if (authorityMap) {
+  const svg = authorityMap.querySelector('.map-lines'), art = authorityMap.querySelector('.map-art');
+  const list = authorityMap.querySelector('.provider-list'), core = authorityMap.querySelector('.map-core');
+  const agents = [...authorityMap.querySelectorAll('.map-node')], rows = [...list.querySelectorAll('summary')];
+  const ins = [...svg.querySelectorAll('.map-in')], outs = [...svg.querySelectorAll('.map-out')];
+  const pulses = [...svg.querySelectorAll('.map-pulse')];
+  const curve = (x1, y1, x2, y2) => { const m = Math.round((x1 + x2) / 2); return `M${x1} ${y1} C ${m} ${y1}, ${m} ${y2}, ${x2} ${y2}`; };
+  const setPath = (path, d) => { path.setAttribute('d', d); path.style.d = `path("${d}")`; };
+  function route() {
+    const origin = art.getBoundingClientRect(), box = list.getBoundingClientRect();
+    if (!origin.width || getComputedStyle(art).display === 'none') return;
+    const width = Math.round(box.right - origin.left), height = Math.round(Math.max(origin.height, box.bottom - origin.top));
+    svg.style.width = `${width}px`; svg.style.height = `${height}px`; svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    const at = (rect, side) => [Math.round((side === 'left' ? rect.left : rect.right) - origin.left), Math.round(rect.top + rect.height / 2 - origin.top)];
+    const c = core.getBoundingClientRect(), [inX, coreY] = at(c, 'left'), [outX] = at(c, 'right');
+    agents.forEach((agent, i) => { const [x, y] = at(agent.getBoundingClientRect(), 'right'); setPath(ins[i], curve(x, y, inX, coreY)); });
+    rows.forEach((row, i) => { const [x, y] = at(row.getBoundingClientRect(), 'left'); setPath(outs[i], curve(outX, coreY, x, y)); });
+    ins.forEach((path, i) => setPath(pulses[i], path.getAttribute('d')));
+    setPath(pulses[ins.length], outs[0].getAttribute('d'));
+  }
+  for (const details of list.querySelectorAll('details')) details.addEventListener('toggle', route);
+  if ('ResizeObserver' in window) new ResizeObserver(route).observe(authorityMap); else window.addEventListener('resize', route);
+  if (document.fonts) document.fonts.ready.then(route);
+  route();
+}

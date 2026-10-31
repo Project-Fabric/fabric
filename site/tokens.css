@@ -29,4 +29,5 @@
   --color-hero: #171916; --color-hero-muted: #c8cbc1; --color-hero-rule: #ffffff29; --color-hero-focus: #bca78e;
   --color-warning: oklch(40% 0.08 55); --color-warning-surface: oklch(92% 0.04 70);
   --color-board-muted: oklch(78% 0.009 70); --color-board-rule: oklch(44% 0.011 40);
+  --color-grid: oklch(87% 0.009 55 / 0.5);
 }

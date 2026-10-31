@@ -122,3 +122,25 @@ if (context) {
   if ('ResizeObserver' in window) new ResizeObserver(resize).observe(canvas); else window.addEventListener('resize', resize);
   resize(); updateMotion();
 } else { motionToggle.hidden = true; }
+
+// Motion layer: replays the workflow steps and counts the comparison figure.
+// Every element already holds its final content; nothing here is needed to read the page.
+if (!reducedMotion.matches && 'IntersectionObserver' in window && 'MutationObserver' in window) {
+  document.documentElement.classList.add('js');
+  const replay = () => { panel.classList.remove('replay'); void panel.offsetWidth; panel.classList.add('replay'); };
+  new MutationObserver(replay).observe(document.querySelector('#workflow-title'), { childList: true, characterData: true, subtree: true });
+  const figure = document.querySelector('.experiment-number');
+  const once = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      once.unobserve(entry.target);
+      if (entry.target === panel) replay();
+      if (entry.target === figure) {
+        const final = figure.textContent, end = Number(final.replace(/[^0-9]/g, '')), start = performance.now();
+        const step = now => { const t = Math.min((now - start) / 1400, 1); figure.textContent = t < 1 ? '$' + Math.round(end * (1 - Math.pow(1 - t, 3))) : final; if (t < 1) requestAnimationFrame(step); };
+        requestAnimationFrame(step);
+      }
+    }
+  }, { threshold: 0.4 });
+  once.observe(panel); once.observe(figure);
+}

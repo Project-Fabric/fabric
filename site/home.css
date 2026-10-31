@@ -122,10 +122,10 @@ button, .button, summary { -webkit-tap-highlight-color: transparent; }
 /* Integrations: the authority map beside the provider directory */
 .integration-heading, .agent-heading { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--gap-columns); align-items: end; }
 .integration-heading p, .agent-heading > p { color: var(--color-muted); font-size: var(--text-lead); line-height: 1.5; }
-.authority-map { margin-top: var(--space-3xl); display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-.map-art { position: relative; height: 405px; }
+.authority-map { margin-top: var(--space-3xl); display: grid; grid-template-columns: 520px minmax(0, 1fr); align-items: start; }
+.map-art { position: relative; width: 520px; height: 400px; }
 .map-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.map-lines path { fill: none; vector-effect: non-scaling-stroke; stroke-width: 1px; }
+.map-lines path { fill: none; stroke-width: 1px; }
 .map-in { stroke: var(--color-ink); }
 .map-out { stroke: var(--color-muted); stroke-dasharray: 4 5; }
 .map-out.map-live { stroke: var(--color-ink); stroke-width: 2px; stroke-dasharray: none; }
@@ -138,6 +138,7 @@ button, .button, summary { -webkit-tap-highlight-color: transparent; }
 .map-core > span:not(.wordmark) { color: var(--color-paper-3); }
 .provider-list { border-top: 1px solid var(--color-rule-2); }
 .provider-list details { border-bottom: 1px solid var(--color-rule-2); }
+.provider-list summary { min-height: 79px; }
 summary { cursor: pointer; list-style: none; min-height: 80px; display: flex; align-items: center; gap: var(--space-lg); padding-block: var(--space-md); }
 summary::-webkit-details-marker { display: none; }
 summary > span:last-child { margin-left: auto; transition: transform var(--dur-short) var(--ease-out); }
@@ -209,6 +210,50 @@ dialog > p { margin-top: var(--space-lg); color: var(--color-muted); }
 pre { padding: var(--space-lg); background: var(--color-paper-3); color: var(--color-ink); overflow-x: auto; margin-block: var(--space-lg); }
 code { font-family: var(--font-outlier); font-size: var(--text-sm); }
 #copy-status { min-height: 1.55em; font-size: var(--text-sm); }
+
+/* Motion: transform, opacity and stroke offsets only; html.js is set by script only when reduced motion is off */
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } }
+@keyframes flow { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes step-in { from { opacity: 0; transform: translateY(12px); } }
+@keyframes draw-x { from { transform: scaleX(0); } }
+.hero-copy > * { animation: rise 900ms var(--ease-out) both; }
+.hero-copy > :nth-child(2) { animation-delay: 140ms; }
+.hero-copy > :nth-child(3) { animation-delay: 280ms; }
+.js .reveal { opacity: 0; transform: translateY(28px); transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out); }
+.js .reveal.is-visible { opacity: 1; transform: none; }
+.js .map-in, .js .map-live { stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset 900ms var(--ease-out); }
+.js .map-in-2 { transition-delay: 120ms; } .js .map-in-3 { transition-delay: 240ms; } .js .map-live { transition-delay: 900ms; }
+.js .map-out:not(.map-live) { opacity: 0; transition: opacity 600ms var(--ease-out) 1100ms; }
+.js .map-node, .js .map-core { opacity: 0; transition: opacity 500ms var(--ease-out); }
+.js .map-core { transition-delay: 600ms; }
+.js .authority-map.is-visible :is(.map-in, .map-live) { stroke-dashoffset: 0; }
+.js .authority-map.is-visible :is(.map-out, .map-node, .map-core) { opacity: 1; }
+.map-pulse { fill: none; stroke: var(--color-accent-2); stroke-width: 3px; stroke-linecap: round; stroke-dasharray: 6 94; stroke-dashoffset: 100; opacity: 0; }
+.js .authority-map.is-visible .map-pulse { opacity: 1; animation: flow 2600ms linear infinite; animation-delay: 1800ms; }
+.js .authority-map.is-visible .map-pulse-2 { animation-delay: 2400ms; }
+.js .authority-map.is-visible .map-pulse-3 { animation-delay: 3000ms; }
+.js .authority-map.is-visible .map-pulse-out { animation-delay: 3100ms; }
+.map-out { transition: stroke 220ms var(--ease-out), opacity 600ms var(--ease-out); }
+.authority-map:has(.provider-list details:nth-child(1):is(:hover, [open], :focus-within)) .map-out-1,
+.authority-map:has(.provider-list details:nth-child(2):is(:hover, [open], :focus-within)) .map-out-2,
+.authority-map:has(.provider-list details:nth-child(3):is(:hover, [open], :focus-within)) .map-out-3,
+.authority-map:has(.provider-list details:nth-child(4):is(:hover, [open], :focus-within)) .map-out-4,
+.authority-map:has(.provider-list details:nth-child(5):is(:hover, [open], :focus-within)) .map-out-5 { stroke: var(--color-accent-2); stroke-width: 2px; }
+.workflow-steps li { position: relative; }
+.workflow-steps li.decision-step { border-top-color: var(--color-rule-2); }
+.workflow-steps li.decision-step::before { content: ''; position: absolute; top: -2px; left: 0; right: 0; height: 2px; background: var(--color-paid); transform-origin: left; }
+.js .workflow-panel.replay .workflow-steps li { animation: step-in 560ms var(--ease-out) both; }
+.js .workflow-panel.replay .workflow-steps li:nth-child(2) { animation-delay: 180ms; }
+.js .workflow-panel.replay .workflow-steps li:nth-child(3) { animation-delay: 360ms; }
+.js .workflow-panel.replay .decision-step::before { animation: draw-x 700ms var(--ease-out) 700ms both; }
+.js .workflow-panel.replay .preview-heading { animation: step-in 480ms var(--ease-out) both; }
+.bar-row::after { transform-origin: left; }
+.js .bar-row::after { transform: scaleX(0); transition: transform 1200ms var(--ease-out); }
+.js .evidence-story.is-visible .bar-row::after { transform: scaleX(1); }
+.js .evidence-story.is-visible .bar-row:nth-child(2)::after { transition-delay: 250ms; }
+.js .evidence-story.is-visible .bar-row:nth-child(3)::after { transition-delay: 450ms; }
+.agent-roles article { transition: transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out); }
+.agent-roles article:hover { transform: translateY(-4px); box-shadow: var(--cast-stock-lift); }
 
 /* Under 60rem everything stacks in reading order */
 @media (max-width: 60rem) {

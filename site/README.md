@@ -30,6 +30,20 @@ workflows are illustrative and agent templates are drafts. The $528 result is th
 Northwind comparison documented in [EXPERIMENT_NORTHWIND.md](../docs/EXPERIMENT_NORTHWIND.md).
 No testimonials, customer logos, partnership claims or performance guarantees are invented.
 
+## Landing redesign checkpoint
+
+The home page now loads `home.css`, `tokens.css` and `base.css`. It keeps the original
+ink, paper and clay palette, Georgia display headings, self-hosted Inter, all prose and
+figures, route destinations and control IDs. Captions use sentence or lower case; decorative
+link arrows and status dots were removed. Workflow tabs declare their responsive orientation,
+and page content remains visible with JavaScript disabled.
+
+The seven landing and pixel-animation regressions, JavaScript syntax checks, Rust formatting,
+Clippy and workspace tests passed on Windows on October 31, 2026. Hallmark's static home-page
+check reports no failures or warnings. Browser launch timed out in the available environment;
+visual layout, fold and rendered contrast still need browser verification. No deployment or
+publication was performed.
+
 ## Pixel-art concept preview
 
 Open **http://127.0.0.1:3091/concept** after starting (or restarting) the preview server.

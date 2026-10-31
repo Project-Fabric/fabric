@@ -12,9 +12,12 @@ const workflows = {
     steps: [['Compare the records', 'Read the transaction and payout data.'], ['Flag the difference', 'Surface the $25 discrepancy with the relevant context.'], ['Prepare a review', 'A person investigates; no balancing entry is posted.']],
     outcome: 'FLAGGED FOR REVIEW', note: 'This example changes no accounting or payment records.' },
 };
+const tabLayout = window.matchMedia('(max-width: 60rem)');
+function orientTabs() { document.querySelector('[role=tablist]').setAttribute('aria-orientation', tabLayout.matches ? 'horizontal' : 'vertical'); }
+orientTabs(); tabLayout.addEventListener('change', orientTabs);
 function selectWorkflow(id, focus = false) {
   const workflow = workflows[id]; if (!workflow) return;
-  for (const tab of tabs) { const selected = tab.dataset.workflow === id; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; if (focus && selected) tab.focus(); }
+  for (const tab of tabs) { const selected = tab.dataset.workflow === id; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; if (focus && selected) tab.focus({ preventScroll: true }); }
   panel.setAttribute('aria-labelledby', `tab-${id}`);
   for (const [key, value] of [['role', workflow.role], ['title', workflow.title], ['description', workflow.description], ['outcome', workflow.outcome], ['note', workflow.note]]) document.querySelector(`#workflow-${key}`).textContent = value;
   for (const [i, name] of ['one', 'two', 'three'].entries()) { document.querySelector(`#step-${name}-title`).textContent = workflow.steps[i][0]; document.querySelector(`#step-${name}-body`).textContent = workflow.steps[i][1]; }
@@ -27,7 +30,7 @@ for (const [index, tab] of tabs.entries()) {
     if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); selectWorkflow(tabs[event.key === 'Home' ? 0 : tabs.length - 1].dataset.workflow, true); }
   });
 }
-for (const button of document.querySelectorAll('[data-show-workflow]')) button.addEventListener('click', () => { selectWorkflow(button.dataset.showWorkflow); document.querySelector('#workspace').scrollIntoView({ behavior: reducedMotion.matches ? 'instant' : 'smooth' }); });
+for (const button of document.querySelectorAll('[data-show-workflow]')) button.addEventListener('click', () => { selectWorkflow(button.dataset.showWorkflow, true); document.querySelector('#workspace').scrollIntoView({ behavior: reducedMotion.matches ? 'instant' : 'smooth' }); });
 
 const dialog = document.querySelector('#dashboard-dialog');
 for (const button of document.querySelectorAll('[data-open-dashboard]')) button.addEventListener('click', () => dialog.showModal());
@@ -39,7 +42,7 @@ document.querySelector('#copy-command').addEventListener('click', async () => {
 });
 
 if (!reducedMotion.matches && 'IntersectionObserver' in window) {
-  document.body.classList.add('has-motion');
+  // Content remains visible; no reveal depends on script execution.
   const observer = new IntersectionObserver(entries => { for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add('is-visible'); observer.unobserve(entry.target); } }, { threshold: 0.07 });
   for (const element of document.querySelectorAll('.reveal')) observer.observe(element);
 }
@@ -84,15 +87,17 @@ if (context) {
     return [width * .53 + x * scale * perspective, height * .51 + y * scale * perspective, z];
   }
   function draw() {
-    context.clearRect(0, 0, width, height); context.lineWidth = .65;
+    context.clearRect(0, 0, width, height); context.globalAlpha = 1; context.lineWidth = .65;
+    const tokens = getComputedStyle(document.documentElement);
+    const colors = ['--color-art-first', '--color-art-second'].map(name => tokens.getPropertyValue(name).trim());
     for (const [ring, paths] of ringPoints.entries()) for (const path of paths) {
       const projected = path.map(project), depth = projected.reduce((sum, p) => sum + p[2], 0) / projected.length;
-      context.strokeStyle = `rgba(${ring === 0 ? '192,177,151' : '215,224,207'},${Math.max(.07, .17 - depth * .028)})`;
+      context.strokeStyle = colors[ring]; context.globalAlpha = Math.max(.12, .26 - depth * .028);
       context.beginPath(); for (const [index, point] of projected.entries()) { if (index === 0) context.moveTo(point[0], point[1]); else context.lineTo(point[0], point[1]); } context.stroke();
     }
     for (let ring = 0; ring < 2; ring++) {
       const p = project(surface(phase * .13 + ring * Math.PI, .35, ring));
-      context.beginPath(); context.arc(p[0], p[1], 2.6, 0, Math.PI * 2); context.fillStyle = '#dfcfb3'; context.fill();
+      context.beginPath(); context.arc(p[0], p[1], 2.6, 0, Math.PI * 2); context.globalAlpha = .5; context.fillStyle = colors[0]; context.fill();
     }
   }
   function resize() {

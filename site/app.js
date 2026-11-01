@@ -52,17 +52,17 @@ if (!reducedMotion.matches && 'IntersectionObserver' in window) {
 // person approves (a tick) or declines (a cross). Every landing adds a sheet.
 const gateScene = (() => {
   const TAU = Math.PI * 2;
-  const R = 1.18, r = .12, AGENTS = [[-3.05, -1.05, -.35], [-3.2, 0, .25], [-3.05, 1.05, -.1]];
+  const R = 1.48, r = .13, AGENTS = [[-2.6, -1.5, -.35], [-2.75, 0, .25], [-2.6, 1.5, -.1]];
   const NAMES = ['Refunds', 'Collections', 'Reconciliation'];
-  const LEDGER = [2.55, -.3, 0], SHEETS = 7, GAP = .12, SHEET = .62;
+  const LEDGER = [2.2, -.55, 0], SHEETS = 9, GAP = .15, SHEET = .58;
   const EVERY = .85, TRAVEL = 2.1, CHECK = .35, REVIEW = 2.4, DECLINE = 1.7, FALL = .9, OUT = 1.4;
   const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
   const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
   const mix = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
   const quad = (a, c, b, s) => { const q = 1 - s; return a.map((v, i) => q * q * v + 2 * q * s * c[i] + s * s * b[i]); };
-  const slot = i => [0, (i - 1) * .34, 0];
-  const lanePoint = (i, s) => { const a = AGENTS[i]; return quad(a, [-1.45, a[1] * .4, a[2] * .3], slot(i), s); };
-  const outPoint = (s, i = 1) => quad(slot(i), [1.35, -.5, 0], [LEDGER[0], LEDGER[1] - .02, LEDGER[2]], s);
+  const slot = i => [0, (i - 1) * .42, 0];
+  const lanePoint = (i, s) => { const a = AGENTS[i]; return quad(a, [-1.25, a[1] * .4, a[2] * .3], slot(i), s); };
+  const outPoint = (s, i = 1) => quad(slot(i), [1.15, -.5, 0], [LEDGER[0], LEDGER[1] - .02, LEDGER[2]], s);
   const torus = [];
   for (let m = 0; m < 16; m++) { const v = m / 16 * TAU, p = []; for (let s = 0; s <= 80; s++) { const u = s / 80 * TAU; p.push([r * Math.sin(v), (R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u)]); } torus.push(p); }
   for (let s = 0; s < 44; s++) { const u = s / 44 * TAU, p = []; for (let m = 0; m <= 18; m++) { const v = m / 18 * TAU; p.push([r * Math.sin(v), (R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u)]); } torus.push(p); }
@@ -87,14 +87,14 @@ const gateScene = (() => {
   const ring = (ctx, p, rad, color, alpha, from = 0, to = TAU) => { ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.beginPath(); ctx.arc(p[0], p[1], rad, from, to); ctx.stroke(); };
 
   return { still: 9.4, draw(ctx, w, h, t, c) {
-    const scale = Math.min(w / 6.6, h / 3.3), yaw = -.42 + Math.sin(t * .11) * .07, pitch = .27 + Math.sin(t * .08) * .03;
-    const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch), cx = w * .45, cy = h * .47;
+    const scale = Math.min(w / (w < 600 ? 6.2 : 5.15), h / 4.3), yaw = -.42 + Math.sin(t * .11) * .07, pitch = .27 + Math.sin(t * .08) * .03;
+    const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch), cx = w * (w < 600 ? .49 : .475), cy = h * .46;
     const cam = ([x, y, z]) => { const X = x * cY - z * sY; let Z = x * sY + z * cY; const Y = y * cP - Z * sP; Z = y * sP + Z * cP; const k = 8 / (8 + Z); return [cx + X * scale * k, cy + Y * scale * k, Z]; };
     ctx.lineWidth = .6; ctx.lineCap = 'round';
 
     // Floor grid, fading toward the edges.
-    for (let x = -3.6; x <= 3.61; x += .4) { const a = cam([x, 1.8, -1.6]), b = cam([x, 1.8, 1.6]); ctx.strokeStyle = c.paper; ctx.globalAlpha = .07 * (1 - Math.abs(x) / 3.8); poly(ctx, [a, b]); }
-    for (let z = -1.6; z <= 1.61; z += .4) { ctx.globalAlpha = .05; const pts = []; for (let x = -3.6; x <= 3.61; x += .4) pts.push(cam([x, 1.8, z])); poly(ctx, pts); }
+    for (let x = -3.2; x <= 3.21; x += .4) { const a = cam([x, 2.2, -1.6]), b = cam([x, 2.2, 1.6]); ctx.strokeStyle = c.paper; ctx.globalAlpha = .07 * (1 - Math.abs(x) / 3.4); poly(ctx, [a, b]); }
+    for (let z = -1.6; z <= 1.61; z += .4) { ctx.globalAlpha = .05; const pts = []; for (let x = -3.2; x <= 3.21; x += .4) pts.push(cam([x, 2.2, z])); poly(ctx, pts); }
 
     // Lanes in and out, dashes flowing toward the ledger.
     ctx.strokeStyle = c.paper; dash(ctx, [2, 6], -t * 16);

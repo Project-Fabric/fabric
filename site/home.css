@@ -78,6 +78,11 @@ button, .button, summary { -webkit-tap-highlight-color: transparent; }
 .hero-foot button { justify-self: end; border: 0; padding: var(--space-sm) 0; background: transparent; }
 .hero-foot button:hover { text-decoration: underline; }
 
+@media (min-width: 60.01rem) {
+  .hero-grid { position: relative; }
+  .hero-art { position: absolute; top: 0; bottom: 96px; left: 42%; right: 0; height: auto; align-self: stretch; justify-self: stretch; margin: 0; -webkit-mask-image: linear-gradient(90deg, transparent, var(--color-ink) 16%); mask-image: linear-gradient(90deg, transparent, var(--color-ink) 16%); }
+}
+
 /* Section furniture */
 .section-caption { margin-top: var(--space-3xl); padding-top: var(--space-lg); border-top: 1px solid var(--color-rule-2); font-size: var(--text-sm); color: var(--color-muted); text-transform: lowercase; }
 .reveal { opacity: 1; transform: none; }

@@ -436,6 +436,50 @@ async fn shutdown() {
 }
 
 const BODY_LIMIT: usize = 16_384;
+/// How long a client has to send its (at most 16 KiB) body. Kept short and separate from the
+/// request timeout, so a client that stalls its upload cannot hold a slot for long.
+const BODY_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Who a request's credential belongs to, as far as choosing a slot is concerned.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Caller {
+    /// The owner, a registered approver, or a verified identity token.
+    Person,
+    /// A valid role credential that is not a person's (planner, executor).
+    Machine,
+    /// No credential, or one that is not valid: refused later if it got that far.
+    Unknown,
+}
+
+/// Only people may use the slots kept for them. Reads headers only, and is asked only when the
+/// shared slots are full.
+fn caller(app: &App, url: &str, authorization: Option<&str>) -> Caller {
+    let Some(authorization) = authorization else {
+        return Caller::Unknown;
+    };
+    if url.starts_with("/identity/") {
+        return if crate::identity::Verifier::from_environment()
+            .is_ok_and(|verifier| verifier.verify(authorization, now()).is_ok())
+        {
+            Caller::Person
+        } else {
+            Caller::Unknown
+        };
+    }
+    if let Ok(actor) = app.credentials.authenticate(authorization) {
+        return if actor.require(&[Role::Owner]).is_ok() {
+            Caller::Person
+        } else {
+            Caller::Machine
+        };
+    }
+    if authorization.starts_with("Bearer approverkey_")
+        && app.service.authenticate_approver(authorization).is_ok()
+    {
+        return Caller::Person;
+    }
+    Caller::Unknown
+}
 
 /// The client's address: the connection's peer, or behind the TLS proxy the address the proxy
 /// appended last to `X-Forwarded-For` (earlier entries come from the client and prove nothing).
@@ -489,9 +533,21 @@ async fn handle(
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
+    // Every request from the trusted local console arrives from loopback, so its refusals are
+    // counted per credential: one person's refusals must not block the owner's console.
+    let refused: crate::limits::Source = match &authorization {
+        Some(value)
+            if app.listen.trust_local
+                && peer.ip().is_loopback()
+                && !request.headers().contains_key("x-forwarded-for") =>
+        {
+            crate::limits::Source::Credential(*blake3::hash(value.as_bytes()).as_bytes())
+        }
+        _ => from.into(),
+    };
     if !health {
         let now = std::time::Instant::now();
-        if let Some(wait) = app.refusals.blocked(from, now) {
+        if let Some(wait) = app.refusals.blocked(refused, now) {
             return too_many(&url, wait, "too many refused requests from this address");
         }
         // Each credential has its own budget; a client without one is counted by address.
@@ -503,13 +559,33 @@ async fn handle(
             return too_many(&url, wait, "request rate limit reached for this credential");
         }
     }
-    // Only the token's prefix is read here, to choose a pool; authentication comes later.
+    // The token's prefix chooses a pool. When the shared slots are full, a request that is not
+    // an agent's may use a slot kept for people only once its credential is shown to be a
+    // person's; full authentication still comes later.
     let agent = authorization
         .as_deref()
         .is_some_and(|value| value.starts_with("Bearer agentkey_"));
     let permit = match app.slots.clone().try_acquire_owned() {
         Ok(permit) => Some(permit),
-        Err(_) if !agent => app.people_slots.clone().try_acquire_owned().ok(),
+        Err(_) if !agent && !health => {
+            let checked = app.clone();
+            let path = url.clone();
+            let credential = authorization.clone();
+            let who =
+                tokio::task::spawn_blocking(move || caller(&checked, &path, credential.as_deref()))
+                    .await
+                    .unwrap_or(Caller::Unknown);
+            // A valid machine credential is only told the gateway is busy; a wrong one is a
+            // refusal, as it would have been with a free slot.
+            if who == Caller::Unknown && authorization.is_some() {
+                app.refusals.record(refused, std::time::Instant::now());
+            }
+            if who == Caller::Person {
+                app.people_slots.clone().try_acquire_owned().ok()
+            } else {
+                None
+            }
+        }
         Err(_) => None,
     };
     let permit = match permit {
@@ -529,11 +605,25 @@ async fn handle(
         let app = app.clone();
         let url = url.clone();
         async move {
-            // At most one byte over the limit is read. The size is judged after the
-            // authentication checks, in the same order as before.
-            let body = match axum::body::to_bytes(body, BODY_LIMIT + 1).await {
-                Ok(bytes) if bytes.len() <= BODY_LIMIT => Some(bytes.to_vec()),
-                _ => None,
+            // At most one byte over the limit is read, within a short deadline. The size is
+            // judged after the authentication checks, in the same order as before. A body that
+            // does not arrive in time counts as a refusal from its source: nothing was done.
+            let read = tokio::time::timeout(
+                deadline.min(BODY_READ_TIMEOUT),
+                axum::body::to_bytes(body, BODY_LIMIT + 1),
+            )
+            .await;
+            let body = match read {
+                Ok(Ok(bytes)) if bytes.len() <= BODY_LIMIT => Some(bytes.to_vec()),
+                Ok(_) => None,
+                Err(_) => {
+                    drop(permit);
+                    app.refusals.record(refused, std::time::Instant::now());
+                    return Ok((
+                        504,
+                        json!({"schema":API_VERSION,"error":{"code":"timed_out","message":"the request body did not arrive in time; nothing was done"}}),
+                    ));
+                }
             };
             // The permit moves into the blocking task: the slot stays taken until the work
             // really ends, even if the client has already been told it timed out.
@@ -556,7 +646,7 @@ async fn handle(
             // 403 from the gateway's own credentials, 401 from identity tokens: both are
             // refusals a token guesser collects.
             if status == 401 || status == 403 {
-                app.refusals.record(from, std::time::Instant::now());
+                app.refusals.record(refused, std::time::Instant::now());
             }
             reply(&url, status, value)
         }

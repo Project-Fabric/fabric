@@ -110,8 +110,11 @@ docker compose exec gateway cosigna-agent evidence verify --data-dir /data
 - **One server.** SQLite on one volume; no clustering or failover. The gateway handles 32
   requests at once by default (`--max-concurrent`) and answers `busy` beyond that. Each
   credential gets 20 requests per second (`--rate-limit`); an address sending wrong tokens is
-  blocked for the rest of the minute after 30 (`--refusals-per-minute`). Limits are per
-  gateway process and reset on restart.
+  blocked for the rest of the minute after 30 (`--refusals-per-minute`); a client that does
+  not finish sending its body within 10 seconds counts as one refusal. Requests from the
+  console on this machine (`--trust-local-clients`) count per credential instead of per address.
+  When the shared slots are full, only a verified person (the owner, an approver, an identity
+  login) may use the slots kept for people. Limits are per gateway process and reset on restart.
 - **Development credentials.** Role tokens in a file; no single sign-on with a company account
   yet: the owner signs in with the one-time link and approvers with their keys. Alerts need
   `--alerts` on the worker (`examples/alerts`).

@@ -270,3 +270,25 @@ fn the_threshold_is_validated() {
         Err(Error::Invalid(_))
     ));
 }
+
+#[test]
+fn a_first_approval_stops_counting_once_its_approver_is_revoked() {
+    let lab = Lab::new();
+    let (priya, priya_token) = lab.approver("Priya", 50000);
+    let held = lab.refund("pay_fixture_2045", 45000, "revoked-first");
+    lab.approve(&priya_token, &held).unwrap();
+    lab.call(
+        &lab.owner,
+        "POST",
+        &format!("/approvers/{priya}/revoke"),
+        json!({}),
+    )
+    .unwrap();
+    // The owner's approval alone is not two people once Priya's approval no longer counts.
+    let second = lab.approve(&lab.owner, &held);
+    assert!(
+        matches!(second, Err(Error::Conflict(ref m)) if m.starts_with("first_approval_no_longer_authorized")),
+        "{second:?}"
+    );
+    assert_eq!(lab.refunded("pay_fixture_2045"), 0);
+}

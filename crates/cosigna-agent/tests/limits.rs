@@ -501,3 +501,95 @@ fn zero_rate_limits_are_refused() {
         assert!(!output.status.success(), "{args:?} was accepted");
     }
 }
+
+#[test]
+fn unauthenticated_stalls_cannot_take_the_slots_kept_for_people() {
+    // Eight slots: seven for anyone, one kept for people.
+    let gateway = start(&["--max-concurrent", "8"]);
+    let host = gateway.host();
+    // Junk credentials that are not agent keys stall their bodies: they may fill the shared
+    // slots, but not the one kept for people.
+    let held: Vec<TcpStream> = (0..8)
+        .map(|i| gateway.stall(&format!("Bearer junk{i}")))
+        .collect();
+    std::thread::sleep(Duration::from_millis(500));
+    let owner = gateway.bearer("owner");
+    assert_eq!(
+        gateway
+            .get(
+                "/gateway/v1/operations",
+                &[("Host", &host), ("Authorization", &owner)]
+            )
+            .0,
+        200
+    );
+    drop(held);
+}
+
+#[test]
+fn on_the_trusted_console_path_one_credentials_refusals_do_not_block_the_owner() {
+    let gateway = start(&[
+        "--listen",
+        "127.0.0.1:{port}",
+        "--public-host",
+        "cosigna.example.test",
+        "--trust-local-clients",
+        "--refusals-per-minute",
+        "2",
+    ]);
+    let host = gateway.host();
+    let call = |auth: &str| {
+        gateway
+            .get(
+                "/gateway/v1/operations",
+                &[("Host", &host), ("Authorization", auth)],
+            )
+            .0
+    };
+    // A revoked or wrong key used through the console is refused, then blocked on its own.
+    assert_eq!(call("Bearer approverkey_revoked"), 403);
+    assert_eq!(call("Bearer approverkey_revoked"), 403);
+    assert_eq!(call("Bearer approverkey_revoked"), 429);
+    // The owner, on the same loopback address, is not.
+    assert_eq!(call(&gateway.bearer("owner")), 200);
+}
+
+#[test]
+fn a_valid_machine_credential_is_told_busy_but_not_counted_as_refused() {
+    let gateway = start(&["--max-concurrent", "8", "--refusals-per-minute", "2"]);
+    let host = gateway.host();
+    let held: Vec<TcpStream> = (0..7)
+        .map(|i| gateway.stall(&format!("Bearer agentkey_flood{i}")))
+        .collect();
+    std::thread::sleep(Duration::from_millis(500));
+    let planner = gateway.bearer("planner");
+    for _ in 0..4 {
+        let (status, response) = gateway.get(
+            "/gateway/v1/operations",
+            &[("Host", &host), ("Authorization", &planner)],
+        );
+        assert_eq!(status, 503, "{response}");
+    }
+    // A wrong credential under the same load does count, even though it is only told busy.
+    for i in 0..2 {
+        let (status, response) = gateway.get(
+            "/gateway/v1/operations",
+            &[
+                ("Host", &host),
+                ("Authorization", &format!("Bearer junk{i}")),
+            ],
+        );
+        assert_eq!(status, 503, "{response}");
+    }
+    let owner = gateway.bearer("owner");
+    assert_eq!(
+        gateway
+            .get(
+                "/gateway/v1/operations",
+                &[("Host", &host), ("Authorization", &owner)]
+            )
+            .0,
+        429
+    );
+    drop(held);
+}

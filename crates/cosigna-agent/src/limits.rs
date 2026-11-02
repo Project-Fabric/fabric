@@ -71,12 +71,28 @@ fn refill(bucket: &mut Bucket, per_second: f64, burst: f64, now: Instant) -> f64
     bucket.tokens
 }
 
-/// Counts refused requests (HTTP 401 or 403) per source address in fixed one-minute windows. A source
+/// Who refusals are counted against: normally the client's address. Requests from the trusted
+/// local console all arrive from loopback, so those are counted per credential instead (a hash,
+/// never the credential itself); otherwise one person's refusals would block everyone on the
+/// console.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Source {
+    Address(IpAddr),
+    Credential([u8; 32]),
+}
+
+impl From<IpAddr> for Source {
+    fn from(address: IpAddr) -> Self {
+        Self::Address(address)
+    }
+}
+
+/// Counts refused requests (HTTP 401 or 403) per source in fixed one-minute windows. A source
 /// that reaches `per_minute` refusals is blocked until its window ends, which makes guessing
 /// tokens slow without affecting other sources.
 pub struct FailureLimiter {
     per_minute: u32,
-    sources: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+    sources: Mutex<HashMap<Source, (Instant, u32)>>,
 }
 
 const WINDOW: Duration = Duration::from_secs(60);
@@ -90,7 +106,8 @@ impl FailureLimiter {
     }
 
     /// How long `source` is still blocked, if it is.
-    pub fn blocked(&self, source: IpAddr, now: Instant) -> Option<Duration> {
+    pub fn blocked(&self, source: impl Into<Source>, now: Instant) -> Option<Duration> {
+        let source = source.into();
         let sources = self
             .sources
             .lock()
@@ -100,7 +117,8 @@ impl FailureLimiter {
         (*count >= self.per_minute && now < end).then(|| end - now)
     }
 
-    pub fn record(&self, source: IpAddr, now: Instant) {
+    pub fn record(&self, source: impl Into<Source>, now: Instant) {
+        let source = source.into();
         let mut sources = self
             .sources
             .lock()

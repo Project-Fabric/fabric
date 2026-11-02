@@ -168,6 +168,16 @@ fn check_recorded_approval(
         .unwrap_or(Value::Null);
     let proof = &event["event"]["by"]["identity"];
     let invalid = || Error::Conflict(format!("{reason}: request a fresh proposal"));
+    // Key-based and identity-bound approvals alike only count while the person who gave them
+    // is still an active approver for this owner.
+    let approver = match crate::approvers::load(db, approver_id) {
+        Ok(approver) => approver,
+        Err(Error::NotFound) => return Err(invalid()),
+        Err(error) => return Err(error),
+    };
+    if approver.revoked || approver.owner != operation.owner {
+        return Err(invalid());
+    }
     if proof.is_null() {
         return if has_binding(db, approver_id)? {
             Err(invalid())
@@ -184,10 +194,7 @@ fn check_recorded_approval(
     };
     let current =
         lookup(db, &subject, value("organization_id")?, crate::now()).map_err(|_| invalid())?;
-    let approver = crate::approvers::load(db, approver_id)?;
-    if approver.revoked
-        || approver.owner != operation.owner
-        || current.owner != operation.owner
+    if current.owner != operation.owner
         || current.approver_id != approver_id
         || current.subject_id != value("subject_id")?
         || current.user_id != value("user_id")?

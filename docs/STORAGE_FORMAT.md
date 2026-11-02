@@ -495,7 +495,10 @@ Refunds and payouts requested by registered agents or the owner, through
 Request fields (unknown fields rejected): `budget_id`, `kind` (`refund` with `source`, or
 `payout` with `payee`), `rail`, `amount_minor`, `currency`, `reason` (at most 500 characters),
 `idempotency_key`, and optionally `case_id` (v6; refunds only; written only when present, so
-earlier requests keep their fingerprints). The rail checks the request against its own records before any decision
+earlier requests keep their fingerprints). An agent's request is first checked against its
+grant: one without a grant covering the kind and rail is recorded as `denied` with `not_granted`
+and neither the rail nor the case source is consulted, so it learns nothing about their
+records. Otherwise the rail checks the request against its own records before any decision
 (the payment exists and has that much left to refund; the payee is registered; the currency
 matches). A failed check is recorded as `denied` with the rail's reason (`source_not_found`,
 `exceeds_refundable`, `currency_mismatch`, `payee_unknown`). Otherwise policy decides, in order:
@@ -519,7 +522,12 @@ proposal's `facts.case` records `{id, system, customer, source, owed_minor, curr
 committed_minor}` (`system` from v9: `fixture`, `csv` or the configured name), so the owner
 signs what the case said and where it came from. Case binding narrows, but does not remove, the class of
 mistakes within an agent's limit: it catches a wrong payment or an amount above what is owed,
-not an amount below it, and it is only as correct as the case records.
+not an amount below it, and it is only as correct as the case records. A held refund places no
+hold, so other refunds on the same case can be approved while it waits; when a person approves it,
+the case is counted again in the approving transaction, and if more is now committed than the
+signed `committed_minor` and the refund no longer fits `owed_minor` minus that, the approval is
+refused (`409`, `exceeds_case_owed`) and the refund must be requested again with current facts.
+An excess the person was shown at request time can still be approved while nothing has changed.
 
 The proposal is the exact operation (`operation_id`, `kind`, `rail`, `source`, `payee`,
 `amount_minor`, `currency`, the rail's verified `facts`, `issued_at`, `expires_at` at most 24
@@ -532,7 +540,10 @@ credentials; the rail re-checks its records and may still reject. Stages: `held`
 moved), `denied`, `rejected` (by the owner before submission). Unknown results stay held;
 `reconcile` only looks up, and only the owner's `resolve` can settle one, through the rail's
 void as for purchases. Revoking the agent or the budget prevents new requests and new
-submission claims.
+submission claims. For an operation an agent requested, whoever approves or executes it, a
+person's approval and a new submission claim also require that agent to be unrevoked and
+unexpired (`409`, `agent_inactive`); the operation can still be rejected, and an attempt already
+claimed is still reconciled and resolved as before.
 
 Owner routes: `GET /gateway/v1/operations[?stage=held|unknown]`, `POST .../{id}/approve`,
 `.../reject`, `.../resolve`. Owner or originating agent: `GET .../{id}`, `.../execute`,

@@ -145,6 +145,23 @@ try {
   // Sign-out ends the session in the console, not just in the browser.
   assert.equal((await fetch(origin + '/signout', { method: 'POST', redirect: 'manual', headers: { cookie: approverCookie, origin } })).status, 303);
   assert.equal((await fetch(api, { headers: { cookie: approverCookie } })).status, 401);
+  // A malformed address is answered, not left hanging; an abandoned sign-in upload harms nothing.
+  const host = new URL(origin).host;
+  const CRLF = String.fromCharCode(13, 10);
+  const sendRaw = (lines, abandon = false) => new Promise((resolve, reject) => {
+    const socket = net.connect(consolePort, '127.0.0.1');
+    const timer = setTimeout(() => { socket.destroy(); reject(new Error('The console did not answer a malformed request.')); }, 5000);
+    let out = '';
+    socket.on('data', chunk => { out += chunk; });
+    socket.on('error', () => {});
+    socket.on('close', () => { clearTimeout(timer); resolve(out.split(CRLF)[0]); });
+    socket.write(lines.join(CRLF));
+    if (abandon) setTimeout(() => socket.destroy(), 100);
+  });
+  for (const address of ['//', 'http://[', '//['])
+    assert.match(await sendRaw([`GET ${address} HTTP/1.1`, `Host: ${host}`, 'Connection: close', '', '']), /^HTTP.1.1 400 /, address);
+  await sendRaw(['POST /signin HTTP/1.1', `Host: ${host}`, `Origin: ${origin}`, 'Content-Type: application/x-www-form-urlencoded', 'Content-Length: 100', '', 'key=abc'], true);
+  assert.equal((await fetch(origin + '/signin')).status, 200, 'The console still answers after an abandoned upload.');
   // Guessing is bounded: one failure so far, four more allowed, then the console refuses for a minute.
   for (let i = 0; i < 4; i++) assert.equal((await signIn('approverkey_' + String(i).repeat(64))).status, 401);
   assert.equal((await signIn(priya)).status, 429, 'Even a correct key waits out the lockout.');

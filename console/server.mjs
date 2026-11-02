@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import next from 'next';
 import nextEnv from '@next/env';
 import { COOKIE, equal, issueSession, readSession } from './server/security.mjs';
-import { forget, identify, remember, signInAllowed, signInFailed } from './server/approvers.mjs';
+import { forget, identify, remember, reserveSignIn, signInAllowed, wellFormed } from './server/approvers.mjs';
 
 const dev = process.argv.includes('--dev');
 nextEnv.loadEnvConfig(process.cwd(), dev);
@@ -29,6 +29,12 @@ if (process.env.CONSOLE_PUBLIC_ORIGIN) {
 const expectedHost = publicOrigin ? publicOrigin.host : `127.0.0.1:${port}`;
 const listenHost = publicOrigin ? '0.0.0.0' : '127.0.0.1';
 const cookieFlags = `Path=/; HttpOnly; SameSite=Strict${publicOrigin ? '; Secure' : ''}`;
+// Who is signing in, for the guessing limit: behind the proxy, the address it appended last to
+// X-Forwarded-For (earlier entries come from the client); otherwise the connection's peer.
+const clientOf = req => {
+  const forwarded = publicOrigin && String(req.headers['x-forwarded-for'] || '').split(',').pop()?.trim();
+  return forwarded || req.socket.remoteAddress || 'unknown';
+};
 const admitted = req => req.headers.host === expectedHost && (!publicOrigin || req.headers['x-forwarded-proto'] === 'https');
 process.env.CONSOLE_INTERNAL_KEY = randomBytes(64).toString('hex');
 process.env.CONSOLE_ORIGIN = publicOrigin ? publicOrigin.origin : `http://127.0.0.1:${port}`;
@@ -73,37 +79,50 @@ const server = createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
   const deny = (code, message) => { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(message); };
   if (!admitted(req)) return deny(403, publicOrigin ? 'Invalid host, or not through the HTTPS proxy.' : 'Invalid local host.');
-  const url = new URL(req.url || '/', process.env.CONSOLE_ORIGIN);
-  if (url.searchParams.has('token')) {
-    if (req.method !== 'GET' || url.pathname !== '/' || used || Date.now() > bootstrapExpires || !equal(url.searchParams.get('token'), token))
-      return deny(403, 'This access link is invalid, expired or already used. Restart the console for a new link.');
-    used = true;
-    const issued = issueSession(process.env.CONSOLE_USER);
-    res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; ${cookieFlags}; Max-Age=43200`);
-    res.writeHead(303, { Location: '/approvals' }); res.end(); return;
-  }
-  const html = ([status, page]) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(page); };
-  if (url.pathname === '/signin' && req.method === 'GET') return html(signInPage());
-  if (url.pathname === '/signin' && req.method === 'POST') {
-    if (req.headers.origin !== process.env.CONSOLE_ORIGIN) return deny(403, 'Request rejected: origin check failed.');
-    if (fixtures) return html(signInPage('Approver sign-in needs a live Cosigna gateway; fixtures mode has none.', 503));
-    if (!signInAllowed()) return html(signInPage('Too many failed sign-ins. Wait a minute and try again.', 429));
-    const form = await readForm(req);
-    const approver = form ? await identify(form.get('key')) : null;
-    if (!approver) { signInFailed(); return html(signInPage('That key was not accepted. Check it with the owner who issued it.', 401)); }
-    const issued = issueSession(approver.name, Date.now(), 'approver');
-    remember(issued.session.id, approver);
-    res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; ${cookieFlags}; Max-Age=43200`);
-    res.writeHead(303, { Location: '/approvals' }); res.end(); return;
-  }
-  if (url.pathname === '/signout' && req.method === 'POST') {
-    if (req.headers.origin !== process.env.CONSOLE_ORIGIN) return deny(403, 'Request rejected: origin check failed.');
-    const session = readSession(req.headers.cookie);
-    if (session) forget(session.id);
-    res.setHeader('Set-Cookie', `${COOKIE}=; ${cookieFlags}; Max-Age=0`);
-    res.writeHead(303, { Location: '/signin' }); res.end(); return;
-  }
+  // Everything from here runs inside the try: an error answers this request instead of escaping
+  // as an unhandled rejection, whose outcome would depend on what Next has installed.
   try {
+    let url;
+    try { url = new URL(req.url || '/', process.env.CONSOLE_ORIGIN); }
+    catch { return deny(400, 'Invalid request address.'); }
+    if (url.searchParams.has('token')) {
+      if (req.method !== 'GET' || url.pathname !== '/' || used || Date.now() > bootstrapExpires || !equal(url.searchParams.get('token'), token))
+        return deny(403, 'This access link is invalid, expired or already used. Restart the console for a new link.');
+      used = true;
+      const issued = issueSession(process.env.CONSOLE_USER);
+      res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; ${cookieFlags}; Max-Age=43200`);
+      res.writeHead(303, { Location: '/approvals' }); res.end(); return;
+    }
+    const html = ([status, page]) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(page); };
+    if (url.pathname === '/signin' && req.method === 'GET') return html(signInPage());
+    if (url.pathname === '/signin' && req.method === 'POST') {
+      if (req.headers.origin !== process.env.CONSOLE_ORIGIN) return deny(403, 'Request rejected: origin check failed.');
+      if (fixtures) return html(signInPage('Approver sign-in needs a live Cosigna gateway; fixtures mode has none.', 503));
+      const client = clientOf(req);
+      const tooMany = () => html(signInPage('Too many failed sign-ins. Wait a minute and try again.', 429));
+      if (!signInAllowed(Date.now(), client)) return tooMany();
+      const form = await readForm(req);
+      const key = form?.get('key');
+      const refused = () => html(signInPage('That key was not accepted. Check it with the owner who issued it.', 401));
+      // A key of the wrong shape cannot be a guess at a real key, so it is refused without counting.
+      if (!wellFormed(key)) return refused();
+      const release = reserveSignIn(client);
+      if (!release) return tooMany();
+      const approver = await identify(key);
+      if (!approver) return refused();
+      release();
+      const issued = issueSession(approver.name, Date.now(), 'approver');
+      remember(issued.session.id, approver);
+      res.setHeader('Set-Cookie', `${COOKIE}=${issued.cookie}; ${cookieFlags}; Max-Age=43200`);
+      res.writeHead(303, { Location: '/approvals' }); res.end(); return;
+    }
+    if (url.pathname === '/signout' && req.method === 'POST') {
+      if (req.headers.origin !== process.env.CONSOLE_ORIGIN) return deny(403, 'Request rejected: origin check failed.');
+      const session = readSession(req.headers.cookie);
+      if (session) forget(session.id);
+      res.setHeader('Set-Cookie', `${COOKIE}=; ${cookieFlags}; Max-Age=0`);
+      res.writeHead(303, { Location: '/signin' }); res.end(); return;
+    }
     const session = readSession(req.headers.cookie);
     if (!session) return deny(401, 'Open the one-time access URL printed in the console terminal, or sign in as an approver at /signin.');
     if (!['GET', 'HEAD'].includes(req.method || '')) {

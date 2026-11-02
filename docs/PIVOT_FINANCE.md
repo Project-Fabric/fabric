@@ -22,6 +22,26 @@ must be reported separately after execution; no new outcome is claimed by this e
 
 **Status:** decided 20 October 2026, to be validated by interviews · **Owner:** Ashok
 
+## Current gateway delivery, 26 October 2026
+
+The historical pivot rationale below predates the Cosigna gateway. The current prototype
+has named approvers, console sign-in, replay, CSV/HTTP case sources, an operator timeline
+and lookup-only refund recovery. Separate checks passed against a real Zendesk trial and
+Stripe test account, as recorded in [Claude's handover](HANDOVER_CODEX_2026-10-26.md).
+
+The [agent refund demo](../experiments/agent-refund-demo/README.md) uses the signed-in Codex
+CLI and current Rust gateway. On 26 October, a combined run against the real Zendesk trial
+and Stripe test account completed: the routine USD 10.00 refund succeeded once; the USD
+45.00 request against USD 30.00 owed was held; and the USD 30.00 owner-review request was
+held pending owner approval. Evidence verification passed. Stripe test mode moved no real
+funds. This is one synthetic workflow, not evidence of commercial adoption, independently
+verified human identity, or competitive advantage. The owner-approval follow-up and demo
+recording remain outstanding.
+
+27 October: the demo runner now has a read-only `Check` stage and field-specific setup
+diagnostics. Run checks setup before requesting permission to start Codex; setup failures
+and existing payment attempts give different retry guidance. This addresses the repeated
+manual ticket setup failures observed in the combined trial, without changing gateway policy.
 **27 October — Identity-backed money approvals (E18, second increment):** explicit operator
 bindings now connect one organization/owner namespace and enrolled memberships to existing
 named approvers. Rust checks token scope/expiry, authority revocation, exact proposals and

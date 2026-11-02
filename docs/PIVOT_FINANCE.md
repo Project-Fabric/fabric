@@ -133,6 +133,12 @@ Next, in order:
    need no approval each, and every use is replayed against its terms from the evidence. The
    first piece of AgentAuth rebuilt as a product on this engine.
 
+2 November 2026, gateway security: the first source-and-local audit of the gateway, console
+server and Docker setup confirmed eight findings (no critical or high). All eight and the one
+open lead are fixed in #126 and #128. The audit is a partial pass: its final coverage review has
+not run and dependencies were not checked, so this is no clean-coverage claim, and an independent
+security review before any live-money pilot remains open (#88).
+
 Everything stays local-first; no cloud dependency in the core (`AGENTS.md`).
 
 ## What would make us stop

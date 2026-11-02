@@ -276,6 +276,11 @@ fn invalid_and_unauthorized_requests_are_denied_and_recorded_without_touching_th
         (&bot, "pay_fixture_2049", 64000, "over_per_operation_limit"),
         (&reader, "pay_fixture_2041", 100, "not_granted"),
         (&payouts_only, "pay_fixture_2041", 100, "not_granted"),
+        // An agent without rights learns nothing from the rail: not whether the payment
+        // exists, its currency, or how much is left to refund.
+        (&reader, "pay_fixture_missing", 100, "not_granted"),
+        (&reader, "pay_fixture_2041", 2001, "not_granted"),
+        (&payouts_only, "pay_fixture_3001", 100, "not_granted"),
     ];
     for (i, (auth, source, amount, rule)) in cases.iter().enumerate() {
         let denied = lab.refund(auth, source, *amount, &format!("d{i}")).unwrap();

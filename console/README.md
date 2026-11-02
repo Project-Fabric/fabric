@@ -150,7 +150,10 @@ session: never on disk, never in the browser, and gone on sign-out or restart. A
 session sees only the agent payments and their limit, and can approve or reject; the gateway
 refuses approvals above their limit and records each decision under their name. Settling unknown
 results, exposure, the local engine screens and every other action stay with the owner. Sign-in
-needs the console's own origin and allows five failed attempts a minute for the whole console.
+needs the console's own origin and allows five failed attempts a minute from one client (behind
+the proxy, the address it reports), with a ceiling of 200 a minute for the whole console. A key of
+the wrong shape is refused without counting. Signing out ends an owner or approver session on the
+server, so a copied cookie stops working too; restarting the console ends them all.
 It needs a live gateway (not fixtures mode). The console binds to 127.0.0.1 only, so approvers
 must use this machine until there is a hosted deployment.
 

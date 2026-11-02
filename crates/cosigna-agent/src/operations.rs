@@ -247,6 +247,18 @@ pub struct Operation {
     pub receipt: Option<OperationReceipt>,
 }
 
+/// Whether an agent's grant (if any) covers this request's kind and rail. `None` means the
+/// request is not from an agent.
+fn grant_covers(agent_grant: Option<Option<&OperationGrant>>, request: &OperationRequest) -> bool {
+    match agent_grant {
+        None => true,
+        Some(Some(grant)) => {
+            grant.kinds.contains(&request.kind) && grant.rails.contains(&request.rail)
+        }
+        Some(None) => false,
+    }
+}
+
 /// Pure policy. Order matters: grants, then hard limits, then the agent's automatic limit.
 pub fn decide(
     request: &OperationRequest,
@@ -255,12 +267,8 @@ pub fn decide(
     agent_grant: Option<Option<&OperationGrant>>,
 ) -> Decision {
     let denied = |rule: &str| Decision::Denied(rule.into());
-    if let Some(grant) = agent_grant {
-        match grant {
-            Some(grant)
-                if grant.kinds.contains(&request.kind) && grant.rails.contains(&request.rail) => {}
-            _ => return denied("not_granted"),
-        }
+    if !grant_covers(agent_grant, request) {
+        return denied("not_granted");
     }
     if request.currency != budget.terms.currency {
         return denied("currency_not_in_budget");
@@ -429,12 +437,34 @@ impl Service {
         let fingerprint = blake3::hash(&serde_json::to_vec(&request)?)
             .to_hex()
             .to_string();
+        // An agent's grant is checked before the rail or the case source is asked anything, so
+        // an agent with no rights over this kind and rail learns nothing about the rail's
+        // records. Both are checked again inside the transaction below.
+        let granted = match &self.agent_scope {
+            Some(agent) => {
+                let db = storage::connect(&self.ledger, false)?;
+                self.check_agent_budget(
+                    &db,
+                    actor,
+                    &request.budget_id,
+                    Some(Permission::Execute),
+                    at,
+                )?;
+                grant_covers(Some(crate::agents::grant(&db, agent)?.as_ref()), &request)
+            }
+            None => true,
+        };
         // Rail and case checks outside the ledger lock: they read the rail's own records and
         // the business's case records only.
-        let check = self.rails.check(&request)?;
-        let case = match &request.case_id {
-            Some(id) => self.rails.case(id)?,
-            None => None,
+        let (check, case) = if granted {
+            let check = self.rails.check(&request)?;
+            let case = match &request.case_id {
+                Some(id) => self.rails.case(id)?,
+                None => None,
+            };
+            (check, case)
+        } else {
+            (Check::Invalid("not_granted"), None)
         };
         let mut db = storage::connect(&self.ledger, false)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -476,6 +506,10 @@ impl Service {
         };
         let id = new_id("op")?;
         let (decision, proposal) = match check {
+            // A grant removed or narrowed since the first read still wins over the rail's reason.
+            Check::Invalid(_) if !grant_covers(grant.as_ref().map(Option::as_ref), &request) => {
+                (Decision::Denied("not_granted".into()), None)
+            }
             Check::Invalid(reason) => (Decision::Denied(reason.into()), None),
             Check::Valid(mut facts) => {
                 let committed = match &request.case_id {

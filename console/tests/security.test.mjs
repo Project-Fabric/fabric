@@ -34,9 +34,40 @@ test('an approver session is valid only while this console holds it, and never a
   assert.equal(readSession(`${COOKIE}=${cookie}`), null, 'sign-out or restart ends it');
   // Owner sessions are unchanged, including ones signed before roles existed.
   assert.equal(readSession(`${COOKIE}=${issueSession('fixture-approver').cookie}`).role, 'owner');
-  // Online guessing is bounded: five failures a minute for the whole console.
+  // Online guessing is bounded: five failures a minute from one client.
   const start = 10_000_000;
   for (let i = 0; i < 5; i++) { assert.equal(signInAllowed(start + i), true); signInFailed(start + i); }
   assert.equal(signInAllowed(start + 10), false);
   assert.equal(signInAllowed(start + 61_000), true);
+});
+test('signing out ends the owner session on the server, not only in the browser', async () => {
+  const { forget } = await import('../server/approvers.mjs');
+  const { cookie, session } = issueSession('fixture-approver');
+  const copied = `${COOKIE}=${cookie}`;
+  assert.equal(readSession(copied).role, 'owner');
+  forget(session.id);
+  assert.equal(readSession(copied), null, 'a copied cookie stops working after sign-out');
+  const request = new Request('http://127.0.0.1:3090/api/console', { headers: { cookie: copied } });
+  assert.throws(() => requireRequest(request));
+  // A session this process never issued is not accepted, even with a valid signature.
+  const other = issueSession('fixture-approver');
+  forget(other.session.id);
+  assert.equal(readSession(`${COOKIE}=${other.cookie}`), null);
+});
+test('one client cannot lock every approver out of sign-in', async () => {
+  const { reserveSignIn, signInAllowed, signInFailed, wellFormed } = await import('../server/approvers.mjs');
+  const start = 20_000_000;
+  // Malformed keys are refused without counting: they cannot be guesses at a real key.
+  for (const junk of ['', 'x', 'approverkey_zz', null, 'approverkey_' + '0'.repeat(63)]) assert.equal(wellFormed(junk), false);
+  assert.equal(wellFormed('approverkey_' + 'a'.repeat(64)), true);
+  for (let i = 0; i < 5; i++) signInFailed(start + i, '198.51.100.9');
+  assert.equal(signInAllowed(start + 10, '198.51.100.9'), false, 'the guessing client is limited');
+  assert.equal(signInAllowed(start + 10, '198.51.100.10'), true, 'another approver is not');
+  assert.equal(signInAllowed(start + 10, '198.51.100.11'), true);
+  // Attempts in flight count at once, so parallel guesses cannot all pass; a success undoes it.
+  const reserved = [];
+  for (let i = 0; i < 5; i++) reserved.push(reserveSignIn('198.51.100.12', start + 20));
+  assert.equal(reserveSignIn('198.51.100.12', start + 20), null);
+  reserved[0]();
+  assert.notEqual(reserveSignIn('198.51.100.12', start + 20), null);
 });

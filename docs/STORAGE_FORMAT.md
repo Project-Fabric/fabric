@@ -495,7 +495,10 @@ Refunds and payouts requested by registered agents or the owner, through
 Request fields (unknown fields rejected): `budget_id`, `kind` (`refund` with `source`, or
 `payout` with `payee`), `rail`, `amount_minor`, `currency`, `reason` (at most 500 characters),
 `idempotency_key`, and optionally `case_id` (v6; refunds only; written only when present, so
-earlier requests keep their fingerprints). The rail checks the request against its own records before any decision
+earlier requests keep their fingerprints). An agent's request is first checked against its
+grant: one without a grant covering the kind and rail is recorded as `denied` with `not_granted`
+and neither the rail nor the case source is consulted, so it learns nothing about their
+records. Otherwise the rail checks the request against its own records before any decision
 (the payment exists and has that much left to refund; the payee is registered; the currency
 matches). A failed check is recorded as `denied` with the rail's reason (`source_not_found`,
 `exceeds_refundable`, `currency_mismatch`, `payee_unknown`). Otherwise policy decides, in order:

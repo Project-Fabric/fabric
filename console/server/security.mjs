@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { recall } from './approvers.mjs';
+import { ownerActive, recall, rememberOwner } from './approvers.mjs';
 
 export const COOKIE = 'agentauth_session';
 export function equal(a, b) {
@@ -18,6 +18,7 @@ export function issueSession(user, now = Date.now(), role = 'owner') {
     csrf: randomBytes(32).toString('hex'), expires: now + 12 * 60 * 60 * 1000 };
   const payload = Buffer.from(JSON.stringify(session)).toString('base64url');
   const signature = createHmac('sha256', key()).update(payload).digest('base64url');
+  if (role === 'owner') rememberOwner(session.id, session.expires, now);
   return { session, cookie: `${payload}.${signature}` };
 }
 export function readSession(cookieHeader, now = Date.now()) {
@@ -33,7 +34,8 @@ export function readSession(cookieHeader, now = Date.now()) {
       || typeof value.expires !== 'number' || value.expires <= now) return null;
     // Sessions signed before roles existed are the owner's.
     const role = value.role ?? 'owner';
-    if (role === 'owner') return value.user === process.env.CONSOLE_USER ? { ...value, role } : null;
+    // The owner's session, too, lives only while this process holds it: sign-out ends it.
+    if (role === 'owner') return value.user === process.env.CONSOLE_USER && ownerActive(value.id, now) ? { ...value, role } : null;
     // An approver session lives only while this process holds its key (sign-out or restart ends it).
     if (role === 'approver') return recall(value.id)?.name === value.user ? value : null;
     return null;

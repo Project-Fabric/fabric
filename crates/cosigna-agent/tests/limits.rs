@@ -97,7 +97,7 @@ impl Gateway {
             .post(format!("http://{}/gateway/v1{path}", self.host()))
             .header("Authorization", authorization)
             .send_json(body)
-            .unwrap();
+            .unwrap_or_else(|error| panic!("POST {path}: {error}"));
         let status = response.status().as_u16();
         let value = response.body_mut().read_json().unwrap();
         (status, value)
@@ -105,12 +105,14 @@ impl Gateway {
 
     fn refund_agent(&self, budget_limit: i64, auto_limit: i64) -> (String, String) {
         let owner = self.bearer("owner");
+        // One time for both: an agent may not outlive its budget, even by a second.
+        let expires_at = cosigna_agent::now() + 3600;
         let (status, budget) = self.post(
             &owner,
             "/budgets",
             json!({"currency":"USD","limit_minor":budget_limit,
                 "per_purchase_minor":budget_limit,"merchants":["fixture-cafe"],
-                "expires_at":cosigna_agent::now()+3600}),
+                "expires_at":expires_at}),
         );
         assert_eq!(status, 200);
         let budget = budget["data"]["id"].as_str().unwrap().to_string();
@@ -118,7 +120,7 @@ impl Gateway {
             &owner,
             "/agents",
             json!({"name":"synthetic-load-agent","budget_id":budget,
-                "permissions":["execute"],"expires_at":cosigna_agent::now()+3600,
+                "permissions":["execute"],"expires_at":expires_at,
                 "operations":{"kinds":["refund"],"rails":["fixture"],
                     "auto_approve_minor":auto_limit,"require_case":true}}),
         );
@@ -202,8 +204,12 @@ fn a_preclaim_database_failure_under_admission_saturation_recovers_without_resen
 
     // Occupy all three shared slots with real authenticated agent connections. A fourth
     // agent is rejected, while the owner's separately reserved slot remains available.
-    let stalled: Vec<_> = (0..3).map(|_| gateway.stall(&agent)).collect();
-    let deadline = Instant::now() + Duration::from_secs(3);
+    // A probe can overtake a stall and take its slot, leaving that stall refused, so another
+    // is added for as long as a probe still gets through.
+    let mut stalled: Vec<_> = (0..3).map(|_| gateway.stall(&agent)).collect();
+    // Other tests run in parallel, so allow for a busy machine; well under the ten seconds a
+    // stalled body may hold its slot.
+    let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         let status = gateway
             .get(
@@ -219,7 +225,8 @@ fn a_preclaim_database_failure_under_admission_saturation_recovers_without_resen
             Instant::now() < deadline,
             "shared admission slots did not fill"
         );
-        std::thread::sleep(Duration::from_millis(10));
+        stalled.push(gateway.stall(&agent));
+        std::thread::sleep(Duration::from_millis(50));
     }
     let blocker =
         rusqlite::Connection::open(gateway._directory.path().join("transactions.sqlite")).unwrap();
@@ -591,5 +598,37 @@ fn a_valid_machine_credential_is_told_busy_but_not_counted_as_refused() {
             .0,
         429
     );
+    drop(held);
+}
+
+#[test]
+fn a_full_gateway_answers_a_post_with_busy_rather_than_resetting_the_connection() {
+    // One slot, held by a stalled request. A later POST's body arrives just after its headers,
+    // as it can from a real client: the gateway must wait for it, so the client can read the 503.
+    let gateway = start(&["--max-concurrent", "1", "--rate-limit", "1000"]);
+    let owner = gateway.bearer("owner");
+    let held = gateway.stall(&owner);
+    std::thread::sleep(Duration::from_millis(300));
+    let body = "x".repeat(8000);
+    for _ in 0..5 {
+        let mut stream = TcpStream::connect(("127.0.0.1", gateway.port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        write!(
+            stream,
+            "POST /gateway/v1/budgets HTTP/1.1\r\nHost: {}\r\nAuthorization: {owner}\r\n\
+             Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            gateway.host(),
+            body.len()
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        stream.write_all(body.as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+        assert!(response.contains("busy"), "{response}");
+    }
     drop(held);
 }

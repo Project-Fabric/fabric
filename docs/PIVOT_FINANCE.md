@@ -8,6 +8,8 @@ These are fixture correctness checks, not current-main capacity qualification or
 diagnosis of the original overload incident. See the
 [failure boundary and acceptance criteria](C02_RECOVERY_OVERLOAD_2026-10-31.md).
 This follow-up still requires review/merge; no optional model path or live money is enabled.
+2 November: main merged into this follow-up. The concurrent test exposed a reset connection when
+the gateway refused a POST without reading its body; refused requests now get a readable answer.
 
 **28 October — Reviewed Stripe test evidence and Antler preparation:** two complete Claude
 Northwind pairs each recorded USD 528 wrong refunds through a direct tool versus zero through

@@ -92,3 +92,37 @@ The next foundation item is #112: a trusted workflow assignment must constrain
 which otherwise-valid case/payment an agent may select and how much it may request.
 The optional private-data/model-egress path remains disabled and subject to the
 design decisions in #110/#123.
+
+## Update, 2 November 2026: merged with the audit fixes
+
+Main now includes #126 and #128. Two things changed for these tests:
+
+- **Shared slots:** a stalled body now holds its slot for at most 10 seconds, not the full
+  request timeout. The injected failure returns at about five seconds, so the three stalled
+  agents still fill the shared pool while the owner's request runs.
+- **A flaky test exposed a gateway bug:** the concurrent test failed intermittently with a
+  connection abort (WSAECONNABORTED), both before and after the merge. The test's assertions
+  were left unchanged and the gateway was fixed. A request refused before processing (`busy` or
+  `rate_limited`) was answered without reading its body, so closing the connection could reset
+  it and lose the answer. The client then saw an uncertain network failure for work that never
+  started. The gateway now reads and discards that body for up to one second, holding no slot.
+  A body arriving later than that can still produce a reset; the client must treat such a
+  failure as uncertain and replay the same idempotency key.
+
+Measured on Windows only, on loopback: the two overload tests failed 9 of 15 runs at `3c734f5`,
+11 of 15 after merging main, and 0 of 20 with the fix. The new test that delays a POST body
+fails 6 of 6 on the old server and passes 6 of 6 with the fix. This is not a capacity result,
+and the reset's frequency on other platforms was not measured.
+
+Separately, the test harness set the budget's and agent's expiry from two clock reads, so a
+second boundary between them could make setup fail. They now share one value.
+
+Filling the shared slots also had a race: a status probe could overtake a stalled request and
+take its slot, leaving only two filled. Setup now adds a stalled request for as long as a probe
+gets through.
+
+With these changes the `limits` test file passed 69 of 70 runs, including every overload test.
+The one failure was the older `people_can_still_act_when_agents_fill_the_gateway`, which relies
+on a fixed 500 ms wait; it is unchanged here. In an earlier 70-run batch, before the last setup
+fix, one overload test hit a connection reset (WSAECONNRESET) once.
+It did not recur and its cause is unknown. POST errors in the harness now name the path.

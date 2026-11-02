@@ -5,20 +5,63 @@
 // handlers see one store.
 const shared = globalThis;
 const sessions = (shared.cosignaApproverSessions ??= new Map());
-const failures = (shared.cosignaApproverFailures ??= []);
+const owners = (shared.cosignaOwnerSessions ??= new Map());
+const failures = (shared.cosignaApproverFailures ??= new Map());
 const KEY = /^approverkey_[0-9a-f]{64}$/;
-const WINDOW = 60_000, MAX_FAILURES = 5;
+const WINDOW = 60_000, MAX_FAILURES = 5, MAX_FAILURES_TOTAL = 200;
 
 export function remember(sessionId, approver) { sessions.set(sessionId, approver); }
 export function recall(sessionId) { return sessions.get(sessionId) ?? null; }
-export function forget(sessionId) { sessions.delete(sessionId); }
+/** Ends a session of either kind: sign-out, or a restart, which empties both stores. */
+export function forget(sessionId) { sessions.delete(sessionId); owners.delete(sessionId); }
 
-/** At most five failed sign-ins per minute for the whole console, so keys cannot be guessed online. */
-export function signInAllowed(now = Date.now()) {
-  while (failures.length && failures[0] < now - WINDOW) failures.shift();
-  return failures.length < MAX_FAILURES;
+/** The owner's sessions also live only in this process, so signing out really ends them. */
+export function rememberOwner(sessionId, expires, now = Date.now()) {
+  for (const [id, until] of owners) if (until <= now) owners.delete(id);
+  owners.set(sessionId, expires);
 }
-export function signInFailed(now = Date.now()) { failures.push(now); }
+export function ownerActive(sessionId, now = Date.now()) { return (owners.get(sessionId) ?? 0) > now; }
+
+/** Only a key of the right shape can be a guess at a real key. Anything else is refused without counting. */
+export function wellFormed(key) { return typeof key === 'string' && KEY.test(key); }
+
+function recent(client, now) {
+  const times = failures.get(client) ?? [];
+  while (times.length && times[0] < now - WINDOW) times.shift();
+  if (times.length) failures.set(client, times); else failures.delete(client);
+  return times;
+}
+function total(now) {
+  let count = 0;
+  for (const client of [...failures.keys()]) count += recent(client, now).length;
+  return count;
+}
+/**
+ * Online guessing limit: at most five failed sign-ins per minute from one client, with a much
+ * higher ceiling for the whole console as a backstop. One client's failures do not lock out
+ * other approvers.
+ */
+export function signInAllowed(now = Date.now(), client = 'local') {
+  return recent(client, now).length < MAX_FAILURES && total(now) < MAX_FAILURES_TOTAL;
+}
+export function signInFailed(now = Date.now(), client = 'local') {
+  const times = recent(client, now);
+  times.push(now);
+  failures.set(client, times);
+}
+/**
+ * Counts an attempt as failed before it is checked, so parallel attempts cannot all pass the
+ * limit while they wait for the gateway. Returns a function that undoes it on success.
+ */
+export function reserveSignIn(client = 'local', now = Date.now()) {
+  if (!signInAllowed(now, client)) return null;
+  signInFailed(now, client);
+  return () => {
+    const times = failures.get(client);
+    const at = times?.lastIndexOf(now) ?? -1;
+    if (at >= 0) times.splice(at, 1);
+  };
+}
 
 /** The gateway's loopback address, as the engine requires it. */
 export function gatewayBase() {

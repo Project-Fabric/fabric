@@ -8,7 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde_json::Value;
+use cosigna_agent::{Service, api::Credentials, operations::OperationStage, worker::Worker};
+use serde_json::{Value, json};
 
 const BINARY: &str = env!("CARGO_BIN_EXE_cosigna-agent");
 
@@ -28,8 +29,9 @@ fn free_port() -> u16 {
 struct Gateway {
     port: u16,
     credentials: Value,
-    _directory: tempfile::TempDir,
+    // Stop the server before deleting its store (fields drop in declaration order).
     _process: Process,
+    _directory: tempfile::TempDir,
 }
 
 fn start(args: &[&str]) -> Gateway {
@@ -86,6 +88,47 @@ impl Gateway {
         format!("127.0.0.1:{}", self.port)
     }
 
+    fn post(&self, authorization: &str, path: &str, body: Value) -> (u16, Value) {
+        let mut response = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(Duration::from_secs(20)))
+            .build()
+            .new_agent()
+            .post(format!("http://{}/gateway/v1{path}", self.host()))
+            .header("Authorization", authorization)
+            .send_json(body)
+            .unwrap_or_else(|error| panic!("POST {path}: {error}"));
+        let status = response.status().as_u16();
+        let value = response.body_mut().read_json().unwrap();
+        (status, value)
+    }
+
+    fn refund_agent(&self, budget_limit: i64, auto_limit: i64) -> (String, String) {
+        let owner = self.bearer("owner");
+        // One time for both: an agent may not outlive its budget, even by a second.
+        let expires_at = cosigna_agent::now() + 3600;
+        let (status, budget) = self.post(
+            &owner,
+            "/budgets",
+            json!({"currency":"USD","limit_minor":budget_limit,
+                "per_purchase_minor":budget_limit,"merchants":["fixture-cafe"],
+                "expires_at":expires_at}),
+        );
+        assert_eq!(status, 200);
+        let budget = budget["data"]["id"].as_str().unwrap().to_string();
+        let (status, issued) = self.post(
+            &owner,
+            "/agents",
+            json!({"name":"synthetic-load-agent","budget_id":budget,
+                "permissions":["execute"],"expires_at":expires_at,
+                "operations":{"kinds":["refund"],"rails":["fixture"],
+                    "auto_approve_minor":auto_limit,"require_case":true}}),
+        );
+        assert_eq!(status, 200);
+        let auth = format!("Bearer {}", issued["data"]["token"].as_str().unwrap());
+        (budget, auth)
+    }
+
     /// One GET with exactly these headers; returns the status and the whole response.
     fn get(&self, path: &str, headers: &[(&str, &str)]) -> (u16, String) {
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
@@ -123,6 +166,200 @@ impl Gateway {
             .unwrap();
         stream
     }
+}
+
+fn refund(budget: &str, amount: i64, key: &str) -> Value {
+    json!({"budget_id":budget,"kind":"refund","rail":"fixture",
+        "source":"pay_fixture_2045","case_id":"case_fixture_2045",
+        "amount_minor":amount,"currency":"USD","reason":"Synthetic overload regression",
+        "idempotency_key":key})
+}
+
+#[test]
+fn a_preclaim_database_failure_under_admission_saturation_recovers_without_resending() {
+    // A deterministic fault at the same boundary as the earlier overload incident:
+    // approval committed, SQLite's writer unavailable, no attempt claimed. This does not
+    // establish the original incident's cause or a throughput limit.
+    let gateway = start(&[
+        "--max-concurrent",
+        "4",
+        "--request-timeout",
+        "12",
+        "--rate-limit",
+        "1000",
+    ]);
+    let (budget, agent) = gateway.refund_agent(1000, 0);
+    let request = refund(&budget, 500, "interrupted-under-load");
+    let (status, held) = gateway.post(&agent, "/operations", request.clone());
+    assert_eq!(status, 200);
+    assert_eq!(held["data"]["stage"], "held");
+    let id = held["data"]["id"].as_str().unwrap();
+    let digest = held["proposal_digest"].as_str().unwrap();
+    let service = Service::open(gateway._directory.path()).unwrap();
+    let credentials =
+        Credentials::initialize(&gateway._directory.path().join("credentials.json")).unwrap();
+    let owner = credentials.authenticate(&gateway.bearer("owner")).unwrap();
+    let at = cosigna_agent::now();
+    service.approve_operation(&owner, id, digest, at).unwrap();
+
+    // Occupy all three shared slots with real authenticated agent connections. A fourth
+    // agent is rejected, while the owner's separately reserved slot remains available.
+    // A probe can overtake a stall and take its slot, leaving that stall refused, so another
+    // is added for as long as a probe still gets through.
+    let mut stalled: Vec<_> = (0..3).map(|_| gateway.stall(&agent)).collect();
+    // Other tests run in parallel, so allow for a busy machine; well under the ten seconds a
+    // stalled body may hold its slot.
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let status = gateway
+            .get(
+                &format!("/gateway/v1/operations/{id}"),
+                &[("Host", &gateway.host()), ("Authorization", &agent)],
+            )
+            .0;
+        if status == 503 {
+            break;
+        }
+        assert_eq!(status, 200);
+        assert!(
+            Instant::now() < deadline,
+            "shared admission slots did not fill"
+        );
+        stalled.push(gateway.stall(&agent));
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let blocker =
+        rusqlite::Connection::open(gateway._directory.path().join("transactions.sqlite")).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+    // Keep the writer locked until the server's five-second SQLite busy timeout fails.
+    // The HTTP deadline is longer, so the actual internal error is observable, not hidden
+    // behind a client timeout. No payment or model provider is contacted.
+    let (status, failure) = gateway.post(
+        &gateway.bearer("owner"),
+        &format!("/operations/{id}/execute"),
+        json!({}),
+    );
+    assert_eq!(status, 500);
+    assert_eq!(failure["error"]["code"], "internal_error");
+    assert_eq!(
+        gateway.get("/v1/health", &[("Host", &gateway.host())]).0,
+        200
+    );
+    blocker.execute_batch("ROLLBACK").unwrap();
+    drop(stalled);
+
+    let op = service.operation(&owner, id).unwrap();
+    assert_eq!(op.stage, OperationStage::Approved);
+    assert!(op.attempt_key.is_none());
+    assert_eq!(
+        service.balance(&owner, &budget).unwrap().reserved_minor,
+        500
+    );
+    let rail = service.rails.fixture_rail().unwrap();
+    assert_eq!(rail.attempt_count().unwrap(), 0);
+
+    let mut worker = Worker::open(&service).unwrap();
+    let recovered = worker
+        .recover_operations(at + cosigna_agent::worker::RECOVERY_GRACE + 30)
+        .unwrap();
+    assert_eq!(recovered.len(), 1);
+    assert!(recovered[0].needs_person);
+    let op = service.operation(&owner, id).unwrap();
+    assert_eq!(op.stage, OperationStage::Held);
+    assert!(op.approved_digest.is_none() && op.attempt_key.is_none());
+    let balance = service.balance(&owner, &budget).unwrap();
+    assert_eq!(balance.available_minor, 1000);
+    assert_eq!(balance.reserved_minor, 0);
+    assert_eq!(balance.spent_minor, 0);
+    assert_eq!(rail.attempt_count().unwrap(), 0);
+
+    // Neither the original POST replay nor a stale execution may restart spending.
+    let (status, replay) = gateway.post(&agent, "/operations", request);
+    assert_eq!(status, 200);
+    assert_eq!(replay["data"]["id"], id);
+    assert_eq!(replay["data"]["stage"], "held");
+    assert_eq!(
+        gateway
+            .post(&agent, &format!("/operations/{id}/execute"), json!({}))
+            .0,
+        409
+    );
+    assert_eq!(rail.attempt_count().unwrap(), 0);
+    // A fresh exact-proposal approval still permits one legitimate refund.
+    let (status, resumed) = gateway.post(
+        &gateway.bearer("owner"),
+        &format!("/operations/{id}/approve"),
+        json!({"proposal_digest":digest}),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(resumed["data"]["stage"], "succeeded");
+    assert_eq!(rail.attempt_count().unwrap(), 1);
+    assert_eq!(rail.refunded_minor("pay_fixture_2045").unwrap(), 500);
+    let balance = service.balance(&owner, &budget).unwrap();
+    assert_eq!(balance.spent_minor, 500);
+    assert_eq!(balance.reserved_minor, 0);
+    assert!(service.verify_evidence().unwrap().ok());
+}
+
+#[test]
+fn concurrent_http_refunds_and_replays_cannot_overspend_or_duplicate_effects() {
+    let gateway = start(&["--max-concurrent", "8", "--rate-limit", "1000"]);
+    let (budget, agent) = gateway.refund_agent(1000, 1000);
+    let barrier = std::sync::Barrier::new(48);
+    let statuses = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..48)
+            .map(|i| {
+                let request = refund(&budget, 100, &format!("concurrent-{}", i % 24));
+                let gateway = &gateway;
+                let agent = &agent;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    gateway.post(agent, "/operations", request).0
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    // Bounded admission may refuse excess work; successful admission must not become an
+    // unexplained internal failure. Replay only the exact original key and payload.
+    assert!(
+        statuses.iter().all(|s| matches!(s, 200 | 503 | 504)),
+        "{statuses:?}"
+    );
+    let mut succeeded = 0;
+    let mut denied = 0;
+    for i in 0..24 {
+        let (status, op) = gateway.post(
+            &agent,
+            "/operations",
+            refund(&budget, 100, &format!("concurrent-{i}")),
+        );
+        assert_eq!(status, 200);
+        match op["data"]["stage"].as_str().unwrap() {
+            "succeeded" => succeeded += 1,
+            "denied" => denied += 1,
+            stage => panic!("unexpected final stage: {stage}"),
+        }
+    }
+    assert_eq!((succeeded, denied), (10, 14));
+    let service = Service::open(gateway._directory.path()).unwrap();
+    let credentials =
+        Credentials::initialize(&gateway._directory.path().join("credentials.json")).unwrap();
+    let owner = credentials.authenticate(&gateway.bearer("owner")).unwrap();
+    let ops = service.operations(&owner, None).unwrap();
+    assert_eq!(ops.len(), 24);
+    let balance = service.balance(&owner, &budget).unwrap();
+    assert_eq!(balance.available_minor, 0);
+    assert_eq!(balance.spent_minor, 1000);
+    assert_eq!(balance.reserved_minor, 0);
+    let rail = service.rails.fixture_rail().unwrap();
+    assert_eq!(rail.refunded_minor("pay_fixture_2045").unwrap(), 1000);
+    assert_eq!(rail.attempt_count().unwrap(), 10);
+    assert!(service.verify_evidence().unwrap().ok());
 }
 
 #[test]
@@ -361,5 +598,37 @@ fn a_valid_machine_credential_is_told_busy_but_not_counted_as_refused() {
             .0,
         429
     );
+    drop(held);
+}
+
+#[test]
+fn a_full_gateway_answers_a_post_with_busy_rather_than_resetting_the_connection() {
+    // One slot, held by a stalled request. A later POST's body arrives just after its headers,
+    // as it can from a real client: the gateway must wait for it, so the client can read the 503.
+    let gateway = start(&["--max-concurrent", "1", "--rate-limit", "1000"]);
+    let owner = gateway.bearer("owner");
+    let held = gateway.stall(&owner);
+    std::thread::sleep(Duration::from_millis(300));
+    let body = "x".repeat(8000);
+    for _ in 0..5 {
+        let mut stream = TcpStream::connect(("127.0.0.1", gateway.port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        write!(
+            stream,
+            "POST /gateway/v1/budgets HTTP/1.1\r\nHost: {}\r\nAuthorization: {owner}\r\n\
+             Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            gateway.host(),
+            body.len()
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        stream.write_all(body.as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+        assert!(response.contains("busy"), "{response}");
+    }
     drop(held);
 }

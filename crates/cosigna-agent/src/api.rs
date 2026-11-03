@@ -440,6 +440,20 @@ const BODY_LIMIT: usize = 16_384;
 /// request timeout, so a client that stalls its upload cannot hold a slot for long.
 const BODY_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long a request refused before it is processed may take to finish sending its body.
+const REFUSED_BODY_DRAIN: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Reads and discards a refused request's body, holding no slot, before it is answered. Closing
+/// a connection with unread data resets it, so the client could lose the answer and see an
+/// uncertain network failure instead of a clear refusal of work that never started.
+async fn drain(request: axum::extract::Request) {
+    let _ = tokio::time::timeout(
+        REFUSED_BODY_DRAIN,
+        axum::body::to_bytes(request.into_body(), BODY_LIMIT + 1),
+    )
+    .await;
+}
+
 /// Who a request's credential belongs to, as far as choosing a slot is concerned.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Caller {
@@ -548,6 +562,7 @@ async fn handle(
     if !health {
         let now = std::time::Instant::now();
         if let Some(wait) = app.refusals.blocked(refused, now) {
+            drain(request).await;
             return too_many(&url, wait, "too many refused requests from this address");
         }
         // Each credential has its own budget; a client without one is counted by address.
@@ -556,6 +571,7 @@ async fn handle(
             None => from.to_string().into_bytes(),
         };
         if let Err(wait) = app.rates.check(&key, now) {
+            drain(request).await;
             return too_many(&url, wait, "request rate limit reached for this credential");
         }
     }
@@ -592,6 +608,7 @@ async fn handle(
         Some(permit) => Some(permit),
         None if health => None,
         None => {
+            drain(request).await;
             return reply(
                 &url,
                 503,

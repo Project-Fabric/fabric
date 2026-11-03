@@ -18,6 +18,8 @@ const STRIPE_API: &str = "https://api.stripe.com";
 /// Stripe keeps idempotency keys for 24 hours; stay inside that with a margin.
 pub const RETRY_WINDOW: i64 = 23 * 3600;
 const MAX_BODY: u64 = 512 * 1024;
+/// Pages of 100 refunds read per comparison with the ledger.
+const MAX_RECONCILE_PAGES: usize = 10;
 
 #[derive(Clone)]
 pub struct StripeRail {
@@ -186,6 +188,45 @@ impl StripeRail {
             return Err(Error::Merchant);
         }
         Ok(list["data"].as_array().cloned().unwrap_or_default())
+    }
+
+    /// Refunds created at or after `from`, newest first, and whether that is all of them. A very
+    /// long history is cut off rather than read without limit; the caller reports that.
+    pub(crate) fn refunds_since(&self, from: i64) -> Result<(Vec<Value>, bool)> {
+        let mut refunds = Vec::new();
+        let mut after: Option<String> = None;
+        for _ in 0..MAX_RECONCILE_PAGES {
+            let cursor = after
+                .as_ref()
+                .map(|id| format!("&starting_after={id}"))
+                .unwrap_or_default();
+            let path = format!("/v1/refunds?limit=100&created%5Bgte%5D={from}{cursor}");
+            let Reply::Ok(list) = self.get(&path) else {
+                return Err(Error::Merchant);
+            };
+            let (Some(page), Some(more)) = (list["data"].as_array(), list["has_more"].as_bool())
+            else {
+                return Err(Error::Merchant);
+            };
+            if list["object"] != "list" {
+                return Err(Error::Merchant);
+            }
+            refunds.extend(page.iter().cloned());
+            if !more {
+                return Ok((refunds, true));
+            }
+            // The cursor goes into a URL: only a real refund id may continue the listing.
+            after = match page.last().and_then(|r| r["id"].as_str()) {
+                Some(id)
+                    if id.starts_with("re_")
+                        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') =>
+                {
+                    Some(id.to_string())
+                }
+                _ => return Err(Error::Merchant),
+            };
+        }
+        Ok((refunds, false))
     }
 
     /// Money already refunded or on its way: pending refunds count against what is left.

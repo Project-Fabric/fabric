@@ -308,12 +308,30 @@ fn run() -> Result<std::process::ExitCode> {
                 cases.as_deref(),
             )?;
             let mut worker = cosigna_agent::worker::Worker::open(&service)?;
+            let mut monitor = cosigna_agent::monitor::Monitor::new();
+            if alerts.is_none() {
+                eprintln!(
+                    "Cosigna worker: alerts are off, so nobody is told when money waits or a check fails. Use --alerts."
+                );
+            }
             let planner = make_planner(planner, model)?;
             eprintln!(
                 "Cosigna worker · enrolled tasks only · planner: {} · SIMULATED merchant · recovers unknown money operations by lookup only",
                 planner.name()
             );
             loop {
+                // Monitor failures are reported, never fatal: payments must not wait on them.
+                match monitor.run(&service, alerts.as_ref(), now()) {
+                    Ok(findings) => {
+                        for finding in findings {
+                            println!(
+                                "{}",
+                                json!({"schema":cosigna_agent::alerts::FINDING_SCHEMA,"data":finding})
+                            );
+                        }
+                    }
+                    Err(_) => eprintln!("Cosigna monitor: could not finish its checks"),
+                }
                 // Alert failures are reported, never fatal: payments must not wait on them.
                 if let Some(alerts) = &alerts {
                     let delivered = service

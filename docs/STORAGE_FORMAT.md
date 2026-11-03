@@ -328,7 +328,7 @@ key is generated on first export and kept in `<home>/keys/evidence-ed25519.key`.
 
 Garbage collection, store format migrations.
 
-## Optional Cosigna agent development stores (ledger version 12, provider version 4)
+## Optional Cosigna agent development stores (ledger version 13, provider version 4)
 
 These stores belong to `cosigna-agent`, not the Fabric object/manifest layout above. Default
 directory: the OS local-data directory followed by `Cosigna/agent-dev`. No existing project
@@ -338,7 +338,7 @@ and version; foreign databases and unsupported versions are refused.
 
 | File | `PRAGMA application_id` | `PRAGMA user_version` | Tables |
 |---|---|---|---|
-| `transactions.sqlite` | `0x43535458` | 12 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships`, `identity_gateway_bindings`, `identity_approver_bindings`, `alert_cursor`, `alert_outbox` |
+| `transactions.sqlite` | `0x43535458` | 13 | `budgets`, `tasks`, `reservations`, `events`, `agents`, `task_agents`, `agent_events`, `worker_jobs`, `evidence`, `operations`, `operation_holds`, `approvers`, `identity_users`, `identity_subjects`, `identity_organizations`, `identity_memberships`, `identity_gateway_bindings`, `identity_approver_bindings`, `alert_cursor`, `alert_outbox`, `monitor_findings`, `monitor_state` |
 | `fixture-provider.sqlite` | `0x43534658` | 4 | `offers`, `orders`, `voids`, `fixture_payments`, `fixture_payees`, `money_attempts`, `money_voids`, `fixture_cases` |
 
 Connections enable foreign keys, WAL journaling, `synchronous=FULL`, and a five-second busy
@@ -357,13 +357,14 @@ operation JSON `first_approval` (two-person approval, below). Version 9 adds no 
 proposal's `facts.case` may carry `system`, the case source it was read from (case sources,
 below). Version 10 adds identity metadata tables; version 11 adds explicit organization/owner
 and identity/approver bindings (below); version 12 adds the alert cursor and queue (alerts,
-below). Opening an application-matching v1-v11 ledger creates the missing tables and columns
-and updates `user_version` to 12 in one transaction. Existing
+below); version 13 adds monitoring and rebuilds `alert_outbox` to allow its `finding` event
+(monitoring, below). Opening an application-matching v1-v12 ledger creates the missing tables
+and columns and updates `user_version` to 13 in one transaction. Existing
 budget/task/reservation/event/agent values, quote digests and attempt keys are unchanged; no
 historical task is automatically enrolled. Provider version 2 added `voids`, version 3 added
 the synthetic money rail and version 4 adds `fixture_cases`; older provider stores gain them in
-one transaction, and provider versions above 4 are refused. Versions above 12, foreign
-application IDs and unidentified nonempty databases are refused. Older executables refuse v12
+one transaction, and provider versions above 4 are refused. Versions above 13, foreign
+application IDs and unidentified nonempty databases are refused. Older executables refuse v13
 (and may refuse grants or operations that carry the new fields); do not downgrade
 or drop tables in user data. Stop all users of a profile and back it up before upgrading.
 Use a separate gateway development profile instead of repurposing an active phone-lab profile.
@@ -932,7 +933,8 @@ URL and item title/state/URL/item ID), not payment state or evidence of feature 
 tables: `alert_cursor` (one row: the last evidence `seq` read) and `alert_outbox` (one row per
 evidence record and destination: `evidence_seq`, `destination`, `operation_id`, `event`,
 `due_at`, `attempts`, `state` in `pending`/`sent`/`skipped`/`failed`, `updated_at`; primary key
-`(evidence_seq, destination)`). No decision, approval or payment reads them, and they are not
+`(evidence_seq, destination)`; since v13 `event` may also be `finding`, with the finding's
+subject in `operation_id`). No decision, approval or payment reads them, and they are not
 part of the evidence chain.
 
 Each worker pass reads evidence after the cursor and queues an alert per destination for
@@ -956,8 +958,13 @@ Configuration (unknown fields refused, at most 64 KiB):
  "destinations": [
    {"kind": "slack", "name": "finance-slack", "url_env": "COSIGNA_ALERT_SLACK_URL"},
    {"kind": "webhook", "name": "ops", "url": "https://hooks.example.com/cosigna",
-    "secret_env": "COSIGNA_ALERT_WEBHOOK_SECRET"}]}
+    "secret_env": "COSIGNA_ALERT_WEBHOOK_SECRET"}],
+ "heartbeat": {"url_env": "COSIGNA_HEARTBEAT_URL", "interval_seconds": 60}}
 ```
+
+`heartbeat` is optional (see monitoring, below). Its URL comes from the named environment
+variable or its `_FILE` form and must be `https://` (or `http://127.0.0.1:<port>` for tests);
+`interval_seconds` is 10 to 3600, default 60.
 
 One to ten destinations with unique names (letters, digits, `-`, `_`). A Slack incoming
 webhook URL is itself a secret, so it is read from the named environment variable (or its
@@ -976,6 +983,54 @@ with headers `X-Cosigna-Timestamp` (Unix seconds) and `X-Cosigna-Signature`: `v1
 lowercase hex HMAC-SHA256, keyed with the secret, of `<timestamp>.<body>`. Receivers should
 compare it in constant time and reject old timestamps. Neither carries a credential, the
 agent's free-text reason or the payment's customer.
+
+### Monitoring (ledger version 13, `cosigna.monitor/v1`, `cosigna.monitor-finding/v1`)
+
+The worker also watches the ledger and, with Stripe connected, Stripe's refunds. It reports and
+changes nothing else: no decision, approval or payment reads these tables, and a monitor failure
+never stops the worker. Tables: `monitor_findings` (`id`, `kind`, `subject`, `detail` JSON,
+`opened_at`, nullable `resolved_at`; at most one open row per `(kind, subject)`) and
+`monitor_state` (one row: `worker_seen_at`, `alerts_configured`, `verified_at`, `verified_ok`,
+`reconcile_from`, `reconciled_at`).
+
+Opening a finding appends evidence `gateway.monitor.finding` (`finding`, `subject`, `detail`) in
+the same transaction; closing one appends `gateway.monitor.resolved` (`finding`, `subject`).
+Neither carries a digest, and neither changes what the verifiers check. A finding already open is
+not reported again. Kinds:
+
+| `kind` | `subject` | Opened when | Closed when |
+|---|---|---|---|
+| `evidence_failed` | `ledger` | Every 15 minutes and at worker start, the chain or state fails verification, or the check cannot finish. `detail` has counts only; `evidence verify` has the rest. | A later check is clean |
+| `alert_delivery_failed` | destination name | An alert to it reached 6 attempts. Sent to the other destinations, not to it. | A later delivery to it succeeds |
+| `unrecorded_refund` | refund id | A refund that moved or may have moved money has no recorded attempt with the same attempt key, digest, amount, currency and payment; or is not the refund on a recorded success; or its operation is recorded as not paid | Never automatically |
+| `refund_reversed` | operation id | The refund on a recorded success is now `failed` or `canceled` | Never automatically |
+| `refund_missing` | operation id | A success recorded 5 minutes or more ago in the window has no refund in a complete listing | Never automatically |
+| `reconciliation_unavailable` | `stripe_test` | Three passes in a row had no usable answer (`no_answer`), or the listing passed its limit (`too_many_refunds`) | A complete listing |
+
+Comparison runs every 5 minutes on the connected `stripe_test` rail, and at worker start. It lists
+refunds created in the last 35 days, up to 10 pages of 100, and creates nothing. The first pass
+only records `reconcile_from`: earlier refunds are never compared. Only `failed` and `canceled`
+count as no money moved; an empty or unfamiliar status counts as money that may have moved. A
+refund id or text that is not plain letters, digits, `_` or `-` is not copied into a finding: a
+bad id makes the pass count as no answer. The fixture rail is not compared, nor are live payment
+systems, which remain refused.
+
+`GET /gateway/v1/monitor` (owner only; figures cover the whole ledger): `{"schema":
+"cosigna.monitor/v1","data":{...}}`, where `data` has `at`, `worker` (`last_seen_at`,
+`recently_seen`, true if seen in the last 120 seconds, and `alerts_configured`), `evidence`
+(`last_verified_at`, `ok`, absent until checked), `reconciliation` (`from`, `last_completed_at`),
+`alerts` (`pending`, `failed`), `open_findings` and `findings` (newest 100, each `kind`,
+`subject`, `detail`, `opened_at`). The worker prints each new finding as a JSON line, and a
+webhook receives `cosigna.monitor-finding/v1`: `event` (`finding`), `finding`, `subject`,
+`detail`, `recorded_at`, `evidence_seq`, `console_url` and `text`, signed as alerts are. Slack
+receives `text`.
+
+Limits. A stopped worker cannot report itself: `recently_seen` turns false only for someone who
+looks, so configure `heartbeat`, which POSTs an empty body to an outside service while the worker
+runs. That service must alarm when pings stop. If the only alert destination fails, its finding
+reaches no one until someone reads the status. Someone with write access to the ledger can edit
+findings as well as anything else in it. Findings cannot yet be acknowledged, and the console
+does not show them yet. Comparison detects; it does not stop or reverse a payment.
 
 ### Worker API version 1
 

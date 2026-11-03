@@ -19,6 +19,14 @@ cosigna-agent worker --alerts examples/alerts/alerts.json
   the agent's name, the case id and a link to `console_url`; never a credential, the customer
   or the agent's free-text reason.
 
+The same destinations receive monitor findings: a failed evidence check, another destination
+that has stopped answering, and, with Stripe connected, refunds that do not match the ledger.
+
+A worker that has stopped cannot report that. To find out, sign up for any service that alarms
+when pings stop, put its address in `COSIGNA_HEARTBEAT_URL`, and add
+`"heartbeat": {"url_env": "COSIGNA_HEARTBEAT_URL"}` to the file. The worker pings it every 60
+seconds. `GET /gateway/v1/monitor` shows the same state to the owner.
+
 With Docker, add `--alerts /config/alerts.json` to the worker's command and mount the file
 and secrets as in `deploy/docker/compose.stripe-test.yaml`. The full format, retries and
 delivery guarantees are in `docs/STORAGE_FORMAT.md` (Alerts).

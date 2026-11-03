@@ -65,6 +65,11 @@ impl Rails {
         self
     }
 
+    /// The Stripe test-mode rail, if connected, for comparing its refunds with the ledger.
+    pub(crate) fn stripe_test(&self) -> Option<&crate::stripe_rail::StripeRail> {
+        self.stripe_test.as_ref()
+    }
+
     /// Reads case records from `source` instead of the synthetic case book.
     pub fn with_cases(mut self, source: crate::cases::CaseSource) -> Self {
         self.cases = Some(source);

@@ -7,6 +7,10 @@ use cosigna_agent::{
     Actor, Error, Role, Service,
     api::Credentials,
     gateway,
+    monitor::{
+        MISSING_GRACE, Monitor, RAIL_FAILURES_BEFORE_FINDING, RECONCILE_EVERY,
+        RECONCILIATION_UNAVAILABLE, REFUND_MISSING, REFUND_REVERSED, UNRECORDED_REFUND,
+    },
     operations::{OperationKind, OperationRequest, OperationStage},
     provider::Scenario,
     stripe_rail::StripeRail,
@@ -29,6 +33,10 @@ struct Fake {
     refund_status: String,
     creates: Vec<(String, HashMap<String, String>)>,
     unauthorized: u32,
+    /// The account-wide listing has no answer; lookups by payment still work.
+    listing_down: bool,
+    /// Refunds per page of the account-wide listing. Zero means 100.
+    page_size: usize,
 }
 
 fn decode(text: &str) -> String {
@@ -94,7 +102,31 @@ impl Fake {
                 }
             }
             ("GET", "/v1/refunds") => {
-                let intent = form(query).remove("payment_intent").unwrap_or_default();
+                let mut query = form(query);
+                if !query.contains_key("payment_intent") {
+                    if self.listing_down {
+                        return (500, json!({}));
+                    }
+                    let from: i64 = query["created[gte]"].parse().unwrap();
+                    assert_eq!(query["limit"], "100");
+                    let all: Vec<&Value> = self
+                        .refunds
+                        .iter()
+                        .filter(|r| r["created"].as_i64().unwrap() >= from)
+                        .collect();
+                    let skip = query.get("starting_after").map_or(0, |id| {
+                        all.iter().position(|r| r["id"] == id.as_str()).unwrap() + 1
+                    });
+                    let size = if self.page_size == 0 {
+                        100
+                    } else {
+                        self.page_size
+                    };
+                    let page: Vec<&Value> = all.iter().skip(skip).take(size).copied().collect();
+                    let more = skip + page.len() < all.len();
+                    return (200, json!({"object":"list","has_more":more,"data":page}));
+                }
+                let intent = query.remove("payment_intent").unwrap_or_default();
                 let data: Vec<Value> = self
                     .refunds
                     .iter()
@@ -151,7 +183,7 @@ impl Fake {
                 }
                 let refund = json!({"id": format!("re_test_{}", self.refunds.len() + 1), "object":"refund",
                     "amount": amount, "currency": intent["currency"], "payment_intent": intent_id,
-                    "status": self.refund_status, "metadata": metadata});
+                    "status": self.refund_status, "metadata": metadata, "created": AT});
                 self.idempotency.insert(
                     idem,
                     (body.to_string(), refund["id"].as_str().unwrap().into()),
@@ -584,4 +616,353 @@ fn live_keys_and_non_loopback_addresses_are_refused() {
     ] {
         assert!(StripeRail::new(KEY, Some(base)).is_err(), "{base}");
     }
+}
+
+/// One comparison with Stripe, as a freshly started worker would make it.
+fn compare(lab: &Lab, at: i64) -> Vec<(String, String)> {
+    Monitor::new()
+        .run(&lab.service, None, at)
+        .unwrap()
+        .into_iter()
+        .map(|f| (f.kind, f.subject))
+        .collect()
+}
+
+/// A refund made in Stripe directly, with no Cosigna attempt behind it.
+fn outside_refund(lab: &Lab, id: &str, status: &str, created: i64) {
+    lab.fake
+        .lock()
+        .unwrap()
+        .refunds
+        .push(json!({"id":id,"object":"refund","amount":700,
+        "currency":"usd","payment_intent":"pi_test_paid","status":status,"metadata":{},
+        "created":created}));
+}
+
+#[test]
+fn a_refund_made_outside_cosigna_is_reported_once_and_earlier_ones_are_not() {
+    let lab = Lab::new();
+    outside_refund(&lab, "re_before", "succeeded", AT - 500);
+    // The first pass only records where to start.
+    assert!(compare(&lab, AT - 100).is_empty());
+    assert!(compare(&lab, AT).is_empty());
+
+    outside_refund(&lab, "re_outside", "succeeded", AT);
+    assert_eq!(
+        compare(&lab, AT + 100),
+        vec![(UNRECORDED_REFUND.to_string(), "re_outside".to_string())]
+    );
+    assert!(compare(&lab, AT + 200).is_empty());
+    let status = lab
+        .service
+        .monitor_status(&Lab::owner_actor(), AT + 200)
+        .unwrap();
+    assert_eq!(status.open_findings, 1);
+    assert_eq!(status.reconciliation.from, Some(AT - 100));
+    assert_eq!(status.reconciliation.last_completed_at, Some(AT + 200));
+    assert_eq!(status.findings[0].detail["amount_minor"], 700);
+    assert_eq!(status.findings[0].detail["currency"], "USD");
+    assert_eq!(status.findings[0].detail["source"], "pi_test_paid");
+
+    // One that moved no money is not a problem; one still in flight is.
+    outside_refund(&lab, "re_failed", "failed", AT);
+    outside_refund(&lab, "re_pending", "pending", AT);
+    assert_eq!(
+        compare(&lab, AT + 300),
+        vec![(UNRECORDED_REFUND.to_string(), "re_pending".to_string())]
+    );
+    // The comparison only reads: nothing was created, and the evidence still verifies.
+    assert_eq!(lab.creates(), 0);
+    let report = lab.service.verify_evidence().unwrap();
+    assert!(report.ok(), "{report:?}");
+}
+
+#[test]
+fn refunds_made_through_cosigna_are_not_reported() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    let bot = lab.agent(json!(["refund"]));
+    assert_eq!(
+        lab.refund(&bot, "pi_test_paid", 2000, "r1")["data"]["stage"],
+        "succeeded"
+    );
+    assert!(compare(&lab, AT + MISSING_GRACE + 1).is_empty());
+}
+
+#[test]
+fn a_refund_still_settling_belongs_to_recovery_and_is_not_reported() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    lab.fake.lock().unwrap().refund_status = "pending".into();
+    let bot = lab.agent(json!(["refund"]));
+    assert_eq!(
+        lab.refund(&bot, "pi_test_paid", 2000, "r1")["data"]["stage"],
+        "unknown"
+    );
+    assert!(compare(&lab, AT + MISSING_GRACE + 1).is_empty());
+}
+
+#[test]
+fn a_recorded_refund_that_later_fails_is_reported_against_its_operation() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    let bot = lab.agent(json!(["refund"]));
+    let done = lab.refund(&bot, "pi_test_paid", 2000, "r1");
+    let id = done["data"]["id"].as_str().unwrap().to_string();
+    lab.fake.lock().unwrap().refunds[0]["status"] = json!("failed");
+    assert_eq!(
+        compare(&lab, AT + 100),
+        vec![(REFUND_REVERSED.to_string(), id.clone())]
+    );
+    assert!(compare(&lab, AT + 200).is_empty());
+    // It reports; it does not rewrite what the ledger says happened.
+    let op = lab.service.operation(&Lab::owner_actor(), &id).unwrap();
+    assert_eq!(op.stage, OperationStage::Succeeded);
+}
+
+#[test]
+fn copying_an_operations_metadata_onto_another_refund_does_not_make_it_recorded() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    let bot = lab.agent(json!(["refund"]));
+    lab.refund(&bot, "pi_test_paid", 2000, "r1");
+    let genuine = lab.fake.lock().unwrap().refunds[0].clone();
+    {
+        let mut fake = lab.fake.lock().unwrap();
+        // The same terms under a second refund id: a second payment for one approval.
+        let mut twin = genuine.clone();
+        twin["id"] = json!("re_twin");
+        fake.refunds.push(twin);
+        // A different amount.
+        let mut larger = genuine.clone();
+        larger["id"] = json!("re_larger");
+        larger["amount"] = json!(9000);
+        fake.refunds.push(larger);
+        // A different payment.
+        let mut elsewhere = genuine.clone();
+        elsewhere["id"] = json!("re_elsewhere");
+        elsewhere["payment_intent"] = json!("pi_test_big");
+        fake.refunds.push(elsewhere);
+    }
+    let mut found = compare(&lab, AT + 100);
+    found.sort();
+    let expected: Vec<(String, String)> = ["re_elsewhere", "re_larger", "re_twin"]
+        .iter()
+        .map(|id| (UNRECORDED_REFUND.to_string(), id.to_string()))
+        .collect();
+    assert_eq!(found, expected);
+}
+
+#[test]
+fn a_recorded_failure_that_stripe_shows_as_paid_is_reported() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    lab.fake.lock().unwrap().refund_status = "failed".into();
+    let bot = lab.agent(json!(["refund"]));
+    assert_eq!(
+        lab.refund(&bot, "pi_test_paid", 2000, "r1")["data"]["stage"],
+        "failed"
+    );
+    assert!(compare(&lab, AT + 100).is_empty());
+    lab.fake.lock().unwrap().refunds[0]["status"] = json!("succeeded");
+    assert_eq!(
+        compare(&lab, AT + 200),
+        vec![(UNRECORDED_REFUND.to_string(), "re_test_1".to_string())]
+    );
+}
+
+#[test]
+fn a_recorded_success_stripe_has_no_refund_for_is_reported_after_a_grace_period() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    let bot = lab.agent(json!(["refund"]));
+    let id = lab.refund(&bot, "pi_test_paid", 2000, "r1")["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    lab.fake.lock().unwrap().refunds.clear();
+    assert!(compare(&lab, AT + MISSING_GRACE - 1).is_empty());
+    assert_eq!(
+        compare(&lab, AT + MISSING_GRACE),
+        vec![(REFUND_MISSING.to_string(), id)]
+    );
+}
+
+#[test]
+fn a_listing_that_is_cut_short_is_reported_and_never_counted_as_clean() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    let bot = lab.agent(json!(["refund"]));
+    let id = lab.refund(&bot, "pi_test_paid", 2000, "r1")["data"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    {
+        let mut fake = lab.fake.lock().unwrap();
+        fake.page_size = 1;
+        // A recorded refund past the end of the listing is not called missing.
+        fake.refunds.clear();
+    }
+    for i in 0..11 {
+        outside_refund(&lab, &format!("re_old{i}"), "failed", AT);
+    }
+    let found = compare(&lab, AT + MISSING_GRACE + 1);
+    assert_eq!(
+        found,
+        vec![(
+            RECONCILIATION_UNAVAILABLE.to_string(),
+            "stripe_test".to_string()
+        )]
+    );
+    let status = lab
+        .service
+        .monitor_status(&Lab::owner_actor(), AT + MISSING_GRACE + 1)
+        .unwrap();
+    assert_eq!(status.findings[0].detail["reason"], "too_many_refunds");
+    assert_eq!(status.reconciliation.last_completed_at, Some(AT - 1));
+    // Every page the limit allows was read, following the cursor.
+    lab.fake.lock().unwrap().page_size = 100;
+    assert_eq!(
+        compare(&lab, AT + MISSING_GRACE + 2),
+        vec![(REFUND_MISSING.to_string(), id)]
+    );
+    let status = lab
+        .service
+        .monitor_status(&Lab::owner_actor(), AT + MISSING_GRACE + 2)
+        .unwrap();
+    assert!(
+        status
+            .findings
+            .iter()
+            .all(|f| f.kind != RECONCILIATION_UNAVAILABLE)
+    );
+}
+
+#[test]
+fn repeated_silence_from_stripe_is_reported_and_clears_when_it_answers() {
+    let lab = Lab::new();
+    let mut monitor = Monitor::new();
+    assert!(monitor.run(&lab.service, None, AT).unwrap().is_empty());
+    lab.fake.lock().unwrap().listing_down = true;
+    let mut at = AT;
+    for pass in 1..=RAIL_FAILURES_BEFORE_FINDING {
+        at += RECONCILE_EVERY;
+        let found = monitor.run(&lab.service, None, at).unwrap();
+        if pass < RAIL_FAILURES_BEFORE_FINDING {
+            assert!(found.is_empty(), "reported after {pass} failures");
+        } else {
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].kind, RECONCILIATION_UNAVAILABLE);
+        }
+    }
+    at += RECONCILE_EVERY;
+    assert!(monitor.run(&lab.service, None, at).unwrap().is_empty());
+    let owner = Lab::owner_actor();
+    assert_eq!(
+        lab.service
+            .monitor_status(&owner, at)
+            .unwrap()
+            .open_findings,
+        1
+    );
+    lab.fake.lock().unwrap().listing_down = false;
+    at += RECONCILE_EVERY;
+    assert!(monitor.run(&lab.service, None, at).unwrap().is_empty());
+    assert_eq!(
+        lab.service
+            .monitor_status(&owner, at)
+            .unwrap()
+            .open_findings,
+        0
+    );
+}
+
+#[test]
+fn text_from_the_payment_system_cannot_reach_evidence_or_alerts_unchecked() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    lab.fake
+        .lock()
+        .unwrap()
+        .refunds
+        .push(json!({"id":"re_<!channel>","object":"refund",
+        "amount":700,"currency":"usd","payment_intent":"pi_test_paid","status":"succeeded",
+        "metadata":{},"created":AT}));
+    // Not a finding with that text in it, and not silence: the pass counts as no answer.
+    let mut monitor = Monitor::new();
+    for pass in 0..RAIL_FAILURES_BEFORE_FINDING {
+        let found = monitor
+            .run(&lab.service, None, AT + i64::from(pass) * RECONCILE_EVERY)
+            .unwrap();
+        if pass + 1 < RAIL_FAILURES_BEFORE_FINDING {
+            assert!(found.is_empty());
+        } else {
+            assert_eq!(found[0].kind, RECONCILIATION_UNAVAILABLE);
+            assert!(!format!("{found:?}").contains("channel"));
+        }
+    }
+}
+
+#[test]
+fn a_refund_with_an_empty_or_new_status_counts_as_money_that_may_have_moved() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    outside_refund(&lab, "re_new_status", "some_future_status", AT);
+    outside_refund(&lab, "re_no_status", "failed", AT);
+    lab.fake.lock().unwrap().refunds[1]["status"] = Value::Null;
+    let mut found = compare(&lab, AT + 100);
+    found.sort();
+    assert_eq!(
+        found,
+        vec![
+            (UNRECORDED_REFUND.to_string(), "re_new_status".to_string()),
+            (UNRECORDED_REFUND.to_string(), "re_no_status".to_string()),
+        ]
+    );
+    let status = lab
+        .service
+        .monitor_status(&Lab::owner_actor(), AT + 100)
+        .unwrap();
+    assert!(
+        status
+            .findings
+            .iter()
+            .any(|f| f.detail["status"] == "unknown")
+    );
+}
+
+#[test]
+fn a_forged_refund_is_reported_even_while_its_operation_is_still_settling() {
+    let lab = Lab::new();
+    assert!(compare(&lab, AT - 1).is_empty());
+    lab.fake.lock().unwrap().refund_status = "pending".into();
+    let bot = lab.agent(json!(["refund"]));
+    assert_eq!(
+        lab.refund(&bot, "pi_test_paid", 2000, "r1")["data"]["stage"],
+        "unknown"
+    );
+    {
+        let mut fake = lab.fake.lock().unwrap();
+        let genuine = fake.refunds[0].clone();
+        for (id, field, value) in [
+            ("re_amount", "amount", json!(9000)),
+            ("re_payment", "payment_intent", json!("pi_test_big")),
+            ("re_currency", "currency", json!("eur")),
+        ] {
+            let mut forged = genuine.clone();
+            forged["id"] = json!(id);
+            forged[field] = value;
+            fake.refunds.push(forged);
+        }
+        let mut forged = genuine.clone();
+        forged["id"] = json!("re_digest");
+        forged["metadata"]["cosigna_proposal_digest"] = json!("other");
+        fake.refunds.push(forged);
+    }
+    let mut found: Vec<String> = compare(&lab, AT + 100).into_iter().map(|f| f.1).collect();
+    found.sort();
+    assert_eq!(
+        found,
+        ["re_amount", "re_currency", "re_digest", "re_payment"]
+    );
 }

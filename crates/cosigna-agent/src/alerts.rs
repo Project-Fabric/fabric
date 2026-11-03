@@ -4,6 +4,7 @@
 //! webhook. Alerts never sit on the payment path: a destination that is down delays only its
 //! own alerts. Delivery is at least once: a crash between sending and recording can repeat an
 //! alert, never lose one. Alerts carry no credential and not the agent's free-text reason.
+//! Monitor findings (see `monitor`) reach the same destinations the same way.
 use std::{path::Path, time::Duration};
 
 use hmac::{Hmac, Mac};
@@ -17,6 +18,8 @@ use crate::{Error, Result, Service, storage};
 pub const CONFIG_SCHEMA: &str = "cosigna.alerts/v1";
 /// The webhook body's schema.
 pub const API_VERSION: &str = "cosigna.alert/v1";
+/// The webhook body's schema for a monitor finding.
+pub const FINDING_SCHEMA: &str = "cosigna.monitor-finding/v1";
 
 pub(crate) const SCHEMA: &str = "
     CREATE TABLE alert_cursor (id INTEGER PRIMARY KEY CHECK(id = 1), seq INTEGER NOT NULL);
@@ -46,6 +49,20 @@ struct ConfigFile {
     #[serde(default)]
     unknown_after_seconds: Option<i64>,
     destinations: Vec<DestinationConfig>,
+    /// Pinged while the worker runs, so an outside service can notice when it stops.
+    #[serde(default)]
+    heartbeat: Option<HeartbeatConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HeartbeatConfig {
+    /// The address can be a secret (it lets anyone report the worker as alive), so it comes
+    /// from the environment.
+    url_env: String,
+    /// Seconds between pings. Default 60.
+    #[serde(default)]
+    interval_seconds: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +90,7 @@ pub struct Alerts {
     console_url: Option<String>,
     unknown_after: i64,
     destinations: Vec<Destination>,
+    heartbeat: Option<(String, i64)>,
 }
 
 /// One delivery attempt's result, for the worker's log.
@@ -190,16 +208,52 @@ impl Alerts {
             }
             destinations.push(Destination { name, url, signing });
         }
+        let heartbeat = match config.heartbeat {
+            None => None,
+            Some(heartbeat) => {
+                let url = secret(&heartbeat.url_env)
+                    .ok_or_else(|| bad("the heartbeat's url_env is not set"))?;
+                if !https_or_loopback(&url) {
+                    return Err(bad("a heartbeat url must be https://"));
+                }
+                let every = heartbeat.interval_seconds.unwrap_or(60);
+                if !(10..=3600).contains(&every) {
+                    return Err(bad("interval_seconds must be between 10 and 3600"));
+                }
+                Some((url, every))
+            }
+        };
         Ok(Self {
             console_url: config.console_url,
             unknown_after,
             destinations,
+            heartbeat,
         })
     }
 
     /// Names of the configured destinations, for the worker's banner (no secrets).
     pub fn names(&self) -> Vec<&str> {
         self.destinations.iter().map(|d| d.name.as_str()).collect()
+    }
+
+    pub(crate) fn heartbeat_every(&self) -> Option<i64> {
+        self.heartbeat.as_ref().map(|(_, every)| *every)
+    }
+
+    /// Tells the outside service the worker is running. True if it answered with success.
+    pub(crate) fn ping_heartbeat(&self) -> bool {
+        let Some((url, _)) = &self.heartbeat else {
+            return true;
+        };
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .max_redirects(0)
+            .http_status_as_error(false)
+            .build()
+            .new_agent()
+            .post(url)
+            .send_empty()
+            .is_ok_and(|response| response.status().is_success())
     }
 }
 
@@ -208,6 +262,7 @@ fn event_of(kind: &str) -> Option<&'static str> {
         "gateway.operation.held" | "gateway.operation.execution_interrupted" => Some("held"),
         "gateway.operation.first_approved" => Some("first_approved"),
         "gateway.operation.submission_unknown" => Some("unknown"),
+        crate::monitor::FINDING_EVENT => Some("finding"),
         _ => None,
     }
 }
@@ -249,7 +304,13 @@ impl Service {
             let Some(event) = record["event"]["kind"].as_str().and_then(event_of) else {
                 continue;
             };
-            let Some(operation) = record["event"]["operation"].as_str() else {
+            // A finding has a subject rather than an operation; it takes the same place.
+            let field = if event == "finding" {
+                "subject"
+            } else {
+                "operation"
+            };
+            let Some(operation) = record["event"][field].as_str() else {
                 continue;
             };
             let due = if event == "unknown" {
@@ -258,6 +319,13 @@ impl Service {
                 at
             };
             for destination in &alerts.destinations {
+                // A destination that has stopped answering need not be told about itself.
+                if event == "finding"
+                    && record["event"]["finding"] == crate::monitor::ALERT_DELIVERY_FAILED
+                    && destination.name == operation
+                {
+                    continue;
+                }
                 queued += tx.execute(
                     "INSERT OR IGNORE INTO alert_outbox
                     (evidence_seq,destination,operation_id,event,due_at,state,updated_at)
@@ -318,9 +386,22 @@ impl Service {
                         Some(message) => {
                             if send(destination, &message, at) {
                                 mark("sent", attempts + 1, at)?;
+                                crate::monitor::resolve_finding(
+                                    &self.ledger,
+                                    crate::monitor::ALERT_DELIVERY_FAILED,
+                                    &name,
+                                    at,
+                                )?;
                                 "sent"
                             } else if attempts + 1 >= MAX_ATTEMPTS {
                                 mark("failed", attempts + 1, at)?;
+                                crate::monitor::open_finding(
+                                    &self.ledger,
+                                    crate::monitor::ALERT_DELIVERY_FAILED,
+                                    &name,
+                                    json!({"event": event, "attempts": attempts + 1}),
+                                    at,
+                                )?;
                                 "failed"
                             } else {
                                 // 30 s, 2 min, 8 min, 32 min, then hourly.
@@ -360,6 +441,9 @@ fn message(
     operation: &str,
     event: &str,
 ) -> Result<Option<Message>> {
+    if event == "finding" {
+        return finding_message(db, alerts, seq).map(Some);
+    }
     let stage: Option<String> = db
         .query_row(
             "SELECT json_extract(data,'$.stage') FROM operations WHERE id=?1",
@@ -441,6 +525,70 @@ fn message(
         "text": text,
     });
     Ok(Some(Message { text, body }))
+}
+
+/// The alert for a monitor finding. Findings do not wait on anyone, so they are always sent.
+fn finding_message(db: &Connection, alerts: &Alerts, seq: i64) -> Result<Message> {
+    let body: String = db.query_row("SELECT body FROM evidence WHERE seq=?1", [seq], |r| {
+        r.get(0)
+    })?;
+    let record: Value = serde_json::from_str(&body)?;
+    let e = &record["event"];
+    let (kind, subject, detail) = (
+        e["finding"].as_str().unwrap_or(""),
+        e["subject"].as_str().unwrap_or(""),
+        &e["detail"],
+    );
+    let amount = detail["amount_minor"].as_i64().map_or_else(
+        || "an unknown amount".to_string(),
+        |minor| money(minor, detail["currency"].as_str().unwrap_or("?")),
+    );
+    let refund = detail["refund"].as_str().unwrap_or("?");
+    let headline = match kind {
+        crate::monitor::EVIDENCE_FAILED => {
+            "The ledger failed its evidence check: records or state may have been changed outside \
+             Cosigna. Run `cosigna-agent evidence verify` to see what."
+                .to_string()
+        }
+        crate::monitor::ALERT_DELIVERY_FAILED => format!(
+            "Alerts to {subject} have stopped getting through, so people there may have missed \
+             payments waiting for them."
+        ),
+        crate::monitor::UNRECORDED_REFUND => format!(
+            "A refund of {amount} ({refund}) is in the payment system with no matching approved \
+             operation. It did not go through Cosigna."
+        ),
+        crate::monitor::REFUND_REVERSED => format!(
+            "A refund of {amount} ({refund}) recorded as paid is now {} in the payment system. \
+             Operation: {subject}.",
+            detail["status"].as_str().unwrap_or("not paid")
+        ),
+        crate::monitor::REFUND_MISSING => format!(
+            "A refund of {amount} ({refund}) recorded as paid is not in the payment system. \
+             Operation: {subject}."
+        ),
+        crate::monitor::RECONCILIATION_UNAVAILABLE => format!(
+            "Refunds cannot be compared with {subject} right now, so a refund made outside \
+             Cosigna would not be noticed."
+        ),
+        _ => format!("The monitor reported {kind} for {subject}."),
+    };
+    let text = match &alerts.console_url {
+        Some(url) => format!("{headline} Review: {url}"),
+        None => headline,
+    };
+    let body = json!({
+        "schema": FINDING_SCHEMA,
+        "event": "finding",
+        "finding": kind,
+        "subject": subject,
+        "detail": detail,
+        "recorded_at": record["at"],
+        "evidence_seq": seq,
+        "console_url": alerts.console_url,
+        "text": text,
+    });
+    Ok(Message { text, body })
 }
 
 /// Slack treats `&`, `<` and `>` as markup (`<!channel>`, links); names and case ids come from

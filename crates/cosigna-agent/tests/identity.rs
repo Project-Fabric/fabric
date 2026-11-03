@@ -477,7 +477,7 @@ fn version_ten_upgrade_creates_empty_bindings_and_preserves_existing_identity_ev
     enroll(&service, "subject-a");
     let head = service.verify_evidence().unwrap().head;
     let db = rusqlite::Connection::open(dir.path().join("transactions.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE alert_outbox; DROP TABLE alert_cursor; DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; PRAGMA user_version=10;").unwrap();
+    db.execute_batch("DROP TABLE monitor_findings; DROP TABLE monitor_state; DROP TABLE alert_outbox; DROP TABLE alert_cursor; DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; PRAGMA user_version=10;").unwrap();
     drop(db);
     let upgraded = Service::open(dir.path()).unwrap();
     assert_eq!(upgraded.verify_evidence().unwrap().head, head);
@@ -497,7 +497,7 @@ fn version_ten_upgrade_creates_empty_bindings_and_preserves_existing_identity_ev
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
 }
 
@@ -1202,7 +1202,7 @@ fn version_nine_migration_is_additive_and_reopens_without_new_records() {
     let s = Service::open(dir.path()).unwrap();
     let before = s.verify_evidence().unwrap();
     let db = rusqlite::Connection::open(dir.path().join("transactions.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE alert_outbox; DROP TABLE alert_cursor; DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; DROP TABLE identity_memberships; DROP TABLE identity_subjects; DROP TABLE identity_organizations; DROP TABLE identity_users; PRAGMA user_version=9;").unwrap();
+    db.execute_batch("DROP TABLE monitor_findings; DROP TABLE monitor_state; DROP TABLE alert_outbox; DROP TABLE alert_cursor; DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; DROP TABLE identity_memberships; DROP TABLE identity_subjects; DROP TABLE identity_organizations; DROP TABLE identity_users; PRAGMA user_version=9;").unwrap();
     drop(db);
     let upgraded = Service::open(dir.path()).unwrap();
     assert_eq!(upgraded.verify_evidence().unwrap().head, before.head);
@@ -1210,7 +1210,7 @@ fn version_nine_migration_is_additive_and_reopens_without_new_records() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM identity_users", [], |r| r

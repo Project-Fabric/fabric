@@ -70,7 +70,9 @@ people so agents cannot crowd out approvals (see STORAGE_FORMAT.md). Production 
 remains work. A separate opt-in durable `worker`
 process now schedules owner-enrolled tasks, waits for exact approval and reconciles unknown
 outcomes. With `--alerts`, it also tells people in Slack or through a signed webhook when a
-payment is held, needs a second approver, or has an unknown result (`examples/alerts`). See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
+payment is held, needs a second approver, or has an unknown result (`examples/alerts`). It also
+checks the evidence chain on a schedule and compares Stripe test-mode refunds with the ledger;
+`GET /gateway/v1/monitor` shows the results to the owner. See [persistent server operation](../../docs/GATEWAY_OPERATIONS.md) for local commands,
 queue controls, recovery limits and private Linux systemd templates. No server is provisioned.
 
 ## Hosted planner

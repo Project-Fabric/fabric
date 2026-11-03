@@ -151,6 +151,18 @@ class Verifier(unittest.TestCase):
         self.assertEqual(report["rules"]["first_approvals"], 1)
         self.assertEqual(subprocess.run([BIN, "evidence", "verify", "--data-dir", self.dir], capture_output=True).returncode, 0)
 
+    def test_monitor_records_pass_and_change_no_rule_count(self):
+        _, before = self.verify()
+        def monitor_records(records):
+            at = records[-1]["at"]
+            records.append({"v": 1, "at": at, "event": {"kind": "gateway.monitor.finding", "finding": "unrecorded_refund",
+                                                        "subject": "re_test_1", "detail": {"amount_minor": 700}}})
+            records.append({"v": 1, "at": at, "event": {"kind": "gateway.monitor.resolved", "finding": "evidence_failed",
+                                                        "subject": "ledger"}})
+        code, report = self.verify(self.forged(monitor_records))
+        self.assertEqual(code, 0, report["problems"])
+        self.assertEqual(report["rules"], before["rules"])
+
     def test_an_edited_body_breaks_its_hash(self):
         data = Path(self.genuine).read_bytes().replace(b'"amount_minor":2000', b'"amount_minor":2001', 1)
         code, report = self.verify(data)

@@ -9,6 +9,7 @@ use cosigna_agent::{
     alerts::{Alerts, MAX_ATTEMPTS, signature},
     api::Credentials,
     gateway,
+    monitor::Monitor,
     provider::Scenario,
 };
 use serde_json::{Value, json};
@@ -419,8 +420,130 @@ fn a_failing_destination_backs_off_and_gives_up_without_blocking_the_other() {
     assert_eq!(outcomes.len() as i64, MAX_ATTEMPTS);
     assert_eq!(outcomes.last(), Some(&"failed"));
     assert_eq!(lab.slack.bodies().len() as i64, MAX_ATTEMPTS);
-    assert!(lab.cycle(at + 86_400).is_empty());
-    assert_eq!(lab.webhook.bodies().len(), 1);
+    // The alert that failed is not retried. The destination still answering is told, and the
+    // one that stopped is not asked to report on itself.
+    let told = lab.cycle(at + 86_400);
+    assert_eq!(
+        told,
+        vec![("ops".to_string(), "finding".to_string(), "sent")],
+        "{told:?}"
+    );
+    assert!(lab.cycle(at + 2 * 86_400).is_empty());
+    assert_eq!(lab.slack.bodies().len() as i64, MAX_ATTEMPTS);
+    let bodies = lab.webhook.bodies();
+    assert_eq!(bodies.len(), 2);
+    let finding: Value = serde_json::from_str(&bodies[1]).unwrap();
+    assert_eq!(finding["schema"], "cosigna.monitor-finding/v1");
+    assert_eq!(finding["finding"], "alert_delivery_failed");
+    assert_eq!(finding["subject"], "finance-slack");
+
+    let actor = lab.owner_actor();
+    let status = lab.service.monitor_status(&actor, at).unwrap();
+    assert_eq!(status.open_findings, 1);
+    assert_eq!(status.alerts.failed, 1);
+
+    // A later delivery that succeeds closes the finding, so a new outage is reported again.
+    *lab.slack.status.lock().unwrap() = 200;
+    lab.held(30000, "back-up");
+    lab.cycle(at + 2 * 86_400);
+    let status = lab.service.monitor_status(&actor, at).unwrap();
+    assert_eq!(status.open_findings, 0);
+}
+
+#[test]
+fn a_failed_evidence_check_alerts_each_destination_once_signed_and_without_details() {
+    let lab = Lab::new();
+    lab.cycle(AT);
+    let db = rusqlite::Connection::open(lab._directory.path().join("transactions.sqlite")).unwrap();
+    db.execute(
+        "UPDATE budgets SET data=replace(data,'200000','900000') WHERE id=?1",
+        [lab.budget.as_str()],
+    )
+    .unwrap();
+    let found = Monitor::new()
+        .run(&lab.service, Some(&lab.alerts), AT)
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    let delivered = lab.cycle(AT);
+    assert_eq!(delivered.len(), 2, "{delivered:?}");
+    assert!(
+        delivered
+            .iter()
+            .all(|(_, event, outcome)| event == "finding" && *outcome == "sent")
+    );
+    assert!(lab.cycle(AT + 1).is_empty());
+
+    let slack: Value = serde_json::from_str(&lab.slack.bodies()[0]).unwrap();
+    let text = slack["text"].as_str().unwrap();
+    assert!(text.contains("failed its evidence check"), "{text}");
+    assert!(text.contains("https://cosigna.example.com"), "{text}");
+    let body = lab.webhook.bodies()[0].clone();
+    let timestamp: i64 = lab
+        .webhook
+        .header(0, "x-cosigna-timestamp")
+        .parse()
+        .unwrap();
+    assert_eq!(
+        lab.webhook.header(0, "x-cosigna-signature"),
+        signature(KEY.as_bytes(), timestamp, body.as_bytes())
+    );
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["schema"], "cosigna.monitor-finding/v1");
+    assert_eq!(body["finding"], "evidence_failed");
+    assert_eq!(body["detail"]["state_matches"], false);
+    assert!(!body.to_string().contains(&lab.budget));
+}
+
+#[test]
+fn the_heartbeat_pings_on_schedule_and_a_failure_changes_nothing_else() {
+    let lab = Lab::new();
+    let beat = Receiver::start();
+    let url = beat.url.clone();
+    let config = json!({"schema":"cosigna.alerts/v1",
+        "heartbeat":{"url_env":"BEAT","interval_seconds":10},
+        "destinations":[{"kind":"webhook","name":"ops","url":lab.webhook.url,"secret_env":"SIGNING"}]});
+    let alerts = Alerts::from_json(&config.to_string(), |name| match name {
+        "BEAT" => Some(url.clone()),
+        "SIGNING" => Some(KEY.to_string()),
+        _ => None,
+    })
+    .unwrap();
+    let mut monitor = Monitor::new();
+    assert!(
+        monitor
+            .run(&lab.service, Some(&alerts), AT)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(beat.bodies().len(), 1);
+    assert!(
+        monitor
+            .run(&lab.service, Some(&alerts), AT + 9)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(beat.bodies().len(), 1);
+    assert!(
+        monitor
+            .run(&lab.service, Some(&alerts), AT + 10)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(beat.bodies().len(), 2);
+    *beat.status.lock().unwrap() = 500;
+    assert!(
+        monitor
+            .run(&lab.service, Some(&alerts), AT + 20)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(beat.bodies().len(), 3);
+    let status = lab
+        .service
+        .monitor_status(&lab.owner_actor(), AT + 20)
+        .unwrap();
+    assert!(status.worker.alerts_configured);
+    assert_eq!(status.open_findings, 0);
 }
 
 #[test]
@@ -451,6 +574,11 @@ fn unsafe_or_incomplete_configurations_are_refused_without_echoing_secrets() {
         json!({"schema":"cosigna.alerts/v1","destinations":[{"kind":"webhook","name":"w","url":"https://hooks.example.com/x","secret_env":"SHORT"}]}),
         json!({"schema":"cosigna.alerts/v1","destinations":[{"kind":"webhook","name":"w","url":"https://hooks.example.com/x","secret_env":"MISSING"}]}),
         json!({"schema":"cosigna.alerts/v1","destinations":[{"kind":"webhook","name":"bad name","url":"https://hooks.example.com/x","secret_env":"SIGNING"}]}),
+        json!({"schema":"cosigna.alerts/v1","destinations":[slack],"heartbeat":{"url_env":"MISSING"}}),
+        json!({"schema":"cosigna.alerts/v1","destinations":[slack],"heartbeat":{"url_env":"PLAIN"}}),
+        json!({"schema":"cosigna.alerts/v1","destinations":[slack],"heartbeat":{"url_env":"SLACK","interval_seconds":9}}),
+        json!({"schema":"cosigna.alerts/v1","destinations":[slack],"heartbeat":{"url_env":"SLACK","interval_seconds":3601}}),
+        json!({"schema":"cosigna.alerts/v1","destinations":[slack],"heartbeat":{"url_env":"SLACK","extra":1}}),
     ];
     for config in refused {
         let error = Alerts::from_json(&config.to_string(), secret).err();

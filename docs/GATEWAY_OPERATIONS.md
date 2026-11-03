@@ -201,7 +201,12 @@ journalctl -u cosigna-api -u cosigna-worker --since '15 minutes ago'
 ```
 
 The HTTP health endpoint checks API reachability only. Check systemd separately for worker
-liveness and authenticated job status for paused/stale work. No alerting service is configured.
+liveness and authenticated job status for paused/stale work. `GET /gateway/v1/monitor` (owner
+only) shows when the worker was last seen, the last evidence check and comparison with Stripe,
+alert delivery counts and open findings. Alerts are off unless the worker has `--alerts`; it warns
+at startup when they are. To learn that the worker has stopped, configure the `heartbeat` in the
+alert file and have the outside service alarm when pings stop. See `STORAGE_FORMAT.md`
+(Monitoring).
 Restart loops hit systemd's start limit; inspect the cause before `systemctl reset-failed`.
 
 Ledger schema is now version 3, additively migrated from v1/v2. Before the first upgrade,
@@ -221,7 +226,8 @@ planning/claim/acceptance/confirmation boundaries. Broader provider failures and
 remain unverified; see `crates/cosigna-agent/tests/crash_recovery.rs`.
 The Linux systemd units still need an actual target-host smoke test, reboot test and backup
 restore drill. Production identity/permits, AgentAuth authorization consolidation, public API
-rate limits/timeouts, alerting and a live connector remain tracked in G3–G6.
+rate limits/timeouts and a live connector remain tracked in G3–G6; fuller monitoring (exposure,
+oldest unresolved age, queue depth) in C17.
 
 The automated two-process fixture check is `node scripts/check-gateway-service.mjs` after
 building `cosigna-agent` in the default debug target; an explicit binary path is accepted.

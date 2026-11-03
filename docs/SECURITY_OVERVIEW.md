@@ -179,8 +179,11 @@ Running it:
   cannot write.
 - **Upgrades:** back up first; rebuild and `docker compose up -d --wait`. The ledger upgrades
   itself on start; downgrading is not supported. Verify the evidence afterwards.
-- **Monitoring:** the gateway health check; the worker's JSON lines (`cosigna.recovery/v2`
-  `needs_person`, `cosigna.alert-delivery/v1` `failed`); payments held or unknown in the console.
+- **Monitoring:** the gateway health check; `GET /gateway/v1/monitor` (worker last seen, evidence
+  checks, comparison with Stripe, open findings); the worker's JSON lines (`cosigna.recovery/v2`
+  `needs_person`, `cosigna.alert-delivery/v1` `failed`, `cosigna.monitor-finding/v1`); payments
+  held or unknown in the console. A stopped worker cannot report itself: configure the heartbeat
+  (`examples/alerts`).
 - **Incidents:** revoke the agent (`POST /gateway/v1/agents/{id}/revoke`) or approver at once;
   revoke the budget to stop all its agents; rotate any provider key at the provider; review the
   operation's timeline and verify the evidence.

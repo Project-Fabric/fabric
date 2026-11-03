@@ -139,6 +139,12 @@ open lead are fixed in #126 and #128. The audit is a partial pass: its final cov
 not run and dependencies were not checked, so this is no clean-coverage claim, and an independent
 security review before any live-money pilot remains open (#88).
 
+3 November 2026, monitoring: the worker now checks the evidence chain on a schedule, reports alerts
+that stop getting through, records a heartbeat and compares Stripe test-mode refunds with the
+ledger, so a refund made outside Cosigna or one that fails after it was recorded as paid raises a
+finding (#131, #132). It detects and does not stop anything, nothing is live, and the fuller
+monitoring view remains C17 (#121). Evidence is still not signed.
+
 Everything stays local-first; no cloud dependency in the core (`AGENTS.md`).
 
 ## What would make us stop

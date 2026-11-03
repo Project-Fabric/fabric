@@ -373,6 +373,10 @@ pub(crate) fn dispatch_authenticated(
             empty(body)?;
             return operation_view(&service.resolve_operation(&actor, id, at)?);
         }
+        ("GET", ["", "gateway", "v1", "monitor"]) if owner => {
+            return Ok(json!({"schema": crate::monitor::API_VERSION,
+                "data": service.monitor_status(&actor, at)?}));
+        }
         ("GET", ["", "gateway", "v1", "exposure"]) if owner => {
             return Ok(json!({"schema": crate::exposure::API_VERSION,
                 "data": service.exposure(&actor, at)?}));

@@ -335,7 +335,7 @@ fn upgraded_ledgers_list_earlier_state_as_unevidenced_and_record_from_then_on() 
         .unwrap();
     // Reproduce a version 3 ledger in this synthetic store only.
     db(&directory)
-        .execute_batch("DROP TABLE alert_outbox; DROP TABLE alert_cursor; DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; DROP TABLE identity_memberships; DROP TABLE identity_subjects; DROP TABLE identity_organizations; DROP TABLE identity_users; DROP TABLE approvers; DROP TABLE operation_holds; DROP TABLE operations; ALTER TABLE agents DROP COLUMN operation_grant; DROP TABLE evidence; PRAGMA user_version=3;")
+        .execute_batch("DROP TABLE monitor_findings; DROP TABLE monitor_state; DROP TABLE alert_outbox; DROP TABLE alert_cursor; DROP TABLE identity_approver_bindings; DROP TABLE identity_gateway_bindings; DROP TABLE identity_memberships; DROP TABLE identity_subjects; DROP TABLE identity_organizations; DROP TABLE identity_users; DROP TABLE approvers; DROP TABLE operation_holds; DROP TABLE operations; ALTER TABLE agents DROP COLUMN operation_grant; DROP TABLE evidence; PRAGMA user_version=3;")
         .unwrap();
     let upgraded = Service::open(directory.path()).unwrap();
     let recorded = events(&directory);

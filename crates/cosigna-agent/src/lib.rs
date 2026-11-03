@@ -13,6 +13,7 @@ pub mod identity;
 pub mod limits;
 pub mod mcp;
 pub mod merchant;
+pub mod monitor;
 pub mod operations;
 pub mod pipeline;
 pub mod planner;

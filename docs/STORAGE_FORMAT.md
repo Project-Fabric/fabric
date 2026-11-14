@@ -977,6 +977,57 @@ lowercase hex HMAC-SHA256, keyed with the secret, of `<timestamp>.<body>`. Recei
 compare it in constant time and reject old timestamps. Neither carries a credential, the
 agent's free-text reason or the payment's customer.
 
+### Stablecoin rail (`evm_test`, `cosigna.evm-rail/v1`, store `evm-test.sqlite` version 1)
+
+`serve --evm-test <file>` and `worker --evm-test <file>` connect refunds in a stablecoin on an
+EVM test network. Configuration (unknown fields refused, at most 64 KiB): `schema`, `chain_id`
+(31337, 11155111, 84532, 421614 or 11155420 only), `rpc_url_env` (the node address comes from
+that environment variable or its `_FILE` form, and must be `https://` or
+`http://127.0.0.1:<port>`), `token` (`0x` and 40 hex digits), optional `decimals` (2 to 18,
+default 6) and `confirmations` (1 to 64, default 3), and `private_key_env` (64 hex digits). At
+startup, and before every check and submission, the node's `eth_chainId` must equal
+`chain_id`. Error messages never contain the node address or key.
+
+Refunds only (`kind_not_supported_on_rail` otherwise), in `USD` cents (`currency_mismatch`
+otherwise), converted to `cents * 10^(decimals-2)` token units. `source` is a transaction hash.
+Its receipt must have succeeded, have `confirmations` blocks counting its own, and contain
+`Transfer` logs from the token to the gateway's account, all from one sender
+(`source_not_found` or `payment_not_settled` otherwise). Refundable is what those logs brought
+in, rounded down to cents, less this store's refunds on that payment that are not failed or
+voided, rounded up. Facts: `payment_amount_minor`, `refunded_minor`, `refundable_minor`,
+`customer` (the payer's address), `chain_id`, `token`, `testnet: true`. At submission the same
+check runs again, and the payer must still equal the approved `customer`, or the attempt is
+rejected before signing. On a chain that cannot reorganise, the payer cannot change, so that
+re-check is a second line of defence and no test reaches it.
+
+The store is separate from the ledger: `PRAGMA application_id` `0x43534556`, `user_version` 1,
+refused if foreign or newer. `evm_attempts`: `attempt_key` primary key, `digest`, `chain_id`,
+`sender`, `nonce`, `source`, `recipient`, `amount_units` (decimal text), `tx_hash` (unique),
+`raw_tx`, `created_at`, nullable `outcome` (`succeeded`, `failed`, `voided`), with
+`UNIQUE(chain_id, sender, nonce)` and index `(chain_id, source)`. `evm_voids`: `attempt_key`,
+`digest`.
+
+Sending: the nonce is the larger of the node's pending count and this store's highest nonce
+plus one. The rail signs an EIP-1559 `transfer(recipient, units)` with gas limit 120000,
+`maxPriorityFeePerGas` from the node and `maxFeePerGas` of twice the latest base fee plus that,
+and commits the row before broadcasting. Signing is deterministic (RFC 6979), and from then on
+only `raw_tx` is ever sent. The result is final once its receipt has `confirmations` blocks: it
+succeeds only if `status` is 1 and the token logged exactly this transfer, sender to recipient
+and amount; otherwise it failed. The receipt's `rail_reference` is the transaction hash, and
+`simulated` is true because test tokens have no value.
+
+Lookup (worker, reconcile) only reads. Resolve: an attempt never signed is voided. One included
+but not yet final stays unknown. Otherwise the rail reads the block height, then the receipt,
+then the account's nonce at the last final block. If that nonce has passed the attempt's, another
+transaction took it: this one can never be included and is voided, with no money moved. If not,
+the same bytes are broadcast again and it stays unknown.
+
+Limits: test networks and a test token only. Fees are fixed at signing: if the base fee more
+than doubles, a transaction can wait until it falls, and replacing it with a higher fee is not
+implemented. A reorganisation deeper than `confirmations` after a result is recorded is not
+detected. Monitoring does not yet compare the chain with the ledger. Tested against a local
+Anvil chain in Docker, not yet against a public test network.
+
 ### Worker API version 1
 
 Owner-only GET/POST `/gateway/v1/pipelines/{id}/worker` uses `cosigna.worker/v1`.

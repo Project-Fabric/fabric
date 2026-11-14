@@ -7,6 +7,7 @@ pub mod approvers;
 pub mod cases;
 pub mod domain;
 pub mod evidence;
+pub mod evm_rail;
 pub mod exposure;
 pub mod gateway;
 pub mod identity;

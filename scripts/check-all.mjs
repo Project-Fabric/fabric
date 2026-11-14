@@ -91,8 +91,10 @@ const suites = {
     step('rails zeitwerk:check (container)', ['docker', 'compose', '-f', 'backend/compose.yaml', 'run', '--build', '--rm', 'test', 'bundle', 'exec', 'rails', 'zeitwerk:check'], { needs: ['docker'] }),
     step('rails test (container)', ['docker', 'compose', '-f', 'backend/compose.yaml', 'run', '--rm', 'test'], { needs: ['docker'] }),
   ],
-  // Not in CI yet: the self-hosted image must still build.
+  // Not in CI yet: the self-hosted image must still build, and the stablecoin rail must work
+  // against a real local chain.
   docker: [
+    step('stablecoin rail on a local chain (container)', ['cargo', 'test', '-p', 'cosigna-agent', '--test', 'evm_rail', '--locked', '--', '--ignored'], { needs: ['cargo', 'docker'] }),
     step('gateway image build', ['docker', 'build', '-q', '-f', 'deploy/docker/Dockerfile', '-t', 'cosigna-gateway:check', '.'], { needs: ['docker'], when: exists('deploy/docker/Dockerfile') }),
     step('console image build', ['docker', 'build', '-q', '-f', 'deploy/docker/console.Dockerfile', '-t', 'cosigna-console:check', '.'], { needs: ['docker'], when: exists('deploy/docker/console.Dockerfile') }),
   ],

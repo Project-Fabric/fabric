@@ -1,0 +1,9 @@
+{
+  "schema": "cosigna.evm-rail/v1",
+  "chain_id": 84532,
+  "rpc_url_env": "COSIGNA_EVM_RPC_URL",
+  "token": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  "decimals": 6,
+  "confirmations": 3,
+  "private_key_env": "COSIGNA_EVM_PRIVATE_KEY"
+}

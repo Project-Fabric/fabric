@@ -44,6 +44,7 @@ console ports are not published.
 |---|---|---|
 | `api.stripe.com` | Stripe rail enabled (`--stripe-test`) | Stripe **test** key; live keys are refused |
 | The help desk (e.g. `*.zendesk.com`) | Case source configured (`--cases`) | Read-only token (Zendesk: OAuth `tickets:read`) |
+| An EVM test-network node | Stablecoin rail enabled (`--evm-test`) | Node address (may hold an API key); a test wallet's private key; test chains only |
 | Slack / webhook endpoints | Alerts configured (`--alerts`) | Slack webhook URL; HMAC signing secret |
 | `api.openai.com` / `api.groq.com` | Only if the hosted planner is enabled (off by default; not used by money operations) | Model API key |
 

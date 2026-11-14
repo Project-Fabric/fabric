@@ -24,6 +24,8 @@ jsonwebtoken = { version = "=11.1.0", default-features = false, features = ["rus
 url = "2"
 hmac = "0.12"
 sha2 = "0.10"
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic", "std"] }
+sha3 = "0.10"
 
 [dev-dependencies]
 tiny_http = "0.12"

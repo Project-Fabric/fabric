@@ -150,6 +150,12 @@ open lead are fixed in #126 and #128. The audit is a partial pass: its final cov
 not run and dependencies were not checked, so this is no clean-coverage claim, and an independent
 security review before any live-money pilot remains open (#88).
 
+14 November 2026, stablecoin rail: agents can refund a customer who paid in a stablecoin on an EVM
+test network, back to the address that paid, under the same grants, approvals and evidence as
+Stripe. Each refund is signed with its own nonce and saved before it is sent, so a lost reply can
+delay it but not pay it twice. Tested on a local chain; not yet on a public test network, and
+test tokens only.
+
 Everything stays local-first; no cloud dependency in the core (`AGENTS.md`).
 
 ## What would make us stop

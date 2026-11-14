@@ -33,6 +33,7 @@ pub enum Check {
 pub struct Rails {
     fixture: Option<FixtureRail>,
     stripe_test: Option<crate::stripe_rail::StripeRail>,
+    evm_test: Option<crate::evm_rail::EvmRail>,
     /// A connected case source; without one, the synthetic case book next to the fixture rail.
     cases: Option<crate::cases::CaseSource>,
 }
@@ -40,6 +41,7 @@ pub struct Rails {
 enum Rail<'a> {
     Fixture(&'a FixtureRail),
     StripeTest(&'a crate::stripe_rail::StripeRail),
+    EvmTest(&'a crate::evm_rail::EvmRail),
 }
 
 impl Rails {
@@ -47,6 +49,7 @@ impl Rails {
         Ok(Self {
             fixture: Some(FixtureRail::open(path)?),
             stripe_test: None,
+            evm_test: None,
             cases: None,
         })
     }
@@ -55,6 +58,7 @@ impl Rails {
         Self {
             fixture: None,
             stripe_test: None,
+            evm_test: None,
             cases: None,
         }
     }
@@ -62,6 +66,12 @@ impl Rails {
     /// Connects Stripe test-mode refunds as the `stripe_test` rail.
     pub fn with_stripe_test(mut self, rail: crate::stripe_rail::StripeRail) -> Self {
         self.stripe_test = Some(rail);
+        self
+    }
+
+    /// Connects stablecoin refunds on an EVM test network as the `evm_test` rail.
+    pub fn with_evm_test(mut self, rail: crate::evm_rail::EvmRail) -> Self {
+        self.evm_test = Some(rail);
         self
     }
 
@@ -81,9 +91,10 @@ impl Rails {
     }
 
     fn get(&self, rail: &str) -> Result<Rail<'_>> {
-        match (rail, &self.fixture, &self.stripe_test) {
-            ("fixture", Some(fixture), _) => Ok(Rail::Fixture(fixture)),
-            ("stripe_test", _, Some(stripe)) => Ok(Rail::StripeTest(stripe)),
+        match (rail, &self.fixture, &self.stripe_test, &self.evm_test) {
+            ("fixture", Some(fixture), _, _) => Ok(Rail::Fixture(fixture)),
+            ("stripe_test", _, Some(stripe), _) => Ok(Rail::StripeTest(stripe)),
+            ("evm_test", _, _, Some(evm)) => Ok(Rail::EvmTest(evm)),
             _ => Err(Error::Invalid("this rail is not connected".into())),
         }
     }
@@ -92,6 +103,7 @@ impl Rails {
         match self.get(&request.rail)? {
             Rail::Fixture(rail) => rail.check(request),
             Rail::StripeTest(rail) => rail.check(request),
+            Rail::EvmTest(rail) => rail.check(request),
         }
     }
 
@@ -105,6 +117,7 @@ impl Rails {
         match self.get(&proposal.rail)? {
             Rail::Fixture(rail) => rail.submit(key, proposal, scenario),
             Rail::StripeTest(rail) => rail.submit(key, proposal),
+            Rail::EvmTest(rail) => rail.submit(key, proposal, crate::now()),
         }
     }
 
@@ -112,6 +125,7 @@ impl Rails {
         match self.get(&proposal.rail)? {
             Rail::Fixture(rail) => rail.lookup(key),
             Rail::StripeTest(rail) => rail.lookup(key, proposal),
+            Rail::EvmTest(rail) => rail.lookup(key, proposal),
         }
     }
 
@@ -127,6 +141,7 @@ impl Rails {
         match self.get(&proposal.rail)? {
             Rail::Fixture(rail) => rail.void(key, &proposal.digest()?),
             Rail::StripeTest(rail) => rail.settle_unknown(key, proposal, submitted_at, now),
+            Rail::EvmTest(rail) => rail.settle_unknown(key, proposal),
         }
     }
 

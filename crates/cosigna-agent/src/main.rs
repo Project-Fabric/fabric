@@ -74,6 +74,10 @@ enum Command {
         /// COSIGNA_STRIPE_TEST_SECRET_KEY or the engine's stored `stripe-test` credential).
         #[arg(long)]
         stripe_test: bool,
+        /// Connect stablecoin refunds on an EVM test network as the `evm_test` rail: a
+        /// `cosigna.evm-rail/v1` file. Test chains only. See examples/evm-test.
+        #[arg(long)]
+        evm_test: Option<PathBuf>,
         /// Read case records from this `cosigna.cases/v1` file (a CSV export or a help desk
         /// over HTTPS) instead of the synthetic case book. See examples/cases.
         #[arg(long)]
@@ -100,6 +104,10 @@ enum Command {
         once: bool,
         #[arg(long)]
         stripe_test: bool,
+        /// Connect stablecoin refunds on an EVM test network as the `evm_test` rail: a
+        /// `cosigna.evm-rail/v1` file. Test chains only. See examples/evm-test.
+        #[arg(long)]
+        evm_test: Option<PathBuf>,
         #[arg(long)]
         cases: Option<PathBuf>,
         /// Alert people (Slack, signed webhook) when money waits for them: a
@@ -236,6 +244,7 @@ fn run() -> Result<std::process::ExitCode> {
             model,
             test_merchant_url,
             stripe_test,
+            evm_test,
             cases,
         } => {
             let limits = api::Limits {
@@ -261,6 +270,8 @@ fn run() -> Result<std::process::ExitCode> {
             let service = with_rails(
                 open_service(&directory, test_merchant_url)?,
                 stripe_test,
+                evm_test.as_deref(),
+                &directory,
                 cases.as_deref(),
             )?;
             let planner = make_planner(planner, model)?;
@@ -286,6 +297,7 @@ fn run() -> Result<std::process::ExitCode> {
             test_merchant_url,
             once,
             stripe_test,
+            evm_test,
             cases,
             alerts,
         } => {
@@ -305,6 +317,8 @@ fn run() -> Result<std::process::ExitCode> {
             let service = with_rails(
                 open_service(&directory, test_merchant_url)?,
                 stripe_test,
+                evm_test.as_deref(),
+                &directory,
                 cases.as_deref(),
             )?;
             let mut worker = cosigna_agent::worker::Worker::open(&service)?;
@@ -408,6 +422,8 @@ fn make_planner(mode: PlannerMode, model: Option<String>) -> Result<Box<dyn Plan
 fn with_rails(
     mut service: Service,
     stripe_test: bool,
+    evm_test: Option<&std::path::Path>,
+    directory: &std::path::Path,
     cases: Option<&std::path::Path>,
 ) -> Result<Service> {
     if let Some(path) = cases {
@@ -440,6 +456,17 @@ fn with_rails(
         let rail = cosigna_agent::stripe_rail::StripeRail::new(&key, base.as_deref())?;
         service.rails = service.rails.clone().with_stripe_test(rail);
         eprintln!("Cosigna rail connected: stripe_test (test mode only; key not shown)");
+    }
+    if let Some(path) = evm_test {
+        let rail =
+            cosigna_agent::evm_rail::EvmRail::load(path, &directory.join("evm-test.sqlite"))?;
+        rail.verify_chain()?;
+        eprintln!(
+            "Cosigna rail connected: evm_test (test chain {}, paying account {}; key not shown)",
+            rail.chain_id(),
+            rail.address()
+        );
+        service.rails = service.rails.clone().with_evm_test(rail);
     }
     Ok(service)
 }
